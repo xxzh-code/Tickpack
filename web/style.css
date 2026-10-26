@@ -135,21 +135,6 @@ body {
 
 .tagline .sep { color: var(--line-2); margin: 0 3px; }
 
-.mode-chip {
-  font-family: var(--mono);
-  font-size: 8.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #f6d33c;
-  border: 1px solid rgba(246, 211, 60, 0.3);
-  background: rgba(246, 211, 60, 0.08);
-  border-radius: 4px;
-  padding: 1px 5px;
-  margin-left: 2px;
-  align-self: flex-start;
-  margin-top: 2px;
-}
-
 .toolbar {
   display: flex;
   align-items: center;
@@ -472,6 +457,32 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
   color: var(--dimmer);
 }
 
+/* what this sample is trying to teach, in one line */
+.sample-desc {
+  flex: 0 0 26px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sample-desc-mark {
+  width: 5px;
+  height: 5px;
+  border-radius: 1.5px;
+  background: linear-gradient(135deg, #f6d33c, #c79a1f);
+  box-shadow: 0 0 6px rgba(246, 211, 60, 0.45);
+  flex: 0 0 auto;
+}
+
+#sample-desc-text { overflow: hidden; text-overflow: ellipsis; }
+
 .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hint-right { color: var(--dim); }
 
@@ -692,6 +703,21 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
   margin-bottom: 6px;
 }
 
+/* discoverable host input for programs with `when press` */
+.btn.has-press {
+  color: #bff8f4;
+  border-color: rgba(95, 232, 224, 0.38);
+  background: rgba(95, 232, 224, 0.08);
+}
+
+.press-hint { animation: pressHint 1.7s ease-out infinite; }
+
+@keyframes pressHint {
+  0% { box-shadow: 0 0 0 0 rgba(95, 232, 224, 0.55); border-color: rgba(95, 232, 224, 0.85); color: #eafffd; }
+  70% { box-shadow: 0 0 0 8px rgba(95, 232, 224, 0); border-color: rgba(95, 232, 224, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(95, 232, 224, 0); }
+}
+
 .scores-title {
   display: flex;
   align-items: center;
@@ -799,8 +825,9 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
 .pack-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
 .file-tree {
-  flex: 0 0 40%;
-  min-height: 0;
+  flex: 0 0 30%;
+  min-height: 96px;
+  min-width: 0;
   overflow: auto;
   padding: 4px 0 10px;
   background: rgba(0, 0, 0, 0.14);
@@ -849,7 +876,7 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
 
 .prelude-row { border-top: 1px dashed var(--line); margin-top: 2px; }
 
-.file-view { position: relative; flex: 1 1 60%; min-height: 0; display: flex; flex-direction: column; }
+.file-view { position: relative; flex: 1 1 60%; min-height: 160px; display: flex; flex-direction: column; }
 
 /* right-edge fade: signals that a long mcfunction line continues off-screen */
 .file-view::after {
@@ -967,7 +994,7 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
 
 /* ------------------------------------------------------------- run log */
 .console {
-  flex: 0 0 146px;
+  flex: 0 0 140px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -1089,13 +1116,20 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
 .tl-nav { display: flex; align-items: center; gap: 6px; }
 
 .tick-label {
-  min-width: 104px;
+  min-width: 122px;
   text-align: center;
   font-family: var(--mono);
   font-size: 10.5px;
   color: #8ea2b8;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.tl-elapsed {
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
 }
 
 .tl-cursor { color: #eafffd; font-weight: 600; }
@@ -1106,7 +1140,7 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
   flex: 1 1 auto;
   display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 0;
   cursor: ew-resize;
   touch-action: none;
@@ -1158,16 +1192,22 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
 /* --------------------------------------------------------- small screens */
 @media (max-width: 1320px) {
   .topbar { gap: 14px; padding: 0 13px; }
-  .tagline { font-size: 9.5px; }
+  .tagline { font-size: 9px; }
   .toolbar { gap: 10px; }
-  .status { gap: 14px; padding-left: 14px; }
-  select#sample-select { min-width: 108px; }
-  #speed { width: 96px; }
+  .btn { padding: 0 10px; }
+  .btn-run { padding: 0 13px; }
+  .status { gap: 12px; padding-left: 12px; }
+  select#sample-select { min-width: 160px; max-width: 184px; }
+  #speed { width: 84px; }
   .tl-sub { display: none; }
 }
 
 @media (max-height: 820px) {
   .app { grid-template-rows: 56px minmax(0, 1fr) 92px; gap: 8px; padding: 8px 10px 10px; }
   .scores-grid { max-height: 82px; }
-  .file-tree { max-height: 170px; }
+  .file-tree { flex: 0 0 126px; max-height: none; }
+  .tree-row { height: 18px; }
+  .console { flex-basis: 140px; }
+  .file-view { min-height: 160px; }
+  .sample-desc { flex-basis: 24px; }
 }

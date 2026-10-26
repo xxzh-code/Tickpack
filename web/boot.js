@@ -8,7 +8,7 @@ import { compile, Simulator, SAMPLES, PRELUDE } from '../src/api.js';
 async function boot() {
   try {
     const { startApp } = await import('./app.js');
-    startApp({ compile, Simulator, SAMPLES, PRELUDE }, { mode: 'real' });
+    startApp({ compile, Simulator, SAMPLES, PRELUDE });
   } catch (err) {
     console.error('[tickpack] failed to start app', err);
     document.body.dataset.appError = String((err && err.message) || err);

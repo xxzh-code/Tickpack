@@ -160,7 +160,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
 
   function scrollTreeToActive() {
     const active = treeRows.find((r) => r.classList.contains('active'));
-    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center' });
   }
 
   function renderCode() {
@@ -239,31 +239,48 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
 
   /**
    * Choose the command that best represents "the line currently executing".
-   * The real trace ends every tick in `tp:tick` bookkeeping, so prefer the last
-   * command that came from the timeline state machine or a stdlib fn.
+   * The real trace ends every tick in `tp:tick` bookkeeping and may pass through
+   * `tp:main/dispatch`; prefer the last real state-machine / stdlib command, and
+   * among those prefer one that maps back to a user source line.
    * Returns { file, line, fn, tick, sourceLine } or null.
    */
   function pickExecuting(events) {
+    const isTimeline = (fn) => /^tp:main\/s\d+/.test(fn || '')
+      || /^tp:snippet\//.test(fn || '')
+      || /^tp:fn\//.test(fn || '');
+
     let lastAny = null;
     let lastTimeline = null;
+    let lastDirect = null;
+    let lastDirectTimeline = null;
+
     for (const ev of events || []) {
       if (!ev || ev.type !== 'command' || !ev.file) continue;
       lastAny = ev;
-      const fn = ev.fn || '';
-      if (fn.startsWith('tp:main/') || fn.startsWith('tp:fn/') || fn.startsWith('tp:snippet/')) {
-        lastTimeline = ev;
-      }
+      const direct = directSourceLine(files, ev.file, ev.line);
+      if (direct != null) lastDirect = { ev, direct };
+      if (!isTimeline(ev.fn)) continue;
+      lastTimeline = ev;
+      if (direct != null) lastDirectTimeline = { ev, direct };
     }
-    const chosen = lastTimeline || lastAny;
+
+    // Prefer a command that *directly* follows a `# source line` comment:
+    // that is the user statement, not loop bookkeeping at the end of a state.
+    let chosen = null;
+    if (lastDirectTimeline) chosen = { ev: lastDirectTimeline.ev, direct: lastDirectTimeline.direct };
+    else if (lastTimeline) chosen = { ev: lastTimeline, direct: null };
+    else if (lastDirect) chosen = { ev: lastDirect.ev, direct: lastDirect.direct };
+    else if (lastAny) chosen = { ev: lastAny, direct: null };
     if (!chosen) return null;
-    const sourceLine = directSourceLine(files, chosen.file, chosen.line)
-      ?? looseSourceLine(files, chosen.file, chosen.line);
+
     return {
-      file: chosen.file,
-      line: chosen.line,
-      fn: chosen.fn,
-      tick: chosen.tick,
-      sourceLine,
+      file: chosen.ev.file,
+      line: chosen.ev.line,
+      fn: chosen.ev.fn,
+      tick: chosen.ev.tick,
+      sourceLine: chosen.direct
+        ?? directSourceLine(files, chosen.ev.file, chosen.ev.line)
+        ?? looseSourceLine(files, chosen.ev.file, chosen.ev.line),
     };
   }
 

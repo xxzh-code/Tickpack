@@ -51,7 +51,9 @@ made only of instant statements costs exactly one tick per iteration. The
 statement after the loop starts on the tick after the last iteration finished.
 Nesting is allowed.
 
-`wait N` costs exactly N ticks; N may be 0 (equivalent to "resume next tick").
+`wait N` costs exactly N ticks; N may be 0 (equivalent to "resume next tick";
+in the emitted machine `wait 0` and `wait 1` both resume on the following tick,
+because the yield + post-dispatch decrement are 1-based).
 
 `if/else` branches may contain `over`/`wait`; the timeline state machine handles
 both branches uniformly.
@@ -124,7 +126,8 @@ One objective: **`tp`** (dummy). Fake players:
 | `#__sleep` | ticks left to sleep before dispatching again |
 | `#__press` | host input: incremented by the simulator on each press |
 | `#__pressSeen` | last press count consumed by the event handler |
-| `#__a`, `#__b` | scratch |
+| `#__a` | press delta / scratch |
+| `#__b` | dispatch latch (see 2.3) |
 | `#__t0`..`#__t9` | expression temporaries (compiler may use more) |
 | `#<state>` | user state variable |
 | `#__i<k>` | loop index of the k-th `over` loop (unique per loop) |
@@ -151,8 +154,19 @@ sequence of commands and ends in exactly one of:
 - **finish**: set `#__pc` to `-1`, return.
 
 `tp:main/dispatch` contains one line per state:
-`execute if score #__pc tp matches <id> run function tp:main/s<id>`.
+`execute if score #__pc tp matches <id> if score #__b tp matches 1 run function tp:main/s<id>`.
 `tp:tick` calls dispatch only when `#__sleep == 0`.
+
+**Implementation note (dispatch latch).** The naive form
+`execute if score #__pc tp matches <id> run function tp:main/s<id>` is *wrong*
+in real Minecraft (and in the simulator): a function's lines run sequentially,
+and a state mutates `#__pc` before dispatch returns, so a later line of the same
+dispatch function would run a second state in the same tick. The compiler
+therefore emits a latch: dispatch sets `#__b = 1` once, and every state / branch
+decision function clears `#__b = 0` on entry. Every dispatch line is guarded by
+`if score #__b tp matches 1`. Observable semantics are exactly §2.2/§2.3 —
+one state transition per tick, one `over` iteration per tick — only the guard
+shape differs. (`#__b` is a reserved compiler score; `#__a` holds the press delta.)
 
 Canonical lowering of `over N as i { body }` (ids are illustrative):
 
@@ -242,7 +256,10 @@ string) before user source. It defines the turtle API below. Users may not
 redefine prelude function names (compile error), but may add their own fns.
 `prelude.js` may also be extended by the compiler owner if samples need more.
 
-Required prelude functions:
+Required prelude functions (implementation note: `walk`, `walk2`, `stamp`,
+`clear_ground`, `home` compile to real `tp:fn/*` functions; `turn(deg)` and
+`plot(block)` are constant-parameter macros and are therefore inlined at the
+call site, which is why the pack has no `fn/turn.mcfunction`):
 
 ```
 fn walk()                 # move pen 1 block forward (^ ^ ^1)
@@ -337,6 +354,7 @@ export { compile } from './lang/compile.js';
 export { Simulator } from './sim/sim.js';
 export { PRELUDE } from './lang/prelude.js';
 export { SAMPLES } from './samples.js';   // [{ id, title, description, source }]
+export { packToZip } from './zip.js';     // (files) -> Uint8Array, real store-only .zip
 ```
 
 `compile(source) -> { ok, files, diagnostics, meta }`

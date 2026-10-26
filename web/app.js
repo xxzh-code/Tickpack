@@ -28,12 +28,11 @@ function parseQueryInt(q, key) {
   return Number.isFinite(n) ? n : null;
 }
 
-export function startApp(api, opts = {}) {
+export function startApp(api) {
   const compile = api.compile;
   const Simulator = api.Simulator;
   const SAMPLES = Array.isArray(api.SAMPLES) ? api.SAMPLES : [];
   const PRELUDE = typeof api.PRELUDE === 'string' ? api.PRELUDE : '';
-  const mode = opts.mode === 'fixture' ? 'fixture' : 'real';
 
   // ------------------------------------------------------------------ DOM
   const byId = (id) => document.getElementById(id);
@@ -49,7 +48,6 @@ export function startApp(api, opts = {}) {
     statBlocks: byId('stat-blocks'),
     stateLed: byId('state-led'),
     statPhase: byId('stat-phase'),
-    modeChip: byId('mode-chip'),
     source: byId('source'),
     highlight: byId('highlight'),
     gutter: byId('gutter'),
@@ -71,6 +69,8 @@ export function startApp(api, opts = {}) {
     zip: byId('btn-zip'),
     consoleLines: byId('console-lines'),
     consoleMeta: byId('console-meta'),
+    sampleDesc: byId('sample-desc'),
+    sampleDescText: byId('sample-desc-text'),
     timelineCanvas: byId('timeline-canvas'),
     tickLabel: byId('tick-label'),
     back: byId('btn-back'),
@@ -79,7 +79,6 @@ export function startApp(api, opts = {}) {
 
   // ---------------------------------------------------------------- state
   const state = {
-    mode,
     source: '',
     compiledSource: '',
     compiled: null,
@@ -196,6 +195,7 @@ export function startApp(api, opts = {}) {
 
     datapack.setFiles(result.files || {}, result.meta);
     if (PRELUDE) datapack.setPrelude(PRELUDE);
+    updatePressHint(result.files || {});
     buildScorePanel(result.meta);
     if (dom.editorMeta && result.meta) {
       const fns = result.meta.functionCount != null ? `${result.meta.functionCount} fns` : '';
@@ -297,8 +297,14 @@ export function startApp(api, opts = {}) {
 
     const changes = world.setWorld(state.sim.getWorld(), { instant });
     state.total = Math.max(state.total, tick);
+    const cmdCount = events.reduce((n, e) => n + (e && e.type === 'command' ? 1 : 0), 0);
     if (changes.length) {
-      timeline.addMark(tick, changes.slice(0, 4).map((c) => blockColor(c.block)), changes.length);
+      timeline.addMark(
+        tick,
+        changes.slice(0, 4).map((c) => blockColor(c.block)),
+        changes.length,
+        cmdCount,
+      );
     }
 
     const scores = state.sim.getScores();
@@ -572,7 +578,8 @@ export function startApp(api, opts = {}) {
     if (state.phase === 'finished') {
       chip.hidden = false;
       chip.dataset.kind = 'done';
-      chip.textContent = `done · ${world.blockCount()} blocks · t ${state.total}`;
+      const secs = (state.total / 20).toFixed(2);
+      chip.textContent = `done · ${world.blockCount()} blocks · ${state.total} ticks · ${secs} s @20tps`;
       return;
     }
     if (state.phase === 'paused' && state.cursor === 0) {
@@ -584,7 +591,7 @@ export function startApp(api, opts = {}) {
     if (state.phase === 'paused') {
       chip.hidden = false;
       chip.dataset.kind = 'paused';
-      chip.textContent = `❚❚ paused at t ${state.cursor}`;
+      chip.textContent = `❚❚ paused · elapsed ${state.cursor}`;
       return;
     }
     chip.hidden = true;
@@ -613,8 +620,13 @@ export function startApp(api, opts = {}) {
     dom.consoleLines.scrollTop = dom.consoleLines.scrollHeight;
   }
 
-  function logTick(events, changes, tick) {
+  function logTick(events, changes, elapsedTick) {
     if (!dom.consoleLines) return;
+    // Trace events carry the 0-based tick they executed on; the timeline and
+    // top bar count elapsed ticks. The log follows the trace so it agrees with
+    // the datapack badge and the source-line mapping.
+    const tickEv = events.find((e) => e && typeof e.tick === 'number');
+    const tNo = tickEv ? tickEv.tick : Math.max(0, elapsedTick - 1);
     const cmds = events.filter((e) => e && e.type === 'command');
     const fns = new Set(cmds.map((e) => e.fn || ''));
     const has = (test) => [...fns].some(test);
@@ -626,7 +638,7 @@ export function startApp(api, opts = {}) {
     const particles = events.filter((e) => e && e.type === 'particle').length;
     const adds = changes ? changes.length : 0;
     const bits = [
-      `<span class="log-t">t${tick}</span>`,
+      `<span class="log-t">t${tNo}</span>`,
       `<span class="log-cmd">${cmds.length} cmd</span>`,
       `<span class="log-tags">${tags.join(' + ') || 'idle'}</span>`,
     ];
@@ -637,12 +649,12 @@ export function startApp(api, opts = {}) {
     for (const ev of events) {
       if (!ev) continue;
       if (ev.type === 'say') {
-        consoleLine(`<span class="log-t">t${tick}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line');
+        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line');
       } else if (ev.type === 'error') {
-        consoleLine(`<span class="log-t">t${tick}</span> <span class="log-err">error · ${esc(ev.message)}</span>`, 'log-error');
+        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">error · ${esc(ev.message)}</span>`, 'log-error');
       }
     }
-    if (dom.consoleMeta) dom.consoleMeta.textContent = `t ${tick}`;
+    if (dom.consoleMeta) dom.consoleMeta.textContent = `t ${tNo}`;
   }
 
   let tickAnim = null;
@@ -676,6 +688,34 @@ export function startApp(api, opts = {}) {
     if (state.dirty) return;
     state.dirty = true;
     dom.dirtyBadge.hidden = false;
+  }
+
+  function applySampleDescription(sample) {
+    if (!dom.sampleDesc || !dom.sampleDescText) return;
+    const text = (sample && sample.description) || '';
+    dom.sampleDesc.hidden = !text;
+    dom.sampleDescText.textContent = text;
+    dom.sampleDesc.title = text;
+  }
+
+  let pressHintTimer = 0;
+  function updatePressHint(files) {
+    const hasPress = !!(files && files['data/tp/function/event/press.mcfunction']);
+    if (!dom.press) return;
+    dom.press.classList.toggle('has-press', hasPress);
+    dom.press.title = hasPress
+      ? 'host input: sim.press() — this program has a `when press` block'
+      : 'host input: sim.press()';
+    clearTimeout(pressHintTimer);
+    if (hasPress) {
+      // pulse once so people discover the input
+      dom.press.classList.remove('press-hint');
+      void dom.press.offsetWidth;
+      dom.press.classList.add('press-hint');
+      pressHintTimer = setTimeout(() => dom.press.classList.remove('press-hint'), 3400);
+    } else {
+      dom.press.classList.remove('press-hint');
+    }
   }
 
   // ------------------------------------------------------------------ init
@@ -740,6 +780,7 @@ export function startApp(api, opts = {}) {
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
     editor.setValue(s.source || '', { silent: true });
+    applySampleDescription(s);
     startRun({ autoPlay: true });
   });
 
@@ -772,11 +813,6 @@ export function startApp(api, opts = {}) {
   const q = new URLSearchParams(location.search);
   initSpeed(parseQueryInt(q, 'speed') != null ? parseQueryInt(q, 'speed') : DEFAULT_SPEED);
 
-  if (mode === 'fixture' && dom.modeChip) {
-    dom.modeChip.hidden = false;
-    dom.modeChip.title = 'src/api.js is not ready yet — UI is running against web/dev-fixture.js';
-  }
-
   const wanted = q.get('sample');
   const autoTicks = parseQueryInt(q, 'auto');
   const seekTick = parseQueryInt(q, 't');
@@ -795,6 +831,7 @@ export function startApp(api, opts = {}) {
   state.sampleId = initial.id;
   dom.sampleSelect.value = initial.id;
   editor.setValue(initial.source || '', { silent: true });
+  applySampleDescription(initial);
 
   if (autoTicks != null) {
     startRun({ autoPlay: false, syncTicks: Math.max(0, autoTicks), seekTick });
@@ -821,6 +858,7 @@ export function startApp(api, opts = {}) {
     stepBack,
     doReset,
     timeline,
+    datapack,
     get snapshots() { return state.snapshots; },
   };
 }

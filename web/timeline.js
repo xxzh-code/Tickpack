@@ -60,7 +60,11 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
 
   function updateLabel() {
     if (!labelEl) return;
-    labelEl.innerHTML = `<span class="tl-cursor">tick ${cursor}</span> <span class="tl-sep">/</span> <span class="tl-total">${total}</span>`;
+    labelEl.innerHTML =
+      `<span class="tl-elapsed">elapsed</span> ` +
+      `<span class="tl-cursor">${cursor}</span> ` +
+      `<span class="tl-sep">/</span> ` +
+      `<span class="tl-total">${total}</span>`;
   }
 
   function roundRect(x, y, rw, rh, r) {
@@ -183,7 +187,10 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const label = `t ${hover}`;
+      const mk = marks.get(hover);
+      const label = mk
+        ? `t=${hover} · ${mk.count} block${mk.count === 1 ? '' : 's'} · ${mk.cmds || 0} cmd`
+        : `t=${hover}`;
       ctx.font = '600 9.5px ui-monospace, Consolas, monospace';
       const tw = ctx.measureText(label).width + 10;
       const bx = clamp(xh - tw / 2, 2, w - tw - 2);
@@ -293,15 +300,16 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       dirty = true;
       updateLabel();
     },
-    addMark(tick, colors, count = 1) {
+    addMark(tick, colors, count = 1, cmds = 0) {
       if (!colors || !colors.length) return;
       const prev = marks.get(tick);
       if (prev) {
         const seen = new Set(prev.colors);
         for (const c of colors) if (!seen.has(c) && prev.colors.length < 4) prev.colors.push(c);
         prev.count += count;
+        prev.cmds = Math.max(prev.cmds || 0, cmds);
       } else {
-        marks.set(tick, { colors: colors.slice(0, 4), count });
+        marks.set(tick, { colors: colors.slice(0, 4), count, cmds });
       }
       dirty = true;
     },

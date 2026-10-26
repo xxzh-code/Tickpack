@@ -465,6 +465,41 @@ test('golden: tick runs tick blocks, press, dispatch, sleep countdown, then now+
   ]);
 });
 
+test('golden: wait + if lower to a sleep/branch/join state machine', () => {
+  const out = compileOk(
+    'state flag = 0\nsay "before"\nwait 2\nif flag {\n  say "true"\n} else {\n  say "false"\n}\n',
+  );
+  assert.deepEqual(commands(out, 'data/tp/function/main/s0.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'say before',
+    'scoreboard players set #__sleep tp 2',
+    'scoreboard players set #__pc tp 1',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/main/s1.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'scoreboard players operation #__t0 tp = #flag tp',
+    'scoreboard players set #__b tp 1',
+    'execute if score #__b tp matches 1 if score #__t0 tp matches 0 run function tp:main/s3',
+    'execute if score #__b tp matches 1 unless score #__t0 tp matches 0 run function tp:main/s2',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/main/s2.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'say true',
+    'scoreboard players set #__pc tp 4',
+    'function tp:main/s4',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/main/s3.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'say false',
+    'scoreboard players set #__pc tp 4',
+    'function tp:main/s4',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/main/s4.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'scoreboard players set #__pc tp -1',
+  ]);
+});
+
 // ---------------------------------------------------------------------------
 // 3. temporal semantics, tick by tick
 // ---------------------------------------------------------------------------

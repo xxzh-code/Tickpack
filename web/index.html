@@ -18,7 +18,6 @@
           <div class="wordmark">Tickpack<span class="wordmark-dot">.</span></div>
           <div class="tagline">loops become time <span class="sep">·</span> 循环就是时钟</div>
         </div>
-        <span class="mode-chip" id="mode-chip" hidden>fixture</span>
       </div>
 
       <div class="toolbar">
@@ -73,6 +72,10 @@
             <span class="kbd-hint">Ctrl+Enter</span>
           </div>
         </header>
+        <div class="sample-desc" id="sample-desc" hidden>
+          <span class="sample-desc-mark"></span>
+          <span id="sample-desc-text"></span>
+        </div>
         <div class="editor" id="editor">
           <div class="gutter" id="gutter" aria-hidden="true"></div>
           <div class="code-wrap">
@@ -157,7 +160,7 @@
         </div>
         <div class="tl-nav">
           <button id="btn-back" class="btn btn-mini" title="step back one tick">‹</button>
-          <span class="tick-label" id="tick-label">tick 0 <span class="tl-sep">/</span> 0</span>
+          <span class="tick-label" id="tick-label"><span class="tl-elapsed">elapsed</span> <span class="tl-cursor">0</span> <span class="tl-sep">/</span> <span class="tl-total">0</span></span>
           <button id="btn-fwd" class="btn btn-mini" title="step forward one tick">›</button>
         </div>
       </div>

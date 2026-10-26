@@ -39,14 +39,29 @@ stamp
 `,
   },
   {
-    id: 'petals',
-    title: '黄金角花瓣 · Petals',
-    description: '每 tick 走一格、转 137°。90 个 tick 能开出什么？',
-    source: `# 黄金角 137°：每走一步转一次
-over 90 as i {
+    id: 'star',
+    title: '五角星 · Star',
+    description: '每次走 8 格、转 144°，5 笔画出五角星；每一格都是一个 tick。',
+    source: `# 144° × 5 = 720°：五笔星形
+over 5 as arm {
+  over 8 as step {
+    walk
+    plot(gold_block)
+  }
+  turn(144)
+}
+stamp
+`,
+  },
+  {
+    id: 'circle',
+    title: '圆 · Circle',
+    description: '每 tick 前进一格再转 8°，45 个 tick 走出半径约 7 格的大圆。',
+    source: `# 45 × 8° = 360°
+over 45 as i {
   walk
   plot(lapis_block)
-  turn(137)
+  turn(8)
 }
 stamp
 `,

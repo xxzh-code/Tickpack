@@ -390,7 +390,7 @@ export function createWorld(canvas) {
     ctx.fillStyle = 'rgba(124, 139, 158, 0.75)';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(`t=${tick}`, 13, h - 10);
+    ctx.fillText(`elapsed ${tick}`, 13, h - 10);
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(124, 139, 158, 0.4)';
     ctx.fillText(cam.span < BOARD_SIZE - 0.5 ? `y=0 · zoom ${(BOARD_SIZE / cam.span).toFixed(1)}×` : 'y=0 · 33×33', w - 13, h - 10);
