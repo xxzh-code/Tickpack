@@ -24,6 +24,7 @@
   --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
   --radius: 12px;
   --code-line-h: 21px;
+  --tree-row-h: 19px;
 }
 
 * { box-sizing: border-box; }
@@ -825,15 +826,17 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
 .pack-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
 .file-tree {
-  flex: 0 0 30%;
-  min-height: 96px;
+  /* exactly 8 rows tall (28.8% of the packed-body at 900px) — row-snapped, so a
+     row is never cut in half at the bottom edge. */
+  flex: 0 0 calc(var(--tree-row-h) * 8);
+  min-height: 0;
   min-width: 0;
   overflow: auto;
-  padding: 4px 0 10px;
+  padding: 0;
   background: rgba(0, 0, 0, 0.14);
   border-bottom: 1px solid var(--line);
-  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 13px), transparent 100%);
 }
 
 .tree-row {
@@ -841,7 +844,7 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
   align-items: center;
   gap: 5px;
   width: 100%;
-  height: 19px;
+  height: var(--tree-row-h);
   padding: 0 8px 0 calc(8px + var(--depth, 0) * 12px);
   border: 0;
   background: none;
@@ -1205,8 +1208,7 @@ select#sample-select:focus-visible { border-color: var(--cyan); }
 @media (max-height: 820px) {
   .app { grid-template-rows: 56px minmax(0, 1fr) 92px; gap: 8px; padding: 8px 10px 10px; }
   .scores-grid { max-height: 82px; }
-  .file-tree { flex: 0 0 126px; max-height: none; }
-  .tree-row { height: 18px; }
+  .file-tree { --tree-row-h: 18px; flex: 0 0 calc(var(--tree-row-h) * 7); }
   .console { flex-basis: 140px; }
   .file-view { min-height: 160px; }
   .sample-desc { flex-basis: 24px; }

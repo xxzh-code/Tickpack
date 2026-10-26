@@ -160,7 +160,11 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
 
   function scrollTreeToActive() {
     const active = treeRows.find((r) => r.classList.contains('active'));
-    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'center' });
+    if (!active || !active.scrollIntoView) return;
+    active.scrollIntoView({ block: 'center' });
+    // snap the scroll offset to whole rows so nothing is cut in half at an edge
+    const rowH = active.offsetHeight || 19;
+    treeEl.scrollTop = Math.max(0, Math.round(treeEl.scrollTop / rowH) * rowH);
   }
 
   function renderCode() {
