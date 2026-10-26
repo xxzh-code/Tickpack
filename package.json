@@ -1,0 +1,15 @@
+{
+  "name": "tickpack",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny language that compiles to a Minecraft datapack — control flow is temporal, state is scoreboards, and you can watch it tick.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test \"test/*.test.js\"",
+    "test:inproc": "node --experimental-test-isolation=none --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

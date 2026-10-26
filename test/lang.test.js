@@ -1,0 +1,1134 @@
+// Tickpack compiler tests.
+//
+// The spec is docs/LANG.md; these tests pin the generated datapack down so that
+// regressions in the temporal lowering (loop = clock, wait = sleep, if = branch
+// states) are caught immediately. Two kinds of tests:
+//
+//  1. golden tests: exact generated mcfunction for small programs, including the
+//     load/tick/dispatch ordering from §2.2/§2.3;
+//  2. semantic tests: a tiny *test-only* stepper (`MiniSim`, ~100 lines) executes
+//     the generated commands tick by tick and asserts observable behavior. The
+//     real simulator lives in src/sim and is integration-tested by the Lead; this
+//     one exists so the compiler's timing can be verified without it.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { compile } from '../src/lang/compile.js';
+import { PRELUDE } from '../src/lang/prelude.js';
+import { SAMPLES } from '../src/samples.js';
+
+const PRELUDE_LINE_COUNT = (PRELUDE.match(/\n/g) || []).length;
+
+const MAIN_STATE_PATH = /^data\/tp\/function\/main\/s(\d+)\.mcfunction$/;
+
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+
+function compileOk(source) {
+  const out = compile(source);
+  assert.equal(out.ok, true, `expected success, got ${JSON.stringify(out.diagnostics)}`);
+  assert.deepEqual(out.diagnostics, []);
+  return out;
+}
+
+function compileError(source) {
+  const out = compile(source);
+  assert.equal(out.ok, false, `expected a compile error for:\n${source}`);
+  assert.deepEqual(out.files, {}, 'a failed compile must not produce pack files');
+  assert.ok(out.diagnostics.length > 0, 'expected at least one diagnostic');
+  const first = out.diagnostics[0];
+  assert.equal(first.severity, 'error');
+  assert.equal(typeof first.line, 'number');
+  return first;
+}
+
+function lines(out, path) {
+  assert.ok(out.files[path], `missing pack file ${path}`);
+  return out.files[path].split('\n');
+}
+
+function commands(out, path) {
+  return lines(out, path)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
+}
+
+/** Non-empty lines including comments (useful for pack readability assertions). */
+function contentLines(out, path) {
+  return lines(out, path)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+}
+
+function mainStatePaths(out) {
+  return Object.keys(out.files)
+    .filter((path) => MAIN_STATE_PATH.test(path))
+    .sort((a, b) => Number(a.match(MAIN_STATE_PATH)[1]) - Number(b.match(MAIN_STATE_PATH)[1]));
+}
+
+function mcfunctionPaths(out) {
+  return Object.keys(out.files).filter((path) => path.endsWith('.mcfunction'));
+}
+
+function stateContaining(out, needle) {
+  const path = mainStatePaths(out).find((candidate) => out.files[candidate].includes(needle));
+  assert.ok(path, `no main state contains ${JSON.stringify(needle)}`);
+  return path;
+}
+
+function lineIndex(list, needle) {
+  const index = list.findIndex((line) => line.includes(needle));
+  assert.ok(index >= 0, `expected a line containing ${JSON.stringify(needle)}`);
+  return index;
+}
+
+function assertOrder(list, needles) {
+  let previous = -1;
+  for (const needle of needles) {
+    const index = lineIndex(list, needle);
+    assert.ok(index > previous, `expected ${JSON.stringify(needle)} after the previous line (order: ${needles.join(' -> ')})`);
+    previous = index;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MiniSim: a deliberately tiny reference stepper for the *emitted* command subset
+// used by these tests. Not the product simulator —just enough to run the packs
+// the tests generate (scoreboard + execute score conditions + function + say).
+// ---------------------------------------------------------------------------
+
+function matchesRange(value, range) {
+  if (range === '..') return true;
+  const dots = range.indexOf('..');
+  if (dots >= 0) {
+    const low = range.slice(0, dots);
+    const high = range.slice(dots + 2);
+    if (low !== '' && value < Number(low)) return false;
+    if (high !== '' && value > Number(high)) return false;
+    return true;
+  }
+  return value === Number(range);
+}
+
+const WORLD_COMMAND = /^(tp|setblock|fill|summon|kill|tag|particle)\b/;
+
+class MiniSim {
+  constructor(files) {
+    this.files = files;
+    this.functions = new Map();
+    for (const path of Object.keys(files)) {
+      const match = /^data\/([^/]+)\/function\/(.+)\.mcfunction$/.exec(path);
+      if (match) {
+        this.functions.set(`${match[1]}:${match[2]}`, { path, lines: files[path].split('\n') });
+      }
+    }
+    this.tick = 0;
+    this.scores = new Map();
+    this.events = [];
+  }
+
+  objective() {
+    let map = this.scores.get('tp');
+    if (!map) {
+      map = new Map();
+      this.scores.set('tp', map);
+    }
+    return map;
+  }
+
+  getScore(name) {
+    const value = this.objective().get(name);
+    return value === undefined ? 0 : value;
+  }
+
+  setScore(name, value) {
+    this.objective().set(name, value | 0);
+  }
+
+  reset() {
+    this.scores.clear();
+    this.tick = 0;
+    this.events = [];
+    this.objective();
+    this.runFunction('tp:load');
+    this.events = [];
+  }
+
+  press() {
+    this.setScore('#__press', this.getScore('#__press') + 1);
+  }
+
+  getTick() {
+    return this.tick;
+  }
+
+  step() {
+    this.events = [];
+    this.runFunction('tp:tick');
+    this.tick += 1;
+    const events = this.events;
+    return events;
+  }
+
+  runFunction(name) {
+    const fn = this.functions.get(name);
+    assert.ok(fn, `MiniSim: unknown function '${name}'`);
+    fn.lines.forEach((line, index) => {
+      const text = line.trim();
+      if (text === '' || text.startsWith('#')) return;
+      this.exec(text, fn.path, index + 1);
+    });
+  }
+
+  exec(text, file, line) {
+    if (text.startsWith('execute ')) {
+      this.execExecute(text.slice('execute '.length), file, line);
+      return;
+    }
+    this.events.push({ type: 'command', tick: this.tick, file, line, text });
+
+    if (/^say\b/.test(text)) {
+      this.events.push({ type: 'say', tick: this.tick, text: text.replace(/^say\s?/, '') });
+      return;
+    }
+    let match;
+    if ((match = /^function\s+(\S+)$/.exec(text))) {
+      this.runFunction(match[1]);
+      return;
+    }
+    if (/^scoreboard objectives add \S+ dummy$/.test(text)) return;
+    if ((match = /^scoreboard players (set|add|remove) (\S+) tp (-?\d+)$/.exec(text))) {
+      const current = this.getScore(match[2]);
+      const value = Number(match[3]);
+      const next = match[1] === 'set' ? value : match[1] === 'add' ? current + value : current - value;
+      this.setScore(match[2], next);
+      return;
+    }
+    if ((match = /^scoreboard players operation (\S+) tp (=|\+=|-=|\*=|\/=|%=) (\S+) tp$/.exec(text))) {
+      const current = this.getScore(match[1]);
+      const value = this.getScore(match[3]);
+      let next;
+      switch (match[2]) {
+        case '=':
+          next = value;
+          break;
+        case '+=':
+          next = current + value;
+          break;
+        case '-=':
+          next = current - value;
+          break;
+        case '*=':
+          next = Math.imul(current, value);
+          break;
+        case '/=':
+          next = value === 0 ? 0 : Math.trunc(current / value);
+          break;
+        case '%=':
+          next = value === 0 ? 0 : current % value;
+          break;
+        default:
+          assert.fail(`MiniSim: unknown operation ${match[2]}`);
+      }
+      this.setScore(match[1], next);
+      return;
+    }
+    if (WORLD_COMMAND.test(text)) return; // recorded, not simulated (timing tests only)
+    assert.fail(`MiniSim: unsupported command '${text}'`);
+  }
+
+  execExecute(rest, file, line) {
+    const runIndex = rest.indexOf(' run ');
+    assert.ok(runIndex >= 0, `MiniSim: 'execute' without ' run ': ${rest}`);
+    const head = rest.slice(0, runIndex).trim();
+    const command = rest.slice(runIndex + ' run '.length);
+    const tokens = head.split(/\s+/).filter(Boolean);
+
+    let passes = true;
+    let index = 0;
+    while (index < tokens.length) {
+      const word = tokens[index];
+      if (word === 'as' || word === 'at') {
+        index += 2;
+        continue;
+      }
+      if (word === 'positioned') {
+        index += 4;
+        continue;
+      }
+      if (word === 'rotated') {
+        index += 3;
+        continue;
+      }
+      if (word === 'if' || word === 'unless') {
+        assert.equal(tokens[index + 1], 'score', `MiniSim: only score conditions (${head})`);
+        assert.equal(tokens[index + 3], 'tp', `MiniSim: only objective tp (${head})`);
+        assert.equal(tokens[index + 4], 'matches', `MiniSim: only matches ranges (${head})`);
+        const value = this.getScore(tokens[index + 2]);
+        const ok = matchesRange(value, tokens[index + 5]);
+        passes = passes && (word === 'if' ? ok : !ok);
+        index += 6;
+        continue;
+      }
+      assert.fail(`MiniSim: unsupported execute clause '${word}' in: ${head}`);
+    }
+    if (passes) this.exec(command, file, line);
+  }
+}
+
+// Runs a program and steps it, returning all events and the final MiniSim.
+function runProgram(source, ticks, between) {
+  const out = compileOk(source);
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  const events = [];
+  for (let tick = 0; tick < ticks; tick += 1) {
+    if (between) between(sim, tick);
+    events.push(...sim.step());
+  }
+  return { out, sim, events };
+}
+
+function eventTicks(events, predicate) {
+  return events.filter(predicate).map((event) => event.tick);
+}
+
+// ---------------------------------------------------------------------------
+// 1. pack skeleton / metadata / prelude
+// ---------------------------------------------------------------------------
+
+test('an empty program compiles to a valid, runnable pack skeleton', () => {
+  const out = compileOk('');
+
+  for (const path of [
+    'pack.mcmeta',
+    'data/minecraft/tags/function/load.json',
+    'data/minecraft/tags/function/tick.json',
+    'data/tp/function/load.mcfunction',
+    'data/tp/function/tick.mcfunction',
+    'data/tp/function/main/dispatch.mcfunction',
+  ]) {
+    assert.ok(out.files[path], `missing ${path}`);
+    assert.ok(out.files[path].length > 0, `empty ${path}`);
+  }
+  assert.deepEqual(mainStatePaths(out), [], 'no timeline statements means no states');
+  assert.equal(out.meta.stateCount, 0);
+  assert.deepEqual(out.meta.variables, []);
+  assert.equal(out.meta.preludeLines, PRELUDE_LINE_COUNT);
+
+  const mcmeta = JSON.parse(out.files['pack.mcmeta']);
+  assert.equal(mcmeta.pack.pack_format, 48);
+
+  assert.deepEqual(JSON.parse(out.files['data/minecraft/tags/function/load.json']), { values: ['tp:load'] });
+  assert.deepEqual(JSON.parse(out.files['data/minecraft/tags/function/tick.json']), { values: ['tp:tick'] });
+
+  // #__pc points at "no state" so dispatch does nothing.
+  assert.ok(commands(out, 'data/tp/function/load.mcfunction').includes('scoreboard players set #__pc tp -1'));
+  assert.deepEqual(
+    commands(out, 'data/tp/function/main/dispatch.mcfunction').filter((line) => line.startsWith('execute ')),
+    [],
+  );
+
+  // Every generated function starts with a `# Tickpack ...` header.
+  for (const path of mcfunctionPaths(out)) {
+    assert.match(lines(out, path)[0], /^# Tickpack /, `${path} needs a Tickpack header`);
+  }
+});
+
+test('the prelude is prepended and provides the turtle stdlib', () => {
+  const out = compileOk('walk\n');
+  assert.equal(out.meta.preludeLines, PRELUDE_LINE_COUNT);
+
+  assert.ok(out.files['data/tp/function/fn/walk.mcfunction']);
+  assert.deepEqual(commands(out, 'data/tp/function/fn/walk.mcfunction'), [
+    'execute as @e[tag=pen] at @s run tp @s ^ ^ ^1',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/fn/walk2.mcfunction'), [
+    'execute as @e[tag=pen] at @s run tp @s ^ ^ ^2',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/fn/home.mcfunction'), ['tp @e[tag=pen] 0.5 0 0.5 0 0']);
+  assert.deepEqual(commands(out, 'data/tp/function/fn/clear_ground.mcfunction'), ['fill -16 0 -16 16 0 16 air']);
+  assert.deepEqual(commands(out, 'data/tp/function/fn/stamp.mcfunction'), [
+    'execute at @e[tag=pen] run particle happy_villager ~ ~ ~ 0 0 0 0 1',
+  ]);
+
+  // Parameterised stdlib functions are macros: they have no standalone file.
+  assert.equal(out.files['data/tp/function/fn/turn.mcfunction'], undefined);
+  assert.equal(out.files['data/tp/function/fn/plot.mcfunction'], undefined);
+
+  // A bare zero-parameter call is the same as walk().
+  const bare = stateContaining(out, 'function tp:fn/walk');
+  assert.ok(mainStatePaths(out).includes(bare));
+
+  // ... and the user cannot redefine the stdlib.
+  const diagnostic = compileError('fn plot(b) {\n  run setblock ~ ~ ~ $b\n}\n');
+  assert.match(diagnostic.message, /cannot redefine standard-library function/);
+});
+
+test('meta reports user state, state count and generated function count', () => {
+  const out = compileOk('state arm = 1\nstate count = 0\nover 2 as i {\n  count = count + 1\n}\n');
+  assert.deepEqual(out.meta.variables, [
+    { name: 'arm', initial: 1 },
+    { name: 'count', initial: 0 },
+  ]);
+  assert.equal(out.meta.stateCount, mainStatePaths(out).length);
+  assert.equal(out.meta.functionCount, mcfunctionPaths(out).length);
+  assert.equal(out.meta.preludeLines, PRELUDE_LINE_COUNT);
+});
+
+// ---------------------------------------------------------------------------
+// 2. golden pack for `over 3 as i { x = x + 1 }`
+// ---------------------------------------------------------------------------
+
+const LOOP_SOURCE = 'state x = 0\nover 3 as i {\n  x = x + 1\n}\n';
+
+test('golden: load initializes the scoreboard machine in the documented order', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(
+    commands(out, 'data/tp/function/load.mcfunction'),
+    [
+      'scoreboard objectives add tp dummy',
+      'scoreboard players set #__tick tp 0',
+      'scoreboard players set #__pc tp 0',
+      'scoreboard players set #__sleep tp 0',
+      'scoreboard players set #__press tp 0',
+      'scoreboard players set #__pressSeen tp 0',
+      'scoreboard players set #x tp 0',
+      'scoreboard players set #__i0 tp 0',
+      'kill @e[tag=pen]',
+      'summon armor_stand 0.5 0 0.5 {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}',
+    ],
+  );
+  // #__pc = 0 = first timeline state; the pen is respawned after the kill.
+  const load = lines(out, 'data/tp/function/load.mcfunction');
+  assertOrder(load, ['scoreboard objectives add tp dummy', '#__pc', '#__sleep', 'scoreboard players set #x tp 0', 'kill @e[tag=pen]', 'summon armor_stand']);
+});
+
+test('golden: over lowers to init -> head -> body -> latch state machine', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(mainStatePaths(out), [
+    'data/tp/function/main/s0.mcfunction',
+    'data/tp/function/main/s1.mcfunction',
+    'data/tp/function/main/s2.mcfunction',
+    'data/tp/function/main/s3.mcfunction',
+  ]);
+
+  assert.deepEqual(commands(out, 'data/tp/function/main/s0.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'scoreboard players set #__i0 tp 0',
+    'scoreboard players set #__pc tp 1',
+    'function tp:main/s1',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/main/s1.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'scoreboard players set #__b tp 1',
+    'execute if score #__b tp matches 1 if score #__i0 tp matches 0..2 run function tp:main/s2',
+    'execute if score #__b tp matches 1 unless score #__i0 tp matches 0..2 run function tp:main/s3',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/main/s2.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'scoreboard players add #x tp 1',
+    'scoreboard players add #__i0 tp 1',
+    'scoreboard players set #__sleep tp 1',
+    'scoreboard players set #__pc tp 1',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/main/s3.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'scoreboard players set #__pc tp -1',
+  ]);
+
+  // Traceability comments: every state carries its source line, and the body
+  // state points back at the `x = x + 1` line.
+  assert.match(lines(out, 'data/tp/function/main/s2.mcfunction')[0], /over i: body \(source line 2\)/);
+  assert.ok(out.files['data/tp/function/main/s2.mcfunction'].includes('# source line 3'));
+});
+
+test('golden: dispatch has exactly one line per state behind the #__b latch', () => {
+  const out = compileOk(LOOP_SOURCE);
+  const dispatch = commands(out, 'data/tp/function/main/dispatch.mcfunction');
+  assert.deepEqual(dispatch, [
+    'scoreboard players set #__b tp 1',
+    'execute if score #__b tp matches 1 if score #__pc tp matches 0 run function tp:main/s0',
+    'execute if score #__b tp matches 1 if score #__pc tp matches 1 run function tp:main/s1',
+    'execute if score #__b tp matches 1 if score #__pc tp matches 2 run function tp:main/s2',
+    'execute if score #__b tp matches 1 if score #__pc tp matches 3 run function tp:main/s3',
+  ]);
+});
+
+test('golden: tick runs tick blocks, press, dispatch, sleep countdown, then now++', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(commands(out, 'data/tp/function/tick.mcfunction'), [
+    'execute if score #__sleep tp matches 0 run function tp:main/dispatch',
+    'execute if score #__sleep tp matches 1.. run scoreboard players remove #__sleep tp 1',
+    'scoreboard players add #__tick tp 1',
+  ]);
+});
+
+// ---------------------------------------------------------------------------
+// 3. temporal semantics, tick by tick
+// ---------------------------------------------------------------------------
+
+test('semantics: an over loop runs exactly one iteration per tick', () => {
+  const { sim, events } = runProgram(LOOP_SOURCE, 5);
+  const adds = events.filter((event) => event.type === 'command' && event.text === 'scoreboard players add #x tp 1');
+  assert.deepEqual(adds.map((event) => event.tick), [0, 1, 2], 'iteration k starts on tick k');
+
+  assert.equal(sim.getScore('#x'), 3);
+  assert.equal(sim.getScore('#__i0'), 3, 'the loop index is a visible scoreboard value');
+  assert.equal(sim.getScore('#__pc'), -1, 'the timeline finished and #__pc is -1');
+});
+
+test('semantics: the loop iteration order is observable on the scoreboard', () => {
+  const snapshots = [];
+  runProgram(LOOP_SOURCE, 5, (sim) => snapshots.push({ x: sim.getScore('#x'), i: sim.getScore('#__i0'), pc: sim.getScore('#__pc') }));
+  assert.deepEqual(snapshots, [
+    { x: 0, i: 0, pc: 0 },
+    { x: 1, i: 1, pc: 1 },
+    { x: 2, i: 2, pc: 1 },
+    { x: 3, i: 3, pc: 1 },
+    { x: 3, i: 3, pc: -1 },
+  ]);
+});
+
+test('semantics: wait N resumes the timeline N ticks later', () => {
+  const source = 'say "a"\nwait 2\nsay "b"\n';
+  const { events } = runProgram(source, 6);
+  const says = events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]);
+  assert.deepEqual(says, [
+    [0, 'a'],
+    [2, 'b'],
+  ]);
+});
+
+test('semantics: wait 0 is equivalent to "resume next tick"', () => {
+  const { events } = runProgram('say "a"\nwait 0\nsay "b"\n', 3);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [
+      [0, 'a'],
+      [1, 'b'],
+    ],
+  );
+});
+
+test('semantics: if with an instant branch is decided and joined in one tick', () => {
+  const source = 'state flag = 0\nif flag == 0 {\n  say "yes"\n} else {\n  say "no"\n}\n';
+  const { sim, events } = runProgram(source, 1);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [[0, 'yes']],
+  );
+  assert.equal(sim.getScore('#__pc'), -1);
+});
+
+test('semantics: if with a temporal branch suspends and resumes correctly', () => {
+  const source =
+    'state flag = 1\nif flag == 1 {\n  say "yes"\n  wait 2\n  say "later"\n} else {\n  say "no"\n}\n';
+  const { events } = runProgram(source, 4);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [
+      [0, 'yes'],
+      [2, 'later'],
+    ],
+  );
+});
+
+test('semantics: the else branch runs when the condition is false', () => {
+  const source = 'state flag = 0\nif flag {\n  say "yes"\n} else {\n  say "no"\n}\n';
+  const { events } = runProgram(source, 2);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [[0, 'no']],
+  );
+});
+
+test('semantics: nested over loops start their next iteration on a later tick', () => {
+  const source = 'state x = 0\nover 2 as a {\n  over 2 as b {\n    x = x + 1\n  }\n}\n';
+  const { sim, events } = runProgram(source, 8);
+  const adds = events.filter((event) => event.type === 'command' && event.text === 'scoreboard players add #x tp 1');
+  assert.deepEqual(adds.map((event) => event.tick), [0, 1, 3, 4]);
+  assert.equal(sim.getScore('#x'), 4);
+  assert.equal(sim.getScore('#__pc'), -1);
+});
+
+test('semantics: over inside an if branch still yields one iteration per tick', () => {
+  const source =
+    'state flag = 1\nstate x = 0\nif flag == 1 {\n  over 2 as i {\n    x = x + 1\n  }\n}\n';
+  const { sim, events } = runProgram(source, 4);
+  const adds = events.filter((event) => event.type === 'command' && event.text === 'scoreboard players add #x tp 1');
+  assert.deepEqual(adds.map((event) => event.tick), [0, 1]);
+  assert.equal(sim.getScore('#x'), 2);
+  assert.equal(sim.getScore('#__pc'), -1);
+});
+
+test('semantics: over 0 costs no tick', () => {
+  const source = 'say "before"\nover 0 as i {\n  say "never"\n}\nsay "after"\n';
+  const { sim, events } = runProgram(source, 2);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [
+      [0, 'before'],
+      [0, 'after'],
+    ],
+  );
+  assert.equal(sim.getScore('#__pc'), -1);
+});
+
+// ---------------------------------------------------------------------------
+// 4. tick blocks / press events / now
+// ---------------------------------------------------------------------------
+
+test('tick blocks run every tick, before the timeline, and see now', () => {
+  const source = 'tick {\n  say "tick"\n}\n';
+  const { events } = runProgram(source, 3);
+  assert.deepEqual(eventTicks(events, (event) => event.type === 'say' && event.text === 'tick'), [0, 1, 2]);
+});
+
+test('tick blocks are unaffected by a sleeping timeline', () => {
+  const source = 'tick {\n  say "tick"\n}\nsay "start"\nwait 10\nsay "never"\n';
+  const { events } = runProgram(source, 4);
+  assert.equal(events.filter((event) => event.type === 'say' && event.text === 'tick').length, 4);
+});
+
+test('tick ordering in tp:tick is exactly §2.2', () => {
+  const source =
+    'state n = 0\ntick {\n  n = n + 1\n}\nwhen press {\n  say "press"\n}\nover 2 as i {\n  n = n + 10\n}\n';
+  const out = compileOk(source);
+  const tick = lines(out, 'data/tp/function/tick.mcfunction');
+  assertOrder(tick, [
+    'scoreboard players add #n tp 1', // 1) user tick blocks
+    'scoreboard players operation #__a tp = #__press tp', // 2) press delta
+    'execute if score #__a tp matches 1.. run function tp:event/press',
+    'execute if score #__sleep tp matches 0 run function tp:main/dispatch', // 3) timeline
+    'execute if score #__sleep tp matches 1.. run scoreboard players remove #__sleep tp 1', // 4) sleep
+    'scoreboard players add #__tick tp 1', // 5) now
+  ]);
+});
+
+test('semantics: tick blocks run before the timeline dispatch on the same tick', () => {
+  const source = 'state n = 0\ntick {\n  n = n + 1\n}\nover 10 as i {\n  n = n + 100\n}\n';
+  const { sim } = runProgram(source, 3);
+  // Each tick: +1 from the tick block, then +100 from the loop body.
+  assert.equal(sim.getScore('#n'), 303);
+});
+
+test('semantics: when press runs exactly once per new host press', () => {
+  const source = 'state n = 0\ntick {\n  n = n + 1\n}\nwhen press {\n  say "pressed"\n}\n';
+  const out = compileOk(source);
+  assert.ok(out.files['data/tp/function/event/press.mcfunction']);
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  const says = [];
+  for (let tick = 0; tick < 4; tick += 1) {
+    if (tick === 2) {
+      sim.press();
+      sim.press(); // two presses between ticks still run the handler once
+    }
+    says.push(...sim.step().filter((event) => event.type === 'say'));
+  }
+  assert.deepEqual(
+    says.map((event) => [event.tick, event.text]),
+    [[2, 'pressed']],
+  );
+  assert.equal(sim.getScore('#n'), 4);
+});
+
+test('semantics: press is a delta, not a level (no re-fire without a new press)', () => {
+  const out = compileOk('when press {\n  say "hi"\n}\n');
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  const fired = [];
+  for (let tick = 0; tick < 3; tick += 1) {
+    if (tick === 0) sim.press();
+    for (const event of sim.step()) if (event.type === 'say') fired.push([tick, event.text]);
+  }
+  assert.deepEqual(fired, [[0, 'hi']]);
+});
+
+test('semantics: instant if inside a tick block becomes a snippet function', () => {
+  const source = 'state n = 0\ntick {\n  n = n + 1\n  if n == 2 {\n    say "two"\n  }\n}\n';
+  const out = compileOk(source);
+  assert.ok(out.files['data/tp/function/snippet/0.mcfunction']);
+  assert.match(out.files['data/tp/function/tick.mcfunction'], /run function tp:snippet\/0/);
+  assert.deepEqual(commands(out, 'data/tp/function/snippet/0.mcfunction'), ['say two']);
+
+  const { events } = runProgram(source, 4);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [[1, 'two']],
+  );
+});
+
+test('semantics: now is #__tick and advances once per tick', () => {
+  const source = 'tick {\n  if now == 2 {\n    say "two"\n  }\n}\n';
+  const { events } = runProgram(source, 4);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [[2, 'two']],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 5. macros (constant parameters), say/run, expressions
+// ---------------------------------------------------------------------------
+
+test('semantics: macro functions inline with $params substituted into run lines', () => {
+  const source = 'over 2 as i {\n  walk\n  plot(gold_block)\n  turn(-45)\n}\n';
+  const out = compileOk(source);
+  const bodyPath = stateContaining(out, '# inlined fn plot(gold_block)');
+  const body = contentLines(out, bodyPath);
+
+  assertOrder(body, [
+    'function tp:fn/walk',
+    '# inlined fn plot(gold_block)',
+    'execute at @e[tag=pen] run setblock ~ ~ ~ gold_block',
+    '# inlined fn turn(-45)',
+    'execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~-45 ~',
+  ]);
+
+  const { events } = runProgram(source, 2);
+  assert.deepEqual(eventTicks(events, (event) => event.type === 'command' && event.text === 'setblock ~ ~ ~ gold_block'), [0, 1]);
+});
+
+test('semantics: macros can pass their own parameters on (fn A -> fn B)', () => {
+  const source = 'fn quad(block) {\n  plot($block)\n}\nover 1 as i {\n  quad(emerald_block)\n}\n';
+  const out = compileOk(source);
+  const bodyPath = stateContaining(out, '# inlined fn quad(emerald_block)');
+  const body = contentLines(out, bodyPath);
+  assertOrder(body, [
+    '# inlined fn quad(emerald_block)',
+    '# inlined fn plot(emerald_block)',
+    'execute at @e[tag=pen] run setblock ~ ~ ~ emerald_block',
+  ]);
+});
+
+test('semantics: integer macro parameters are usable in expressions', () => {
+  const source = 'state x = 0\nfn scale(n) {\n  x = $n * 2\n}\nscale(21)\n';
+  const out = compileOk(source);
+  const bodyPath = stateContaining(out, '# inlined fn scale(21)');
+  assert.match(out.files[bodyPath], /scoreboard players set #__t0 tp 21/);
+
+  const { sim } = runProgram(source, 1);
+  assert.equal(sim.getScore('#x'), 42);
+});
+
+test('expressions: arithmetic, comparisons and logic evaluate on the scoreboard', () => {
+  const source =
+    'state a = 2\nstate b = 3\na = (a + b) * 2\nb = a > b and a >= 10\na = a / 0\n';
+  const { sim } = runProgram(source, 1);
+  assert.equal(sim.getScore('#a'), 0, '7/0 is defined as 0 by the language');
+  assert.equal(sim.getScore('#b'), 1);
+
+  const source2 = 'state x = 0\nx = 1 + 2 * 3 - 4 / 2\n';
+  const second = runProgram(source2, 1);
+  assert.equal(second.sim.getScore('#x'), 5);
+});
+
+test('expressions: comparing against a literal needs no subtraction', () => {
+  const out = compileOk('state x = 0\nif x >= 3 {\n  x = 1\n}\n');
+  const condition = stateContaining(out, 'if: condition');
+  assert.ok(
+    out.files[condition].includes('execute if score #__t0 tp matches 3.. run scoreboard players set #__t1 tp 1'),
+    `unexpected comparison lowering:\n${out.files[condition]}`,
+  );
+});
+
+test('expressions: modulo and not/or/and', () => {
+  const source =
+    'state x = 7\nx = x % 3\nx = not x\nx = 0 or 9\nx = x and 0\n';
+  const { sim } = runProgram(source, 1);
+  // 7 % 3 = 1 -> not 1 = 0 -> 0 or 9 = 1 -> 1 and 0 = 0.
+  assert.equal(sim.getScore('#x'), 0);
+});
+
+test('say emits the string contents and run emits the raw command verbatim', () => {
+  const out = compileOk('say "hello world"\nrun setblock 2 0 3 stone # trailing comment\n');
+  const entry = stateContaining(out, 'say hello world');
+  const body = commands(out, entry);
+  assert.ok(body.includes('say hello world'));
+  assert.ok(body.includes('setblock 2 0 3 stone'));
+  assert.ok(!out.files[entry].includes('trailing comment'), 'a trailing # comment on a run line is stripped');
+
+  const { sim, events } = runProgram('say "hello world"\n', 1);
+  assert.equal(sim.getScore('#__pc'), -1);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => event.text),
+    ['hello world'],
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 6. required compile errors
+// ---------------------------------------------------------------------------
+
+test('compile errors: unknown names, time-spanning statements in instant bodies, duplicates', () => {
+  const cases = [
+    {
+      name: 'unknown variable',
+      source: 'state x = 0\nover 3 as i {\n  x = z\n}\n',
+      line: 3,
+      message: /unknown variable 'z'/,
+    },
+    {
+      name: 'unknown function',
+      source: 'nope()\n',
+      line: 1,
+      message: /unknown function 'nope'/,
+    },
+    {
+      name: 'over inside fn',
+      source: 'fn f() {\n  over 2 as i {\n  }\n}\n',
+      line: 2,
+      message: /over spans time; move it to the timeline/,
+    },
+    {
+      name: 'wait inside fn',
+      source: 'fn f() {\n  wait 2\n}\n',
+      line: 2,
+      message: /wait spans time; move it to the timeline/,
+    },
+    {
+      name: 'wait inside tick',
+      source: 'tick {\n  wait 1\n}\n',
+      line: 2,
+      message: /wait spans time/,
+    },
+    {
+      name: 'over inside when press',
+      source: 'when press {\n  over 1 as i {\n  }\n}\n',
+      line: 2,
+      message: /over spans time/,
+    },
+    {
+      name: 'duplicate state',
+      source: 'state x = 0\nstate x = 1\n',
+      line: 2,
+      message: /duplicate state 'x'/,
+    },
+    {
+      name: 'duplicate function',
+      source: 'fn f() {\n}\nfn f() {\n}\n',
+      line: 3,
+      message: /duplicate function 'f'/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const diagnostic = compileError(testCase.source);
+    assert.equal(diagnostic.line, testCase.line, `${testCase.name}: wrong line (message: ${diagnostic.message})`);
+    assert.match(diagnostic.message, testCase.message, `${testCase.name}: wrong message`);
+  }
+});
+
+test('compile errors: macro problems (unknown params, recursion, identifier to int param)', () => {
+  const cases = [
+    {
+      name: 'unknown macro parameter in run',
+      source: 'fn f(a) {\n  run say $b\n}\n',
+      line: 2,
+      message: /unknown macro parameter '\$b'/,
+    },
+    {
+      name: 'unknown macro parameter in expression',
+      source: 'state x = 0\nfn f(a) {\n  x = $b\n}\n',
+      line: 3,
+      message: /unknown macro parameter '\$b'/,
+    },
+    {
+      name: 'macro recursion',
+      source: 'fn a() {\n  b()\n}\nfn b() {\n  a()\n}\n',
+      line: 5,
+      message: /function call cycle: a -> b -> a/,
+    },
+    {
+      name: 'identifier passed to an int parameter',
+      source: 'state x = 0\nfn f(n) {\n  x = $n + 1\n}\nf(stone)\n',
+      line: 5,
+      message: /parameter 'n' of fn 'f' is used in an expression/,
+    },
+    {
+      name: 'bare call to a function with parameters',
+      source: 'fn f(a) {\n  say "x"\n}\nf\n',
+      line: 4,
+      message: /needs 1 argument/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const diagnostic = compileError(testCase.source);
+    assert.equal(diagnostic.line, testCase.line, `${testCase.name}: wrong line (message: ${diagnostic.message})`);
+    assert.match(diagnostic.message, testCase.message, `${testCase.name}: wrong message`);
+  }
+});
+
+test('compile errors: reserved names and illegal writes', () => {
+  const cases = [
+    {
+      name: 'reserved state name',
+      source: 'state now = 0\n',
+      line: 1,
+      message: /'now' is a reserved word/,
+    },
+    {
+      name: 'double-underscore name',
+      source: 'state __x = 0\n',
+      line: 1,
+      message: /starts with '__'/,
+    },
+    {
+      name: 'reserved loop index name',
+      source: 'over 2 as now {\n}\n',
+      line: 1,
+      message: /reserved word and cannot be used as a loop index/,
+    },
+    {
+      name: 'assign to now',
+      source: 'now = 1\n',
+      line: 1,
+      message: /cannot assign to 'now'/,
+    },
+    {
+      name: 'assign to a loop index',
+      source: 'over 2 as i {\n  i = 1\n}\n',
+      line: 2,
+      message: /cannot assign to loop variable 'i'/,
+    },
+    {
+      name: 'assign to an undeclared state',
+      source: 'over 1 as i {\n  missing = 1\n}\n',
+      line: 2,
+      message: /unknown variable 'missing'/,
+    },
+    {
+      name: 'redefine a stdlib function',
+      source: 'fn home() {\n  run say "x"\n}\n',
+      line: 1,
+      message: /cannot redefine standard-library function 'home'/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const diagnostic = compileError(testCase.source);
+    assert.equal(diagnostic.line, testCase.line, `${testCase.name}: wrong line (message: ${diagnostic.message})`);
+    assert.match(diagnostic.message, testCase.message, `${testCase.name}: wrong message`);
+  }
+});
+
+test('compile errors: bad syntax is reported with a user-source line', () => {
+  const cases = [
+    { name: 'unclosed block', source: 'over 3 as i {\n', line: 2, message: /unclosed/ },
+    { name: 'missing expression', source: 'state x = 0\nx =\n', line: 2, message: /expected an expression/ },
+    { name: 'bad macro argument', source: 'plot(stone + 1)\n', line: 1, message: /macro arguments must be/ },
+    { name: 'string macro argument', source: 'plot("stone")\n', line: 1, message: /macro arguments must be/ },
+    { name: 'unterminated string', source: 'say "hello\n', line: 1, message: /unterminated string/ },
+    { name: 'stray character', source: 'state x = 5 ?\n', line: 1, message: /unexpected character/ },
+    { name: 'if without a block', source: 'state x = 0\nif x\n}\n', line: 2, message: /expected '\{'/ },
+  ];
+
+  for (const testCase of cases) {
+    const diagnostic = compileError(testCase.source);
+    assert.equal(diagnostic.line, testCase.line, `${testCase.name}: wrong line (message: ${diagnostic.message})`);
+    assert.match(diagnostic.message, testCase.message, `${testCase.name}: wrong message`);
+  }
+});
+
+test('compile errors: diagnostics point at user lines, not prelude+user lines', () => {
+  const diagnostic = compileError('state x = 0\n\n\nx = nope\n');
+  assert.equal(diagnostic.line, 4);
+  // A valid program has no diagnostics even though the prelude has 40+ lines.
+  const ok = compileOk('state x = 0\n');
+  assert.deepEqual(ok.diagnostics, []);
+});
+
+// ---------------------------------------------------------------------------
+// 7. the sample programs and the simulator command subset
+// ---------------------------------------------------------------------------
+
+const COMMAND_HEADS = new Set([
+  'scoreboard',
+  'execute',
+  'tp',
+  'setblock',
+  'fill',
+  'summon',
+  'kill',
+  'tag',
+  'say',
+  'function',
+  'particle',
+]);
+
+test('every sample program compiles to a pack inside the §5 command subset', () => {
+  assert.ok(SAMPLES.length >= 5);
+  for (const sample of SAMPLES) {
+    const out = compileOk(sample.source);
+    for (const path of mcfunctionPaths(out)) {
+      for (const line of lines(out, path)) {
+        const text = line.trim();
+        if (text === '' || text.startsWith('#')) continue;
+        const head = text.split(/\s+/)[0];
+        assert.ok(COMMAND_HEADS.has(head), `${sample.id}: unsupported command '${head}' in ${path}: ${text}`);
+        if (head === 'execute') {
+          assert.ok(/\brun\b/.test(text), `${sample.id}: execute without run in ${path}: ${text}`);
+        }
+        assert.ok(!text.startsWith('/'), `${sample.id}: command must not start with '/' in ${path}`);
+      }
+    }
+  }
+});
+
+test('the square sample generates a loop-as-clock state machine', () => {
+  const sample = SAMPLES.find((candidate) => candidate.id === 'square');
+  assert.ok(sample, 'the square sample exists');
+  const out = compileOk(sample.source);
+  // 4 outer x 8 inner iterations, turn after each side: the timeline is a set of
+  // explicit states, one tick per inner iteration.
+  assert.ok(out.meta.stateCount >= 6, `expected a state machine, got ${out.meta.stateCount} states`);
+  const allStates = mainStatePaths(out).map((path) => out.files[path]).join('\n');
+  assert.match(allStates, /if score #__i0 tp matches 0\.\.3 run function tp:main\/s/);
+  assert.match(allStates, /if score #__i1 tp matches 0\.\.7 run function tp:main\/s/);
+  assert.match(allStates, /execute at @e\[tag=pen\] run setblock ~ ~ ~ stone/);
+  assert.match(allStates, /execute as @e\[tag=pen\] at @s run tp @s ~ ~ ~ ~90 ~/);
+});
+
+test('the samples execute 40 ticks with no MiniSim error', () => {
+  for (const sample of SAMPLES) {
+    const out = compileOk(sample.source);
+    const sim = new MiniSim(out.files);
+    sim.reset();
+    for (let tick = 0; tick < 40; tick += 1) sim.step();
+    assert.equal(sim.getTick(), 40, sample.id);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 8. extra lowering coverage (nested control flow, loop indices, literals)
+// ---------------------------------------------------------------------------
+
+test('semantics: if inside an over body branches and joins within the iteration tick', () => {
+  const source =
+    'state x = 0\nover 3 as i {\n  if i % 2 == 0 {\n    x = x + 10\n  } else {\n    x = x + 1\n  }\n}\n';
+  const { sim, events } = runProgram(source, 4);
+  // tick 0: i=0 -> +10, tick 1: i=1 -> +1, tick 2: i=2 -> +10
+  const tickOf = (needle) =>
+    events
+      .filter((event) => event.type === 'command' && event.text === needle)
+      .map((event) => event.tick);
+  assert.deepEqual(tickOf('scoreboard players add #x tp 10'), [0, 2]);
+  assert.deepEqual(tickOf('scoreboard players add #x tp 1'), [1]);
+  assert.equal(sim.getScore('#x'), 21);
+  assert.equal(sim.getScore('#__pc'), -1);
+});
+
+test('semantics: nested loop indices are readable in expressions', () => {
+  const source =
+    'state x = 0\nover 2 as a {\n  over 2 as b {\n    x = x + a * 10 + b\n  }\n}\n';
+  const { sim } = runProgram(source, 8);
+  // (a,b) = (0,0), (0,1), (1,0), (1,1) -> 0 + 1 + 10 + 11 = 22
+  assert.equal(sim.getScore('#x'), 22);
+  assert.equal(sim.getScore('#__pc'), -1);
+});
+
+test('states may be declared after the timeline code that uses them', () => {
+  const source = 'over 1 as i {\n  x = x + 1\n}\nstate x = 10\n';
+  const { sim } = runProgram(source, 2);
+  assert.equal(sim.getScore('#x'), 11);
+});
+
+test('semantics: negative literals and subtraction', () => {
+  const source = 'state x = -5\nx = x - -3\nx = -x\n';
+  const { sim } = runProgram(source, 1);
+  assert.equal(sim.getScore('#x'), 2);
+});
+
+test('semantics: an empty over body still costs one tick per iteration', () => {
+  const source = 'state x = 0\nover 3 as i {\n}\nx = x + 1\n';
+  const out = compileOk(source);
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  for (let tick = 0; tick < 3; tick += 1) sim.step();
+  assert.equal(sim.getScore('#x'), 0, 'the body is empty, so nothing happens yet');
+  assert.equal(sim.getScore('#__pc'), 1, 'still inside the loop after 3 ticks');
+  sim.step();
+  assert.equal(sim.getScore('#x'), 1, 'the statement after the loop runs on the next tick');
+  assert.equal(sim.getScore('#__pc'), -1);
+});
+
+test('semantics: empty if branches are compiled away', () => {
+  const source = 'state flag = 1\nif flag {\n}\nsay "after"\n';
+  const out = compileOk(source);
+  assert.equal(out.meta.stateCount, 1, 'the empty if produces no branch states');
+  const { events } = runProgram(source, 1);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [[0, 'after']],
+  );
+});
+
+test('semantics: an if with only an else branch joins the true path directly', () => {
+  const source = 'state flag = 0\nif flag {\n} else {\n  say "else"\n}\n';
+  const out = compileOk(source);
+  assert.equal(out.meta.stateCount, 3); // condition, false branch, join
+  const { events } = runProgram(source, 1);
+  assert.deepEqual(
+    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    [[0, 'else']],
+  );
+});
+
+test('declarations are rejected inside function/timeline blocks', () => {
+  const diagnostic = compileError('fn f() {\n  state x = 0\n}\n');
+  assert.equal(diagnostic.line, 2);
+  assert.match(diagnostic.message, /only allowed at the top level/);
+});
+
+test('a kitchen-sink program stays inside the §5 command subset', () => {
+  const source =
+    [
+      'state a = 1',
+      'state b = 0',
+      'fn twice(n) {',
+      '  a = $n * 2',
+      '}',
+      'tick {',
+      '  if now % 7 == 0 {',
+      '    stamp',
+      '  }',
+      '}',
+      'when press {',
+      '  home',
+      '}',
+      'over 4 as i {',
+      '  walk',
+      '  plot(stone)',
+      '  if i >= 2 {',
+      '    turn(90)',
+      '    wait 1',
+      '  } else {',
+      '    turn(-45)',
+      '  }',
+      '  twice(3)',
+      '  b = not b and a > i',
+      '  say "tick"',
+      '  run setblock 3 0 4 sand',
+      '}',
+      '',
+    ].join('\n');
+  const out = compileOk(source);
+  for (const path of mcfunctionPaths(out)) {
+    for (const line of lines(out, path)) {
+      const text = line.trim();
+      if (text === '' || text.startsWith('#')) continue;
+      const head = text.split(/\s+/)[0];
+      assert.ok(COMMAND_HEADS.has(head), `unsupported command '${head}' in ${path}: ${text}`);
+      if (head === 'execute') assert.ok(/\brun\b/.test(text), `execute without run: ${text}`);
+    }
+  }
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  for (let tick = 0; tick < 12; tick += 1) sim.step();
+  assert.equal(sim.getScore('#__pc'), -1, 'the kitchen sink must finish');
+});
+

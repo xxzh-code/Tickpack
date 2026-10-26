@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tickpack — loops become time</title>
+  <link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- ------------------------------------------------------- top bar -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <i class="l l1"></i><i class="l l2"></i><i class="l l3"></i><i class="l l4"></i>
+        </div>
+        <div class="brand-text">
+          <div class="wordmark">Tickpack<span class="wordmark-dot">.</span></div>
+          <div class="tagline">loops become time <span class="sep">·</span> 循环就是时钟</div>
+        </div>
+        <span class="mode-chip" id="mode-chip" hidden>fixture</span>
+      </div>
+
+      <div class="toolbar">
+        <label class="field sample-field">
+          <span class="field-label">sample</span>
+          <select id="sample-select" title="pick a sample program"></select>
+        </label>
+
+        <div class="btn-group">
+          <button id="btn-run" class="btn btn-run" title="compile and run (Ctrl+Enter)">
+            <span class="btn-icon">▶</span> Run
+          </button>
+          <button id="btn-pause" class="btn" title="pause / resume (Space)" disabled>❚❚ Pause</button>
+          <button id="btn-step" class="btn" title="advance one tick (→)" disabled>Step <span class="btn-icon">›</span></button>
+          <button id="btn-reset" class="btn" title="reset the world to tick 0 (R)" disabled>Reset</button>
+        </div>
+
+        <label class="field speed-field">
+          <span class="field-label">speed</span>
+          <input id="speed" type="range" min="1" max="60" step="1" value="10" aria-label="ticks per second">
+          <output id="speed-out" for="speed">10 t/s</output>
+        </label>
+      </div>
+
+      <div class="status">
+        <div class="stat stat-tick">
+          <span class="stat-k">tick</span>
+          <span class="stat-v" id="stat-tick">0</span>
+        </div>
+        <div class="stat">
+          <span class="stat-k">blocks</span>
+          <span class="stat-v" id="stat-blocks">0</span>
+        </div>
+        <div class="stat stat-phase">
+          <span class="led" id="state-led" data-phase="idle"></span>
+          <span class="phase" id="stat-phase">idle</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- --------------------------------------------------------- panes -->
+    <main class="main">
+      <!-- source -->
+      <section class="panel panel-source" aria-label="source editor">
+        <header class="panel-head">
+          <div class="head-left">
+            <span class="tab tab-active">main.tp</span>
+            <span class="head-sub" id="editor-meta"></span>
+          </div>
+          <div class="head-right">
+            <span class="badge badge-warn" id="dirty-badge" hidden>source changed — Run to rebuild</span>
+            <span class="kbd-hint">Ctrl+Enter</span>
+          </div>
+        </header>
+        <div class="editor" id="editor">
+          <div class="gutter" id="gutter" aria-hidden="true"></div>
+          <div class="code-wrap">
+            <pre class="highlight" id="highlight" aria-hidden="true"></pre>
+            <textarea id="source" class="source" spellcheck="false" autocapitalize="off"
+                      autocomplete="off" autocorrect="off" wrap="off"
+                      aria-label="Tickpack source code"></textarea>
+          </div>
+        </div>
+        <div class="diagnostics" id="diagnostics" hidden></div>
+        <footer class="panel-foot">
+          <span class="hint">Tab → 2 spaces</span>
+          <span class="hint hint-right">one loop iteration = one tick</span>
+        </footer>
+      </section>
+
+      <!-- world -->
+      <section class="panel panel-world" aria-label="block world">
+        <header class="panel-head">
+          <div class="head-left">
+            <span class="tab tab-active">world</span>
+            <span class="head-sub">33 × 33 · y=0</span>
+          </div>
+          <div class="pen-readout" id="pen-readout"><span class="pen-dot off"></span>no pen</div>
+        </header>
+        <div class="canvas-wrap" id="canvas-wrap">
+          <canvas id="world"></canvas>
+          <div class="world-chip" id="world-chip" data-kind="idle">press ▶ Run to trace time</div>
+        </div>
+        <div class="scores">
+          <div class="scores-head">
+            <div class="scores-title">
+              <span class="sb-mark"></span>scoreboard <code>tp</code>
+            </div>
+            <button id="btn-press" class="btn btn-mini" title="host input: sim.press()">press ⌁</button>
+          </div>
+          <div class="scores-grid" id="scores-grid"></div>
+          <div class="scores-foot" id="scores-foot"><span class="muted">scoreboard idle</span></div>
+        </div>
+      </section>
+
+      <!-- datapack -->
+      <section class="panel panel-pack" aria-label="generated datapack">
+        <header class="panel-head">
+          <div class="head-left">
+            <span class="tab tab-active">datapack</span>
+            <span class="head-sub" id="pack-meta"></span>
+          </div>
+          <div class="head-right">
+            <button id="btn-copy" class="btn btn-mini" title="copy the selected file">copy</button>
+            <button id="btn-zip" class="btn btn-mini btn-zip" title="下载整包 · 放进存档的 datapacks/ 里，/reload 即可">↓ .zip</button>
+          </div>
+        </header>
+        <div class="pack-body">
+          <div class="file-tree" id="file-tree"></div>
+          <div class="file-view">
+            <div class="file-head">
+              <span class="file-path" id="file-path">—</span>
+              <span class="exec-badge" id="exec-badge" hidden></span>
+            </div>
+            <div class="code-view" id="code-view"></div>
+          </div>
+        </div>
+        <div class="console" id="console">
+          <div class="console-head">
+            <span class="console-title"><i class="console-dot"></i>run log</span>
+            <span class="console-meta" id="console-meta"></span>
+          </div>
+          <div class="console-lines" id="console-lines">
+            <div class="log-empty">press ▶ Run — one line per tick streams here</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ------------------------------------------------------- timeline -->
+    <section class="timeline" aria-label="timeline">
+      <div class="tl-head">
+        <div class="tl-title">
+          <span class="tl-dot"></span>timeline
+          <span class="tl-sub">scrub to rewind the world</span>
+        </div>
+        <div class="tl-nav">
+          <button id="btn-back" class="btn btn-mini" title="step back one tick">‹</button>
+          <span class="tick-label" id="tick-label">tick 0 <span class="tl-sep">/</span> 0</span>
+          <button id="btn-fwd" class="btn btn-mini" title="step forward one tick">›</button>
+        </div>
+      </div>
+      <canvas id="timeline-canvas"></canvas>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/web/boot.js"></script>
+</body>
+</html>
