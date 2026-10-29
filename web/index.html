@@ -97,12 +97,17 @@
         <header class="panel-head">
           <div class="head-left">
             <span class="tab tab-active">world</span>
-            <span class="head-sub">33 × 33 · y=0</span>
+            <span class="view-readout" id="view-readout" data-auto="1" title="viewport: auto-fit on">y=0 · ×1.0 · (0, 0)</span>
           </div>
-          <div class="pen-readout" id="pen-readout"><span class="pen-dot off"></span>no pen</div>
+          <div class="head-right view-ctrls">
+            <button id="btn-zoom-out" class="btn btn-mini btn-sq" title="缩小 · zoom out">−</button>
+            <button id="btn-fit" class="btn btn-mini btn-fit is-auto" title="适配内容 · fit to content (F / double-click)">fit ⤢</button>
+            <button id="btn-zoom-in" class="btn btn-mini btn-sq" title="放大 · zoom in">+</button>
+          </div>
         </header>
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="world"></canvas>
+          <div class="view-hint">滚轮缩放 · 拖动平移 · 双击适配</div>
           <div class="world-chip" id="world-chip" data-kind="idle">press ▶ Run to trace time</div>
         </div>
         <div class="scores">
@@ -110,7 +115,10 @@
             <div class="scores-title">
               <span class="sb-mark"></span>scoreboard <code>tp</code>
             </div>
-            <button id="btn-press" class="btn btn-mini" title="host input: sim.press()">press ⌁</button>
+            <div class="scores-actions">
+              <span class="pen-readout" id="pen-readout"><span class="pen-dot off"></span>no pen</span>
+              <button id="btn-press" class="btn btn-mini" title="host input: sim.press()">press ⌁</button>
+            </div>
           </div>
           <div class="scores-grid" id="scores-grid"></div>
           <div class="scores-foot" id="scores-foot"><span class="muted">scoreboard idle</span></div>

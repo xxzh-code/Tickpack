@@ -182,6 +182,26 @@ class Parser {
           if (raw.value === '') this.fail("'run' needs a vanilla command after it", token);
           return { kind: 'run', text: raw.value, line: token.line };
         }
+        case 'brush': {
+          // brush(<bare block id>) — the compiler validates it against the palette.
+          this.next();
+          this.expect('punct', '(', "expected '(' after 'brush' (usage: brush(stone))");
+          const block = this.peek();
+          if (block.type !== 'ident') {
+            this.fail('brush(...) takes a bare palette block id, e.g. brush(stone)', block);
+          }
+          this.next();
+          this.expect('punct', ')', "expected ')' after the brush block id");
+          return { kind: 'brush', block: block.value, line: token.line };
+        }
+        case 'paint': {
+          this.next();
+          if (this.at('punct', '(')) {
+            this.next();
+            this.expect('punct', ')', "expected ')' after 'paint(' (paint takes no arguments)");
+          }
+          return { kind: 'paint', line: token.line };
+        }
         default:
           break;
       }

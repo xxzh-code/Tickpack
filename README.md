@@ -35,10 +35,11 @@ npm start                  # = node server.mjs，零依赖静态服务器
 ## 语言长什么样
 
 ```
+brush(stone)
 over 4 as side {
   over 8 as step {
     walk
-    plot(stone)
+    paint
   }
   turn(90)
 }
@@ -47,6 +48,9 @@ over 4 as side {
 - `over N as i { ... }` 是**时间循环**：每次迭代花 1 个 tick，`i` 存在记分板里。
   嵌套 `over` 就是一个 tick 计数器套另一个。
 - `state x = 0` 是显式状态，编译成记分板 `#x`。
+- `brush(block)` 设置**运行时画笔**（编译成记分板 `#__brush` 的调色板下标）；
+  `paint` 用当前画笔画一块。所以游戏里 `/function tp:brush/redstone_block` 能即时换色。
+  `plot(block)` 是更直接的写法：把某种方块写死在程序里。
 - `tick { ... }` 里的代码每个 tick 都跑；它不能花时间。
 - `when press { ... }` 响应模拟器里的 press 按钮。
 - 函数是编译期宏：`plot(gold_block)`、`turn(45)`、`walk` 来自内置的乌龟标准库。
@@ -60,6 +64,8 @@ over 4 as side {
 | 金色螺旋 | `state` 活在记分板上，`if` 控制边长增长 |
 | 五角星 | 8 步 + 144°，5 笔画完，46 ticks |
 | 圆 | 每 tick 转 8°，45 个 tick 走出半径 7 格的大圆 |
+| 彩虹圆 | `brush` 每三步换色：运行时画笔 |
+| 无尽螺旋 | `tick {}` + `state`：不结束的方形螺旋；游戏里随时换笔 / `tp:stop` 暂停 |
 | 节拍器 | `tick {}` 每 tick 都跑 + `now % 20` + press |
 | 你好 | 最小程序：`say` + `wait 5`，看 run log 里的时间 |
 
@@ -85,9 +91,12 @@ main.tp ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfuncti
   每个 tick 只推进一个状态。记分板 `#i` 就是循环变量本身。
 - **时间轴是快照**：每个 tick 存一份世界快照，可以随意回放、倒带。
 - **真实世界里它等你**：数据包不会在世界加载时偷偷跑完；它等到有玩家，然后把画笔
-  锚定到**你脚下的地面**（`execute at @p run summon ... ~ ~-1 ~`），聊天栏报一句，
-  再开始逐 tick 画。`/function tp:start` 随时重画，`tp:status` 自检。
+  锚定到**你脚下的地面**（`execute positioned` 可以指定坐标），聊天栏报一句，
+  再开始逐 tick 画。`/function tp:start` 回到脚下、`tp:start_at` 指定坐标、
+  `tp:brush/*` 换画笔、`tp:status` 自检。
   浏览器里则有一个虚拟玩家站在同一位置，所以两边画出同样的坐标。
+- **world 视口会自己适配**：自动把整幅画装进画面（大于 33×33 也行），
+  滚轮缩放、拖动平移、双击/`F`/`fit` 重新适配；暂停/完成后一定框住全部内容。
 
 ## 把数据包放进 Minecraft
 
@@ -97,6 +106,7 @@ main.tp ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfuncti
 dist/tickpack-square-datapack.zip    dist/tickpack-star-datapack.zip
 dist/tickpack-spiral-datapack.zip    dist/tickpack-circle-datapack.zip
 dist/tickpack-metronome-datapack.zip dist/tickpack-hello-datapack.zip
+dist/tickpack-rainbow-datapack.zip   dist/tickpack-endless-datapack.zip
 ```
 
 自己生成任意示例的包：
@@ -113,11 +123,25 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 2. 进世界（如果已经在游戏里，用 `/datapack list` 确认能看到
    `file/tickpack-star-datapack.zip` 是 enabled，或者 `/reload` 一次）。
 3. **等 1 个 tick**：数据包会等到有玩家，然后自动把画笔放到**你脚下的地面**上，
-   聊天栏出现 `Tickpack: 开始在你脚边绘制…`，方块开始一个 tick 画一格。
+   聊天栏出现 `Tickpack: 开始绘制…`，方块开始一个 tick 画一格。
 4. 想换个地方重画：`/function tp:start`（会在你当前脚下重新开始；旧图案会留在原地）。
 
 > 数据包是「等你来」的：世界加载时它不会动，直到有玩家在**主世界**里才启动——
 > 这样你一进游戏就能看见它画，而不是加载时偷偷画完。
+
+### 游戏内指令（都支持 Tab 补全）
+
+| 指令 | 作用 |
+| --- | --- |
+| `/function tp:start` | 把画笔放回你脚下，从头重画 |
+| `/execute positioned <x> <y> <z> run function tp:start_at` | 在指定方块坐标重画；`y` 就是作画那一层 |
+| `/function tp:brush/<block>` | 换画笔方块，立刻生效（12 种：`stone` `gold_block` `redstone_block` `emerald_block` `lapis_block` `diamond_block` `coal_block` `glowstone` `white_wool` `purple_wool` `oak_planks` `glass`） |
+| `/function tp:brush/next` | 切到下一支画笔 |
+| `/function tp:stop` | 暂停在原地（画笔和已经画好的方块保留；`tp:start` 可继续/重画） |
+| `/function tp:status` | 自检：在等玩家 / 在运行 / 已暂停 / 画笔在哪 / 当前画笔是什么方块 |
+
+画笔是**运行时**的：程序里的 `brush(...)` 会覆盖它，`paint` 每次画当前画笔。
+`无尽涂鸦` / `彩虹圆` 示例就是用来在游戏里按 `tp:brush/...` 换色玩的。
 
 ### 看不到效果？按这个顺序查
 
@@ -144,7 +168,7 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 | `web/` | 浏览器应用（无框架、无构建、无 CDN） |
 | `src/api.js` | UI 唯一允许 import 的集成缝（compile / Simulator / SAMPLES / PRELUDE / packToZip） |
 | `dist/` | 预生成的数据包 zip |
-| `test/` | 编译器 50 + 模拟器 29 + 端到端 15 + zip 3 = **97 个测试** |
+| `test/` | 编译器 67 + 模拟器 33 + 端到端 16 + zip 3 = **119 个测试** |
 | `scripts/pack.mjs` | 生成可安装的数据包 zip |
 | `scripts/dump.mjs` | 打印某个示例生成的数据包（调试编译器用） |
 | `scripts/shot.ps1` | Edge headless 截图（QA 用） |
@@ -168,7 +192,9 @@ node test/integration.test.js  # 只跑端到端
       run log、时间轴拖动回放、示例程序
 - [x] 一键下载真正的数据包 `.zip`（零依赖 zip 写入器）
 - [x] 真实 Minecraft 行为：等玩家进世界 → 画笔锚在脚边 → 开始画；`/function tp:start`
-      重画、`tp:status` 自检；pack.mcmeta 兼容 1.21.x（supported_formats）
+      重画、`tp:start_at` 指定坐标（`/execute positioned`）、`tp:brush/*` 游戏内换画笔、
+      `tp:status` 自检；pack.mcmeta 兼容 1.21.x（supported_formats）
+- [x] world 视口：自动适配全部内容（画布不再被 33×33 截断）、滚轮缩放、拖动平移、双击/F 适配
 - [ ] 分享链接 / 只读分享页
 - [ ] 积木视图（与文本共享 AST，时间线式布局）
 - [ ] 更多事件源（按钮、`/trigger`、玩家动作）、数组、`after N ticks` 语法糖
@@ -180,7 +206,8 @@ node test/integration.test.js  # 只跑端到端
   这条规则让「什么会花时间」在源码里是显式的。
 - 调度用了一个 `#__b` latch：Minecraft 顺序执行函数里的每一行，而状态函数会改 `#__pc`，
   没有 latch 就会一个 tick 跑两个状态。见 LANG.md §2.3 的实现说明。
-- 世界暂时是固定的一只笔（armor stand, `tag=pen`）在一块 33×33 的平面上，够用来画图案、
-  也够把 tick 语义讲清楚。等语言更稳再换更通用的世界。
+- 世界暂时是一只手绘的笔（armor stand, `tag=pen`）：默认画在**玩家脚下的那一层**，
+  也可以 `/execute positioned` 指定坐标。浏览器里那块“地面”就是 y=0 的平面；
+  画大了会自动缩放视野，不再被 33×33 截断。等语言更稳再换更通用的世界。
 - 参数是编译期常量（`$param` 直接替换进 `run` 行）。没有运行时参数、没有闭包。
   以后也许会有，但不会以牺牲「循环就是时钟」为代价。

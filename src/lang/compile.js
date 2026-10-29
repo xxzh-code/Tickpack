@@ -11,13 +11,17 @@ import { PRELUDE } from './prelude.js';
 import { tokenize } from './tokenize.js';
 import { parse } from './parser.js';
 import { TpError } from './errors.js';
-import { generate } from './codegen.js';
+import { generate, BRUSH_PALETTE } from './codegen.js';
 
 /** Number of physical lines in the prelude; user line 1 is this + 1. */
 export const PRELUDE_LINES = (PRELUDE.match(/\n/g) || []).length;
 
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
+
+/** The runtime brush palette (defined with the code generator; see codegen.js). */
+const BRUSH_SET = new Set(BRUSH_PALETTE);
+const BRUSH_LIST = BRUSH_PALETTE.join(', ');
 
 const RESERVED = new Set([
   'state',
@@ -36,6 +40,8 @@ const RESERVED = new Set([
   'not',
   'now',
   'press',
+  'brush',
+  'paint',
 ]);
 
 const EMPTY_PARAMS = new Set();
@@ -108,6 +114,7 @@ class Semantics {
 
     for (const fn of this.program.fns) {
       const isPrelude = fn.line <= this.off;
+      this.validateName(fn.name, fn.line, 'a function');
       if (this.fns.has(fn.name)) {
         const previous = this.fns.get(fn.name);
         if (isPrelude) {
@@ -258,6 +265,14 @@ class Semantics {
         return;
       case 'run':
         this.validateRunLine(statement.text, statement.line, ctx);
+        return;
+      case 'brush': {
+        if (!BRUSH_SET.has(statement.block)) {
+          this.report(statement.line, `unknown brush block '${statement.block}'; palette: ${BRUSH_LIST}`);
+        }
+        return;
+      }
+      case 'paint':
         return;
       case 'call':
         this.validateCall(statement, ctx);
@@ -467,6 +482,7 @@ function emptyMeta(preludeLines, program) {
       : [],
     stateCount: 0,
     functionCount: 0,
+    hasTickBlocks: program ? program.ticks.length > 0 : false,
   };
 }
 
@@ -491,7 +507,7 @@ function diagnosticFromError(error, preludeLines) {
  * Compile Tickpack source into a Minecraft datapack (as a virtual file map).
  *
  * @param {string} source user program source (the prelude is implicit)
- * @returns {{ok:boolean, files:{[path:string]:string}, diagnostics:Array<{severity:string,line:number,message:string}>, meta:{preludeLines:number, variables:Array<{name:string,initial:number}>, stateCount:number, functionCount:number}}}
+ * @returns {{ok:boolean, files:{[path:string]:string}, diagnostics:Array<{severity:string,line:number,message:string}>, meta:{preludeLines:number, variables:Array<{name:string,initial:number}>, stateCount:number, functionCount:number, hasTickBlocks:boolean}}}
  */
 export function compile(source) {
   // Strip a UTF-8 BOM: it is common when a source file is pasted from Windows.

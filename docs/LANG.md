@@ -44,6 +44,8 @@ run <raw command>               # inject a vanilla command verbatim (rest of the
 x = expr                        # assign to state
 walk()                          # call a fn (instant)
 name(arg1, arg2)                # call a macro fn
+brush(gold_block)               # set the runtime brush (see 1.7)
+paint                           # paint the current brush block at the pen
 ```
 
 `over` semantics: iteration `k` (starting at 0) **starts on a new tick**; a body
@@ -65,6 +67,8 @@ x = expr
 say "text"
 run <raw command>
 fnCall(...)
+brush(gold_block)               # set the runtime brush (see 1.7)
+paint                           # paint the current brush block at the pen
 if cond { ... } else { ... }    # branches must be instant-only
 ```
 
@@ -113,6 +117,36 @@ expressions as literals (`x = $deg * 2`).
 - `$unknown` inside a fn body is an error.
 - Calls are statements, not expressions.
 
+### 1.7 Brush and paint (runtime block palette)
+
+`brush` and `paint` are **compiler builtins**, not prelude functions, so a block
+name can be validated and mapped to a palette index at compile time.
+
+- `brush(<bare block id>)` — sets the runtime brush: `scoreboard players set
+  #__brush tp <index>`. Valid anywhere an instant statement is valid (timeline,
+  `fn`, `tick`, `when`). `brush` takes a literal block id, not a `$param`.
+  A block outside the palette is a compile error that lists the palette.
+- `paint` (also `paint()`) — paints the current brush block at the pen. Compiles
+  to `function tp:fn/paint`, a generated dispatch over the palette.
+- `brush` and `paint` are reserved names: user states/fns may not shadow them.
+
+Palette (fixed order = `#__brush` index):
+
+| idx | block | idx | block |
+| --- | --- | --- | --- |
+| 0 | stone | 6 | coal_block |
+| 1 | gold_block | 7 | glowstone |
+| 2 | redstone_block | 8 | white_wool |
+| 3 | emerald_block | 9 | purple_wool |
+| 4 | lapis_block | 10 | oak_planks |
+| 5 | diamond_block | 11 | glass |
+
+The palette also exists in-game: `/function tp:brush/<block>` selects one,
+`/function tp:brush/next` cycles (wraps at 12). The brush is runtime state, so
+changing it while a program is running changes the following `paint`s; a
+`brush(...)` statement in the program overwrites it. `tp:start` / `tp:start_at`
+rewind `#__brush` to 0 (stone).
+
 ## 2. Compilation model
 
 ### 2.1 Scoreboard layout
@@ -125,6 +159,8 @@ One objective: **`tp`** (dummy). Fake players:
 | `#__pc` | main timeline program counter (state id); `-1` = finished |
 | `#__sleep` | ticks left to sleep before dispatching again |
 | `#__started` | 0 = waiting for a player, 1 = running (set by `tp:start`) |
+| `#__paused` | 1 = explicitly paused via `tp:stop` (suppresses the auto-start gate); cleared by `tp:start` / `tp:start_at` |
+| `#__brush` | runtime brush palette index (0..11, see 1.7) |
 | `#__press` | host input: incremented by the simulator on each press |
 | `#__pressSeen` | last press count consumed by the event handler |
 | `#__a` | press delta / scratch |
@@ -139,10 +175,12 @@ All values are signed 32-bit integers.
 
 `tp:tick` is a thin gate; the real work is `tp:tick/body`.
 
-0. **anchor & start**: if `#__started == 0` and a player exists (`if entity @a`),
-   call `tp:start` (kills the old pen, summons it under the nearest player's feet,
-   rewinds the whole run, says one chat line, sets `#__started = 1`). The body then
-   runs in the same tick, so state 0 executes on the tick the player is detected.
+0. **anchor & start**: if `#__started == 0`, `#__paused == 0` and a player exists
+   (`if entity @a`), call `tp:start` (kills the old pen, summons it under the nearest
+   player's feet, rewinds the whole run, says one chat line, sets `#__started = 1`).
+   The body then runs in the same tick, so state 0 executes on the tick the player is
+   detected. `tp:stop` sets `#__started = 0` + `#__paused = 1`, so an explicit pause is
+   not undone by this gate; `tp:start` clears the pause again.
 1. user `tick {}` blocks, in source order
 2. `when press` handlers (guarded by press counter delta)
 3. timeline dispatch, only if `#__sleep == 0`
@@ -227,8 +265,14 @@ data/minecraft/tags/function/tick.json     {"values":["tp:tick"]}
 data/tp/function/load.mcfunction
 data/tp/function/tick.mcfunction           gate: start on player presence, then body
 data/tp/function/tick/body.mcfunction      the per-tick work (steps 1-5)
-data/tp/function/start.mcfunction          tp:start  (anchor pen + rewind + say)
-data/tp/function/status.mcfunction         tp:status (chat diagnostics)
+data/tp/function/start.mcfunction          tp:start  (pen under player, then rewind)
+data/tp/function/start_at.mcfunction       tp:start_at (pen at execution position, then rewind)
+data/tp/function/start/rewind.mcfunction   the one shared reset + say
+data/tp/function/stop.mcfunction           tp:stop (pause in place)
+data/tp/function/status.mcfunction         tp:status (chat diagnostics, incl. current brush)
+data/tp/function/fn/paint.mcfunction       palette dispatch for `paint`
+data/tp/function/brush/<block>.mcfunction  x12, one palette selector each
+data/tp/function/brush/next.mcfunction     cycle the brush (wraps at 12)
 data/tp/function/main/dispatch.mcfunction
 data/tp/function/main/s<id>.mcfunction
 data/tp/function/fn/<name>.mcfunction
@@ -247,6 +291,8 @@ scoreboard players set #__sleep tp 0
 scoreboard players set #__press tp 0
 scoreboard players set #__pressSeen tp 0
 scoreboard players set #__started tp 0
+scoreboard players set #__paused tp 0
+scoreboard players set #__brush tp 0
 scoreboard players set #x tp <init>      # one per declared state
 scoreboard players set #__i0 tp 0        # loop indices if used
 kill @e[tag=pen]
@@ -257,22 +303,48 @@ kill @e[tag=pen]
 ```
 kill @e[tag=pen]
 execute at @p run summon armor_stand ~ ~-1 ~ {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}
-... rewind: #__tick 0, #__pc first, #__sleep 0, #__press 0, #__pressSeen 0, #__b 1,
-    user states to their initial values, loop indices 0 ...
-scoreboard players set #__started tp 1
-say Tickpack: 开始在你脚边绘制（/function tp:start 可重画，图案会画在脚下的地面上）
+function tp:start/rewind
 ```
 
-The world: a flat 33×33 plane in the browser simulator, ground at y=0. The pen is
+`start_at.mcfunction` (`/execute positioned X Y Z run function tp:start_at`):
+
+```
+kill @e[tag=pen]
+summon armor_stand ~ ~ ~ {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}
+function tp:start/rewind
+```
+
+`start/rewind.mcfunction` — the one shared reset: `#__tick 0`, `#__pc` first/-1,
+`#__sleep 0`, `#__press 0`, `#__pressSeen 0`, `#__b 1`, every user state to its
+initial value, every loop index 0, `#__brush 0`, `#__paused 0`, then
+`#__started 1`, and one `say` line explaining `/function tp:start` and
+`/execute positioned ... tp:start_at`.
+
+`stop.mcfunction` (`/function tp:stop`):
+
+```
+scoreboard players set #__started tp 0
+scoreboard players set #__paused tp 1
+scoreboard players set #__sleep tp 0
+say Tickpack: 已暂停（/function tp:start 重新开始；/function tp:status 查看状态）
+```
+
+The pen and the existing blocks stay. `tp:status` reports one of three states:
+`未运行（等玩家，或 /function tp:start 开始）` / `已暂停（/function tp:start 继续）` /
+`运行中（/function tp:start 可重画）`, plus the current brush and whether the pen exists.
+
+The world: the browser renders the pen on a top-down plane at y=0 (with an
+unbounded, auto-fitting viewport), and the drawing may extend anywhere. The pen is
 the turtle entity (armor stand, tag `pen`, yaw 0 = facing +Z). In real Minecraft
 the pen is anchored to the block under the nearest player's feet
 (`~ ~-1 ~` from `execute at @p`), so the drawing appears on the ground around the
-player instead of at a fixed world coordinate; `tp:start` re-anchors and rewinds.
-In the simulator a virtual host `player` entity stands at `(0.5, 1, 0.5)`, so the
-anchored summon lands at `(0.5, 0, 0.5)` exactly like before and every sample keeps
-its block coordinates. Blocks are placed at the pen's y level; `setblock ~ ~ ~`
-after `execute at @e[tag=pen]` lands on the pen's block.
-(The simulator floors positions for block commands; x/z in [-16,16].)
+player instead of at a fixed world coordinate; `tp:start` re-anchors and rewinds,
+`tp:start_at` uses the command's execution position. In the simulator a virtual
+host `player` entity stands at `(0.5, 1, 0.5)`, so the anchored summon lands at
+`(0.5, 0, 0.5)` exactly like before and every sample keeps its block coordinates.
+Blocks are placed at the pen's y level; `setblock ~ ~ ~` after
+`execute at @e[tag=pen]` lands on the pen's block. (The simulator floors positions
+for block commands.)
 
 Every generated function starts with a `# Tickpack ...` header and may contain
 `# source line N` comments for traceability. Comments must not affect execution.
@@ -293,12 +365,16 @@ call site, which is why the pack has no `fn/turn.mcfunction`):
 fn walk()                 # move pen 1 block forward (^ ^ ^1)
 fn walk2()                # move 2 forward
 fn turn(deg)              # rotate yaw by deg degrees (macro, e.g. turn(90), turn(-45))
-fn plot(block)            # setblock at pen's block position to `block` (macro)
-fn plot_under(block)      # same but one block below? (only if trivial -- optional)
+fn plot(block)            # setblock at pen's block position to `block` (macro, literal)
+fn plot_under(block)      # same but one block below (macro, literal)
 fn stamp()                # particle at pen position (visual sparkle)
-fn clear_ground()         # fill the visible 33x33 area with air (run fill ...)
-fn home()                 # teleport pen to (0.5, 0, 0.5), yaw 0
+fn clear_ground()         # fill a 33x33 layer under the player with air
+fn home()                 # teleport the pen back under the player's feet, yaw 0
 ```
+
+`brush(<block>)` and `paint` are compiler builtins (§1.7), not prelude functions:
+the compiler must validate the block id and know the palette index. `plot(block)`
+remains the literal escape hatch for blocks outside the palette.
 
 Implementation notes:
 - `walk`: `execute as @e[tag=pen] at @s run tp @s ^ ^ ^1`
@@ -401,7 +477,10 @@ export { packToZip } from './zip.js';     // (files) -> Uint8Array, real store-o
 - `files`: `{ 'pack.mcmeta': '...', 'data/tp/function/load.mcfunction': '...' }`
 - `diagnostics`: `[{ severity:'error'|'warning', line, message }]`, `line` is
   1-based **user source** line (prelude offset already subtracted).
-- `meta`: `{ preludeLines, variables:[{name,initial}], stateCount, functionCount }`
+- `meta`: `{ preludeLines, variables:[{name,initial}], stateCount, functionCount, hasTickBlocks }`
+  — `hasTickBlocks` is true iff the user program declares a `tick { ... }` block; the UI
+  uses it to keep such ambient programs running even when the timeline is finished
+  (`#__pc == -1`).
 
 No UI component may depend on compiler internals or simulator internals beyond
 these two contracts. UI must not be added to the repo outside `web/**`

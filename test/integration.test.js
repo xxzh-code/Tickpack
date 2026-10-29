@@ -1,4 +1,4 @@
-﻿// End-to-end tests: real source -> compiler -> datapack files -> simulator.
+// End-to-end tests: real source -> compiler -> datapack files -> simulator.
 // This is the contract that matters: the same six lines the user edits must
 // actually produce a pack whose mcfunction, executed tick by tick, moves the pen.
 import { test } from 'node:test';
@@ -6,9 +6,13 @@ import assert from 'node:assert/strict';
 import { compile, Simulator, SAMPLES } from '../src/api.js';
 
 // The generated runtime starts the timeline when a player is present and emits
-// one chat line from tp:start; tests that count user `say`s must ignore it.
-const START_FILE = 'data/tp/function/start.mcfunction';
-const isProgramSay = (e) => e.type === 'say' && e.file !== START_FILE;
+// one chat line from the shared start rewind; tests that count user `say`s must
+// ignore it.
+const START_FILES = new Set([
+  'data/tp/function/start.mcfunction',
+  'data/tp/function/start/rewind.mcfunction',
+]);
+const isProgramSay = (e) => e.type === 'say' && !START_FILES.has(e.file);
 
 function run(source, ticks, between) {
   const out = compile(source);
@@ -35,7 +39,12 @@ test('the square sample compiles to a real datapack that waits for a player', ()
     'data/tp/function/tick.mcfunction',
     'data/tp/function/tick/body.mcfunction',
     'data/tp/function/start.mcfunction',
+    'data/tp/function/start/rewind.mcfunction',
+    'data/tp/function/start_at.mcfunction',
     'data/tp/function/status.mcfunction',
+    'data/tp/function/fn/paint.mcfunction',
+    'data/tp/function/brush/stone.mcfunction',
+    'data/tp/function/brush/next.mcfunction',
     'data/tp/function/main/dispatch.mcfunction',
   ]) {
     assert.ok(out.files[path], `missing ${path}`);
@@ -68,7 +77,7 @@ test('the runtime waits for a player, then anchors the pen at their feet', () =>
   const pens = sim.getWorld().entities.filter((e) => (e.tags || []).includes('pen'));
   assert.equal(pens.length, 1, 'pen should be summoned on the first tick');
   assert.equal(pens[0].y, 0, 'pen should sit on the block under the player feet (y=1-1)');
-  assert.ok(events.some((e) => e.type === 'say' && e.file === START_FILE), 'tp:start should say something');
+  assert.ok(events.some((e) => e.type === 'say' && START_FILES.has(e.file)), 'tp:start should say something');
   // state 0 runs on the same tick the pen appears, so blocks are already placed
   assert.ok(sim.getWorld().blocks.length > 0);
 });

@@ -28,6 +28,17 @@ function parseQueryInt(q, key) {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Minecraft-only onboarding chatter emitted by `tp:start` (help/chat lines).
+ * The browser has no `/function` chat, so keep it out of the run log and the
+ * scoreboard footer. Covers both the old start.mcfunction and the current
+ * start/rewind.mcfunction (anything under .../start/).
+ */
+function isOnboardingSay(file) {
+  const f = String(file || '');
+  return f.endsWith('start.mcfunction') || /\/start\//.test(f) || /\/start$/.test(f);
+}
+
 export function startApp(api) {
   const compile = api.compile;
   const Simulator = api.Simulator;
@@ -57,6 +68,10 @@ export function startApp(api) {
     canvas: byId('world'),
     worldChip: byId('world-chip'),
     penReadout: byId('pen-readout'),
+    viewReadout: byId('view-readout'),
+    fit: byId('btn-fit'),
+    zoomIn: byId('btn-zoom-in'),
+    zoomOut: byId('btn-zoom-out'),
     scoresGrid: byId('scores-grid'),
     scoresFoot: byId('scores-foot'),
     press: byId('btn-press'),
@@ -100,10 +115,11 @@ export function startApp(api) {
     scoreRows: [],
     sampleId: null,
     logCount: 0,
+    hasTickBlocks: false,
   };
 
   // --------------------------------------------------------------- modules
-  const world = createWorld(dom.canvas);
+  const world = createWorld(dom.canvas, { onCamera: updateViewReadout });
   const editor = createEditor({
     textarea: dom.source,
     highlight: dom.highlight,
@@ -192,6 +208,11 @@ export function startApp(api) {
     state.files = result.files || {};
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
+    // an ambient program (any `tick { ... }` block) never "finishes" in-game:
+    // the datapack keeps ticking, so the browser must keep running too.
+    state.hasTickBlocks = result.meta && typeof result.meta.hasTickBlocks === 'boolean'
+      ? result.meta.hasTickBlocks
+      : /\btick\s*\{/.test(source);
 
     datapack.setFiles(result.files || {}, result.meta);
     if (PRELUDE) datapack.setPrelude(PRELUDE);
@@ -283,7 +304,7 @@ export function startApp(api) {
       if (!ev) continue;
       // tp:start's chat line is Minecraft-only onboarding (/function tp:start);
       // the browser has no such command, so keep it out of the UI log/ticker.
-      if (ev.type === 'say' && !String(ev.file || '').endsWith('start.mcfunction')) state.lastSay = ev.text;
+      if (ev.type === 'say' && !isOnboardingSay(ev.file)) state.lastSay = ev.text;
       else if (ev.type === 'error') {
         showToast(`runtime error: ${ev.message}`, 'error');
         state.runtimeError = ev.message;
@@ -315,7 +336,7 @@ export function startApp(api) {
     updatePen();
 
     const pc = scores && scores.tp ? scores.tp['#__pc'] : undefined;
-    if (pc === -1 && tick > 0) state.finished = true;
+    if (pc === -1 && tick > 0 && !state.hasTickBlocks) state.finished = true;
 
     // The trace's last command is always `#__tick += 1` bookkeeping; ask the
     // datapack panel for the command that actually represents this tick.
@@ -417,6 +438,7 @@ export function startApp(api) {
     if (state.finished && index >= state.snapshots.length - 1) editor.setSourceLine(null);
     updateStatus(tick);
     timeline.setData(state.total, index);
+    world.requestFit(0, !state.playing);
     updateWorldChip();
   }
 
@@ -553,9 +575,23 @@ export function startApp(api) {
       return;
     }
     dom.penReadout.innerHTML =
-      `<span class="pen-dot"></span>pen ` +
+      `<span class="pen-dot"></span>` +
       `<b>x ${pen.x.toFixed(1)}</b> <b>z ${pen.z.toFixed(1)}</b> ` +
-      `<b>yaw ${Math.round(pen.yaw)}°</b>`;
+      `<b>${Math.round(pen.yaw)}°</b>`;
+  }
+
+  /** Viewport readout: y=0 · ×1.5 · (12, -4) — zoom relative to the 33-board. */
+  function updateViewReadout(cam) {
+    if (!dom.viewReadout || !cam) return;
+    const zoom = cam.zoom >= 10 ? cam.zoom.toFixed(0) : (Math.round(cam.zoom * 10) / 10).toFixed(1);
+    const cx = Math.round(cam.cx - 0.5);
+    const cz = Math.round(cam.cz - 0.5);
+    dom.viewReadout.textContent = `y=0 · ×${zoom} · (${cx}, ${cz})`;
+    dom.viewReadout.dataset.auto = cam.autoFit ? '1' : '0';
+    dom.viewReadout.title = cam.autoFit
+      ? 'viewport: auto-fit on · wheel zoom · drag pan · double-click/F to re-fit'
+      : 'viewport: manual · wheel zoom · drag pan · double-click/F to re-fit';
+    if (dom.fit) dom.fit.classList.toggle('is-auto', !!cam.autoFit);
   }
 
   function updateStatus(tick) {
@@ -633,9 +669,9 @@ export function startApp(api) {
     const fns = new Set(cmds.map((e) => e.fn || ''));
     const has = (test) => [...fns].some(test);
     const tags = [];
-    if (has((f) => f === 'tp:tick')) tags.push('tick');
+    if (has((f) => f === 'tp:tick' || f.startsWith('tp:tick/'))) tags.push('tick');
     if (has((f) => f.startsWith('tp:event'))) tags.push('press');
-    if (has((f) => f.startsWith('tp:main') || f.startsWith('tp:snippet'))) tags.push('timeline');
+    if (has((f) => /^tp:main\/s\d+/.test(f) || f.startsWith('tp:snippet'))) tags.push('timeline');
     if (has((f) => f.startsWith('tp:fn'))) tags.push('fn');
     const particles = events.filter((e) => e && e.type === 'particle').length;
     const adds = changes ? changes.length : 0;
@@ -651,8 +687,8 @@ export function startApp(api) {
     for (const ev of events) {
       if (!ev) continue;
       if (ev.type === 'say') {
-        // see addStep(): skip the Minecraft-only tp:start onboarding line
-        if (String(ev.file || '').endsWith('start.mcfunction')) continue;
+        // see isOnboardingSay(): skip the Minecraft-only tp:start onboarding line
+        if (isOnboardingSay(ev.file)) continue;
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line');
       } else if (ev.type === 'error') {
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">error · ${esc(ev.message)}</span>`, 'log-error');
@@ -684,6 +720,8 @@ export function startApp(api) {
     dom.pause.disabled = !hasSim;
     dom.step.disabled = !hasSim;
     dom.reset.disabled = !hasSim;
+    // settling frames / scrubbing should end with the whole drawing visible
+    if ((phase === 'paused' || phase === 'finished') && state.sim) world.requestFit(0, true);
     updateWorldChip();
   }
 
@@ -747,6 +785,14 @@ export function startApp(api) {
     showToast('press sent → #__press + 1', 'ok');
   });
 
+  // world viewport controls (auto-fit / manual zoom / pan)
+  dom.fit.addEventListener('click', () => {
+    world.fit();
+    showToast('fit to content · auto-fit on', 'ok');
+  });
+  dom.zoomIn.addEventListener('click', () => world.zoomBy(1.25));
+  dom.zoomOut.addEventListener('click', () => world.zoomBy(1 / 1.25));
+
   // "send it to a friend": real .zip of the generated datapack (api-owned helper)
   dom.zip.addEventListener('click', () => {
     if (typeof api.packToZip !== 'function') {
@@ -802,6 +848,9 @@ export function startApp(api) {
     } else if (e.key === 'ArrowRight') {
       e.preventDefault();
       stepForward();
+    } else if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      world.fit();
     } else if (e.key === 'r' || e.key === 'R') {
       doReset();
     }
@@ -815,6 +864,8 @@ export function startApp(api) {
   // --------------------------------------------------------------- startup
   fillSamples();
   const q = new URLSearchParams(location.search);
+  world.applyQuery(location.search);
+  updateViewReadout(world.getCamera());
   initSpeed(parseQueryInt(q, 'speed') != null ? parseQueryInt(q, 'speed') : DEFAULT_SPEED);
 
   const wanted = q.get('sample');
@@ -834,8 +885,15 @@ export function startApp(api) {
   const initial = pickSample(wanted);
   state.sampleId = initial.id;
   dom.sampleSelect.value = initial.id;
-  editor.setValue(initial.source || '', { silent: true });
-  applySampleDescription(initial);
+  // Debug aid for screenshots: ?src=<url-encoded Tickpack source> runs any program.
+  const srcOverride = q.get('src');
+  if (srcOverride) {
+    editor.setValue(srcOverride, { silent: true });
+    applySampleDescription(null);
+  } else {
+    editor.setValue(initial.source || '', { silent: true });
+    applySampleDescription(initial);
+  }
 
   if (autoTicks != null) {
     startRun({ autoPlay: false, syncTicks: Math.max(0, autoTicks), seekTick });
@@ -845,6 +903,17 @@ export function startApp(api) {
     seekTo(seekTick);
   } else {
     startRun({ autoPlay: true });
+  }
+
+  // QA/screenshot helper: `?snap=1` shows the *final* auto-fit framing in the
+  // very first paint (headless Edge only renders ~1 rAF frame, so it would
+  // otherwise photograph a half-eased camera). Explicit debug framing
+  // (`?zoom/?cx/?cz/?fit=0`) still wins, so pinned-camera shots stay pinned.
+  const cameraPinned = q.has('zoom') || q.has('cx') || q.has('cz') || q.get('fit') === '0';
+  if (q.get('snap') === '1' && !cameraPinned) {
+    world.fit();
+    updateViewReadout(world.getCamera());
+    world.render(performance.now());
   }
 
   requestAnimationFrame(frame);
@@ -863,6 +932,7 @@ export function startApp(api) {
     doReset,
     timeline,
     datapack,
+    world,
     get snapshots() { return state.snapshots; },
   };
 }

@@ -19,6 +19,22 @@ import { SAMPLES } from '../src/samples.js';
 
 const PRELUDE_LINE_COUNT = (PRELUDE.match(/\n/g) || []).length;
 
+/** The compiler-owned runtime brush palette; the array index is the #__brush value. */
+const PALETTE = [
+  'stone',
+  'gold_block',
+  'redstone_block',
+  'emerald_block',
+  'lapis_block',
+  'diamond_block',
+  'coal_block',
+  'glowstone',
+  'white_wool',
+  'purple_wool',
+  'oak_planks',
+  'glass',
+];
+
 const MAIN_STATE_PATH = /^data\/tp\/function\/main\/s(\d+)\.mcfunction$/;
 
 // ---------------------------------------------------------------------------
@@ -241,6 +257,13 @@ class MiniSim {
     return events;
   }
 
+  /** Runs a command as if a player typed it in chat (e.g. `execute positioned ... run function ...`). */
+  runCommand(text) {
+    this.events = [];
+    this.exec(String(text).trim(), '<chat>', 1, this.rootContext());
+    return this.events;
+  }
+
   runFunction(name, ctx = this.rootContext()) {
     const fn = this.functions.get(name);
     assert.ok(fn, `MiniSim: unknown function '${name}'`);
@@ -286,7 +309,8 @@ class MiniSim {
     const parseOffset = (token) => (token.length === 1 ? 0 : Number(token.slice(1)));
     const base = ctx.pos;
     let x = tx.startsWith('~') ? base.x + parseOffset(tx) : Number(tx);
-    let y = ty.startsWith('~') ? base.y + parseOffset(ty) : Number(ty);
+    // `^` on the y axis is "up", i.e. still relative to the execution position.
+    let y = ty.startsWith('~') || ty.startsWith('^') ? base.y + parseOffset(ty) : Number(ty);
     let z = tz.startsWith('~') ? base.z + parseOffset(tz) : Number(tz);
     const localX = tx.startsWith('^') ? parseOffset(tx) : 0;
     const localZ = tz.startsWith('^') ? parseOffset(tz) : 0;
@@ -418,7 +442,11 @@ class MiniSim {
     }
     if ((match = /^setblock\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/.exec(text))) {
       const pos = this.resolvePosition([match[1], match[2], match[3]], ctx);
-      this.blocks.set(`${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`, match[4]);
+      const x = Math.floor(pos.x);
+      const y = Math.floor(pos.y);
+      const z = Math.floor(pos.z);
+      if (match[4] === 'air') this.blocks.delete(`${x},${y},${z}`);
+      else this.blocks.set(`${x},${y},${z}`, { x, y, z, block: match[4].replace(/^minecraft:/, '') });
       return;
     }
     if (WORLD_COMMAND.test(text)) return; // fill/particle: recorded only, not simulated
@@ -507,15 +535,21 @@ function eventTicks(events, predicate) {
 // The auto-start chat line is not part of the user program: timeline tests look
 // at everything else so their tick assertions stay about the language semantics.
 const START_FILE = 'data/tp/function/start.mcfunction';
+const REWIND_FILE = 'data/tp/function/start/rewind.mcfunction';
+const STARTUP_FILES = new Set([START_FILE, REWIND_FILE]);
+
+function isStartupSay(event) {
+  return event.type === 'say' && STARTUP_FILES.has(event.file);
+}
 
 function startSays(events) {
-  return events.filter((event) => event.type === 'say' && event.file === START_FILE);
+  return events.filter(isStartupSay);
 }
 
 /** `[[tick, text], ...]` for the user program's own say statements. */
 function programSays(events) {
   return events
-    .filter((event) => event.type === 'say' && event.file !== START_FILE)
+    .filter((event) => event.type === 'say' && !STARTUP_FILES.has(event.file))
     .map((event) => [event.tick, event.text]);
 }
 
@@ -608,6 +642,42 @@ test('meta reports user state, state count and generated function count', () => 
   assert.equal(out.meta.stateCount, mainStatePaths(out).length);
   assert.equal(out.meta.functionCount, mcfunctionPaths(out).length);
   assert.equal(out.meta.preludeLines, PRELUDE_LINE_COUNT);
+  assert.equal(out.meta.hasTickBlocks, false);
+});
+
+test('meta.hasTickBlocks tells the UI when a program keeps running forever', () => {
+  // No tick block: the timeline determines when the program is finished.
+  assert.equal(compileOk('state x = 0\nover 3 as i {\n  x = x + 1\n}\n').meta.hasTickBlocks, false);
+  assert.equal(compileOk('').meta.hasTickBlocks, false);
+  // `when press` and prelude fns are not tick blocks.
+  assert.equal(compileOk('when press {\n  say "p"\n}\n').meta.hasTickBlocks, false);
+  assert.equal(compileOk('fn helper() {\n  say "h"\n}\nhelper\n').meta.hasTickBlocks, false);
+  // One or more tick blocks: the program keeps ticking even if #__pc is -1.
+  assert.equal(compileOk('tick {\n  say "t"\n}\n').meta.hasTickBlocks, true);
+  assert.equal(compileOk('tick {\n  say "a"\n}\ntick {\n  say "b"\n}\n').meta.hasTickBlocks, true);
+
+  // Real samples: square/hello are finite; metronome/endless keep ticking.
+  for (const id of ['square', 'hello']) {
+    const sample = SAMPLES.find((candidate) => candidate.id === id);
+    assert.ok(sample, `missing sample ${id}`);
+    assert.equal(compileOk(sample.source).meta.hasTickBlocks, false, id);
+  }
+  for (const id of ['metronome', 'endless']) {
+    const sample = SAMPLES.find((candidate) => candidate.id === id);
+    assert.ok(sample, `missing sample ${id}`);
+    assert.equal(compileOk(sample.source).meta.hasTickBlocks, true, id);
+  }
+
+  // meta stays plain structured-cloneable JSON.
+  const meta = compileOk(SAMPLES.find((candidate) => candidate.id === 'endless').source).meta;
+  assert.equal(typeof meta.hasTickBlocks, 'boolean');
+  assert.deepEqual(JSON.parse(JSON.stringify(meta)), meta);
+
+  // Failed compiles still return the same meta shape (files are empty).
+  const failed = compile('tick {\n  wait 1\n}\n');
+  assert.equal(failed.ok, false);
+  assert.equal(failed.meta.hasTickBlocks, true);
+  assert.equal(typeof failed.meta.hasTickBlocks, 'boolean');
 });
 
 // ---------------------------------------------------------------------------
@@ -627,7 +697,9 @@ test('golden: load initializes the scoreboard machine but does not spawn the pen
       'scoreboard players set #__sleep tp 0',
       'scoreboard players set #__press tp 0',
       'scoreboard players set #__pressSeen tp 0',
+      'scoreboard players set #__brush tp 0',
       'scoreboard players set #__started tp 0',
+      'scoreboard players set #__paused tp 0',
       'scoreboard players set #x tp 0',
       'scoreboard players set #__i0 tp 0',
       'kill @e[tag=pen]',
@@ -639,7 +711,7 @@ test('golden: load initializes the scoreboard machine but does not spawn the pen
   );
   // #__pc = 0 = first timeline state.
   const load = lines(out, 'data/tp/function/load.mcfunction');
-  assertOrder(load, ['scoreboard objectives add tp dummy', '#__pc', '#__sleep', '#__started', 'scoreboard players set #x tp 0', 'kill @e[tag=pen]']);
+  assertOrder(load, ['scoreboard objectives add tp dummy', '#__pc', '#__sleep', '#__brush', '#__started', 'scoreboard players set #x tp 0', 'kill @e[tag=pen]']);
 });
 
 test('golden: over lowers to init -> head -> body -> latch state machine', () => {
@@ -696,7 +768,7 @@ test('golden: dispatch has exactly one line per state behind the #__b latch', ()
 test('golden: tick is a thin gate, the old tick body lives in tp:tick/body', () => {
   const out = compileOk(LOOP_SOURCE);
   assert.deepEqual(commands(out, 'data/tp/function/tick.mcfunction'), [
-    'execute if score #__started tp matches 0 if entity @a run function tp:start',
+    'execute if score #__started tp matches 0 if score #__paused tp matches 0 if entity @a run function tp:start',
     'execute if score #__started tp matches 1 run function tp:tick/body',
   ]);
   assert.deepEqual(commands(out, 'data/tp/function/tick/body.mcfunction'), [
@@ -706,35 +778,100 @@ test('golden: tick is a thin gate, the old tick body lives in tp:tick/body', () 
   ]);
 });
 
-test('golden: start anchors the pen at the player and rewinds the whole run', () => {
+test('golden: tp:start anchors the pen at the player feet and calls the shared rewind', () => {
   const out = compileOk(LOOP_SOURCE);
   assert.deepEqual(commands(out, START_FILE), [
     'kill @e[tag=pen]',
     'execute at @p run summon armor_stand ~ ~-1 ~ {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}',
+    'function tp:start/rewind',
+  ]);
+});
+
+test('golden: tp:start_at anchors the pen at the execution position and calls the shared rewind', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(commands(out, 'data/tp/function/start_at.mcfunction'), [
+    'kill @e[tag=pen]',
+    'summon armor_stand ~ ~ ~ {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}',
+    'function tp:start/rewind',
+  ]);
+});
+
+test('golden: tp:start/rewind is the one shared reset (scores, states, loops, brush)', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(commands(out, REWIND_FILE), [
     'scoreboard players set #__tick tp 0',
     'scoreboard players set #__pc tp 0',
     'scoreboard players set #__sleep tp 0',
     'scoreboard players set #__press tp 0',
     'scoreboard players set #__pressSeen tp 0',
     'scoreboard players set #__b tp 1',
+    'scoreboard players set #__brush tp 0',
     'scoreboard players set #x tp 0',
     'scoreboard players set #__i0 tp 0',
+    'scoreboard players set #__paused tp 0',
     'scoreboard players set #__started tp 1',
-    'say Tickpack: 开始在你脚边绘制（/function tp:start 可重画，图案会画在脚下的地面上）',
+    'say Tickpack: 开始绘制（/function tp:start 回到脚下；/execute positioned X Y Z run function tp:start_at 指定坐标）',
   ]);
   // Exactly one say line: the in-game feedback that the pack is alive.
-  const start = lines(out, START_FILE);
-  assert.equal(start.filter((line) => line.trim().startsWith('say ')).length, 1);
+  const rewind = lines(out, REWIND_FILE);
+  assert.equal(rewind.filter((line) => line.trim().startsWith('say ')).length, 1);
 });
 
-test('golden: status reports the runtime state in chat', () => {
+test('golden: status reports runtime state, current brush and the pen', () => {
   const out = compileOk(LOOP_SOURCE);
   assert.deepEqual(commands(out, 'data/tp/function/status.mcfunction'), [
-    'execute if score #__started tp matches 0 run say Tickpack: 等待玩家中（请到主世界，或手动 /function tp:start）',
+    'execute if score #__started tp matches 0 if score #__paused tp matches 0 run say Tickpack: 未运行（等玩家，或 /function tp:start 开始）',
+    'execute if score #__paused tp matches 1 run say Tickpack: 已暂停（/function tp:start 继续）',
     'execute if score #__started tp matches 1 run say Tickpack: 运行中（/function tp:start 可重画）',
+    ...PALETTE.map(
+      (block, index) => `execute if score #__brush tp matches ${index} run say Tickpack: 画笔 = ${block}`,
+    ),
     'execute if entity @e[tag=pen] run say Tickpack: 画笔已就位',
     'execute unless entity @e[tag=pen] run say Tickpack: 没有找到画笔（/function tp:start）',
   ]);
+});
+
+test('golden: tp:stop pauses in place (started 0, paused 1, sleep 0, one say)', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(commands(out, 'data/tp/function/stop.mcfunction'), [
+    'scoreboard players set #__started tp 0',
+    'scoreboard players set #__paused tp 1',
+    'scoreboard players set #__sleep tp 0',
+    'say Tickpack: 已暂停（/function tp:start 重新开始；/function tp:status 查看状态）',
+  ]);
+  const stop = lines(out, 'data/tp/function/stop.mcfunction');
+  assert.equal(stop.filter((line) => line.trim().startsWith('say ')).length, 1);
+});
+
+test('golden: every palette block has an in-game brush helper, and brush/next cycles', () => {
+  const out = compileOk(LOOP_SOURCE);
+  PALETTE.forEach((block, index) => {
+    const path = `data/tp/function/brush/${block}.mcfunction`;
+    assert.ok(out.files[path], `missing ${path}`);
+    assert.deepEqual(commands(out, path), [`scoreboard players set #__brush tp ${index}`]);
+  });
+  assert.deepEqual(commands(out, 'data/tp/function/brush/next.mcfunction'), [
+    'scoreboard players add #__brush tp 1',
+    `execute if score #__brush tp matches ${PALETTE.length}.. run scoreboard players set #__brush tp 0`,
+  ]);
+});
+
+test('golden: paint dispatches on #__brush with one line per palette entry', () => {
+  const out = compileOk(LOOP_SOURCE);
+  const paint = commands(out, 'data/tp/function/fn/paint.mcfunction');
+  assert.equal(paint.length, PALETTE.length);
+  PALETTE.forEach((block, index) => {
+    assert.equal(
+      paint[index],
+      `execute if score #__brush tp matches ${index} at @e[tag=pen] run setblock ~ ~ ~ ${block}`,
+    );
+  });
+
+  // `brush(...)` is a score write; `paint` is a call to the generated function.
+  const program = compileOk('brush(redstone_block)\npaint\n');
+  const entry = mainStatePaths(program)[0];
+  assert.ok(program.files[entry].includes('scoreboard players set #__brush tp 2'));
+  assert.ok(program.files[entry].includes('function tp:fn/paint'));
 });
 
 test('golden: pack.mcmeta advertises 1.21 compatibility and the /function hint', () => {
@@ -916,7 +1053,7 @@ test('tick ordering is: gate (start) first, then the §2.2 body', () => {
   // tp:tick is only the gate: wait for a player/start, then run the body.
   const gate = lines(out, 'data/tp/function/tick.mcfunction');
   assertOrder(gate, [
-    'execute if score #__started tp matches 0 if entity @a run function tp:start',
+    'execute if score #__started tp matches 0 if score #__paused tp matches 0 if entity @a run function tp:start',
     'execute if score #__started tp matches 1 run function tp:tick/body',
   ]);
 
@@ -951,7 +1088,7 @@ test('semantics: when press runs exactly once per new host press', () => {
       sim.press();
       sim.press(); // two presses between ticks still run the handler once
     }
-    says.push(...sim.step().filter((event) => event.type === 'say' && event.file !== START_FILE));
+    says.push(...sim.step().filter((event) => event.type === 'say' && !STARTUP_FILES.has(event.file)));
   }
   assert.deepEqual(
     says.map((event) => [event.tick, event.text]),
@@ -968,7 +1105,7 @@ test('semantics: press is a delta, not a level (no re-fire without a new press)'
   for (let tick = 0; tick < 3; tick += 1) {
     // Tick 0 starts the run (tp:start rewinds #__press), so press afterwards.
     if (tick === 1) sim.press();
-    for (const event of sim.step()) if (event.type === 'say' && event.file !== START_FILE) fired.push([tick, event.text]);
+    for (const event of sim.step()) if (event.type === 'say' && !STARTUP_FILES.has(event.file)) fired.push([tick, event.text]);
   }
   assert.deepEqual(fired, [[1, 'hi']]);
 });
@@ -1057,7 +1194,9 @@ test('startup: /function tp:start rewinds the run and re-anchors the pen under t
   assert.equal(sim.getScore('#__i0'), 3);
   assert.equal(sim.findPen().y, 0);
 
-  // The player walks somewhere else and runs /function tp:start.
+  // Change the brush in-game, then walk somewhere else and run /function tp:start.
+  sim.runFunction('tp:brush/gold_block');
+  assert.equal(sim.getScore('#__brush'), 1);
   sim.movePlayer(3.5, 4, -2.5);
   sim.runFunction('tp:start');
 
@@ -1068,6 +1207,7 @@ test('startup: /function tp:start rewinds the run and re-anchors the pen under t
   assert.equal(sim.getScore('#__press'), 0);
   assert.equal(sim.getScore('#x'), 0, 'user state is back to its initial value');
   assert.equal(sim.getScore('#__i0'), 0, 'loop indices are back to 0');
+  assert.equal(sim.getScore('#__brush'), 0, 'the shared rewind resets the brush to stone');
 
   const pens = sim.getEntities().filter((entity) => entity.tags.includes('pen'));
   assert.equal(pens.length, 1, 'the old pen was killed, exactly one anchored');
@@ -1078,26 +1218,233 @@ test('startup: /function tp:start rewinds the run and re-anchors the pen under t
   assert.equal(sim.getScore('#__tick'), 1);
 });
 
-test('startup: load/start/status/tick/body exist in every pack, even with no timeline', () => {
+test('semantics: /execute positioned X Y Z run function tp:start_at anchors the run there', () => {
+  const out = compileOk('state x = 0\nover 5 as i {\n  x = x + 1\n}\n');
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  // Run some of the program, change the brush, then restart at explicit coordinates.
+  for (let tick = 0; tick < 2; tick += 1) sim.step();
+  sim.runFunction('tp:brush/emerald_block');
+  assert.equal(sim.getScore('#x'), 2);
+
+  const events = sim.runCommand('execute positioned 10 0 10 run function tp:start_at');
+  const pen = sim.findPen();
+  assert.ok(pen, 'tp:start_at spawns the pen');
+  assert.deepEqual([pen.x, pen.y, pen.z], [10, 0, 10], 'summon ~ ~ ~ uses the command execution position');
+  assert.equal(sim.getScore('#__started'), 1);
+  assert.equal(sim.getScore('#__tick'), 0);
+  assert.equal(sim.getScore('#__pc'), 0);
+  assert.equal(sim.getScore('#x'), 0);
+  assert.equal(sim.getScore('#__brush'), 0, 'start_at goes through the same shared rewind');
+  assert.equal(startSays(events).length, 1, 'one say line comes from tp:start/rewind');
+
+  // Timeline semantics are unchanged: the next tick runs state 0 from a clean slate.
+  sim.step();
+  assert.equal(sim.getScore('#x'), 1);
+  assert.equal(sim.getScore('#__tick'), 1);
+
+  // And the y coordinate is respected (superflat worlds are at y=-60).
+  const deep = sim.runCommand('execute positioned 100 -60 100 run function tp:start_at');
+  const deepPen = sim.findPen();
+  assert.deepEqual([deepPen.x, deepPen.y, deepPen.z], [100, -60, 100]);
+  assert.equal(startSays(deep).length, 1);
+});
+
+test('semantics: /function tp:stop pauses in place and tp:start resumes the run', () => {
+  const out = compileOk('state n = 0\ntick {\n  say "tick"\n  n = n + 1\n}\n');
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  let events = sim.step(); // starts and runs the body on tick 0
+  assert.equal(sim.getScore('#__started'), 1);
+  assert.equal(sim.getScore('#__paused'), 0);
+  assert.equal(sim.getScore('#n'), 1);
+  assert.equal(sim.getScore('#__tick'), 1);
+  assert.deepEqual(programSays(events), [[0, 'tick']]);
+
+  // In game: /function tp:stop
+  const stopEvents = sim.runCommand('function tp:stop');
+  assert.equal(sim.getScore('#__started'), 0);
+  assert.equal(sim.getScore('#__paused'), 1);
+  assert.equal(sim.getScore('#__sleep'), 0);
+  assert.deepEqual(
+    stopEvents.filter((event) => event.type === 'say').map((event) => [event.file, event.text]),
+    [
+      [
+        'data/tp/function/stop.mcfunction',
+        'Tickpack: 已暂停（/function tp:start 重新开始；/function tp:status 查看状态）',
+      ],
+    ],
+  );
+
+  // The gate must not auto-start while paused, and the body must not run.
+  for (let tick = 0; tick < 3; tick += 1) {
+    events = sim.step();
+    assert.equal(events.filter((event) => event.type === 'say' && event.text === 'tick').length, 0, 'tick body is paused');
+  }
+  assert.equal(sim.getScore('#n'), 1, 'no tick-block code ran while paused');
+  assert.equal(sim.getScore('#__tick'), 1, 'the clock is paused too');
+  assert.equal(sim.getScore('#__started'), 0);
+  assert.equal(sim.getScore('#__paused'), 1);
+
+  // status distinguishes paused from "waiting for a player".
+  const statusSays = sim
+    .runCommand('function tp:status')
+    .filter((event) => event.type === 'say')
+    .map((event) => event.text);
+  assert.ok(statusSays.includes('Tickpack: 已暂停（/function tp:start 继续）'), JSON.stringify(statusSays));
+  assert.ok(!statusSays.some((text) => text.includes('未运行')), 'a paused run must not say "not running / waiting"');
+
+  // /function tp:start resumes from a fresh run.
+  sim.runCommand('function tp:start');
+  assert.equal(sim.getScore('#__started'), 1);
+  assert.equal(sim.getScore('#__paused'), 0);
+  assert.equal(sim.getScore('#__tick'), 0);
+  assert.equal(sim.getScore('#n'), 0, 'tp:start rewound the user state');
+  events = sim.step();
+  assert.deepEqual(programSays(events), [[sim.getTick() - 1, 'tick']]);
+  assert.equal(sim.getScore('#n'), 1);
+  assert.equal(sim.getScore('#__tick'), 1);
+});
+
+test('semantics: a paused run stays paused even when a player is present', () => {
+  const out = compileOk('state n = 0\ntick {\n  n = n + 1\n}\n');
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  sim.removePlayers(); // pause before anyone has joined
+  sim.runCommand('function tp:stop');
+  assert.equal(sim.getScore('#__started'), 0);
+  assert.equal(sim.getScore('#__paused'), 1);
+
+  sim.addPlayer();
+  sim.step();
+  assert.equal(sim.getScore('#__started'), 0, 'the gate respects the explicit pause');
+  assert.equal(sim.getScore('#n'), 0);
+  assert.equal(sim.findPen(), null, 'no pen is summoned while paused');
+
+  sim.runCommand('function tp:start');
+  sim.step();
+  assert.equal(sim.getScore('#__started'), 1);
+  assert.equal(sim.getScore('#n'), 1);
+  assert.ok(sim.findPen(), 'tp:start anchors the pen and runs again');
+});
+
+test('startup: every generated runtime file exists, even with no timeline', () => {
   const out = compileOk(LOOP_SOURCE);
   for (const path of [
     'data/tp/function/load.mcfunction',
     'data/tp/function/start.mcfunction',
+    'data/tp/function/start_at.mcfunction',
+    'data/tp/function/stop.mcfunction',
+    'data/tp/function/start/rewind.mcfunction',
     'data/tp/function/status.mcfunction',
     'data/tp/function/tick.mcfunction',
     'data/tp/function/tick/body.mcfunction',
+    'data/tp/function/fn/paint.mcfunction',
+    'data/tp/function/brush/stone.mcfunction',
+    'data/tp/function/brush/glass.mcfunction',
+    'data/tp/function/brush/next.mcfunction',
   ]) {
     assert.ok(out.files[path], `missing ${path}`);
   }
-  // start says /function tp:start once; status references both started values.
-  assert.match(out.files[START_FILE], /\/function tp:start/);
+  // The one say line lives in the shared rewind, so start and start_at both get it.
+  assert.match(out.files[REWIND_FILE], /\/function tp:start/);
+  assert.match(out.files[REWIND_FILE], /tp:start_at/);
   assert.match(out.files['data/tp/function/status.mcfunction'], /#__started tp matches 0/);
   assert.match(out.files['data/tp/function/status.mcfunction'], /#__started tp matches 1/);
+  assert.match(out.files['data/tp/function/status.mcfunction'], /#__paused tp matches 1/);
+  assert.match(out.files['data/tp/function/stop.mcfunction'], /#__paused tp 1/);
 
   const empty = compileOk('');
   assert.ok(empty.files['data/tp/function/start.mcfunction']);
+  assert.ok(empty.files['data/tp/function/start_at.mcfunction']);
+  assert.ok(empty.files['data/tp/function/stop.mcfunction']);
+  assert.ok(empty.files['data/tp/function/start/rewind.mcfunction']);
   assert.ok(empty.files['data/tp/function/status.mcfunction']);
   assert.ok(empty.files['data/tp/function/tick/body.mcfunction']);
+  assert.ok(empty.files['data/tp/function/fn/paint.mcfunction']);
+  assert.ok(empty.files['data/tp/function/brush/next.mcfunction']);
+});
+
+// ---------------------------------------------------------------------------
+// 4c. runtime brush: brush(...) / paint / in-game helpers
+// ---------------------------------------------------------------------------
+
+test('semantics: paint draws the current brush block; in-game brush helpers change it mid-run', () => {
+  const out = compileOk('over 3 as i {\n  walk\n  paint\n}\n');
+  const sim = new MiniSim(out.files); // reset starts the run (player present), brush defaults to stone
+  sim.reset();
+  sim.step(); // tick 0 starts the run and paints stone at (0,0,1)
+
+  // In game: /function tp:brush/redstone_block for the next tick.
+  sim.runFunction('tp:brush/redstone_block');
+  sim.step(); // tick 1: redstone at (0,0,2)
+
+  // In game: /function tp:brush/next selects emerald_block (index 3).
+  sim.runFunction('tp:brush/next');
+  sim.step(); // tick 2: emerald at (0,0,3)
+
+  const blocks = sim.getBlocks();
+  assert.deepEqual(
+    blocks.map((entry) => `${entry.x},${entry.y},${entry.z}:${entry.block}`).sort(),
+    ['0,0,1:stone', '0,0,2:redstone_block', '0,0,3:emerald_block'],
+  );
+});
+
+test('semantics: brush/next cycles through the whole palette and wraps to stone', () => {
+  const out = compileOk('');
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  assert.equal(sim.getScore('#__brush'), 0);
+  for (let index = 1; index < PALETTE.length; index += 1) {
+    sim.runFunction('tp:brush/next');
+    assert.equal(sim.getScore('#__brush'), index);
+  }
+  sim.runFunction('tp:brush/next');
+  assert.equal(sim.getScore('#__brush'), 0, 'wraps back to stone after the last palette entry');
+});
+
+test('semantics: the status function reports the current brush', () => {
+  const out = compileOk(LOOP_SOURCE);
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  sim.step(); // start the run so a pen exists
+  sim.runFunction('tp:brush/purple_wool');
+  const says = sim
+    .runCommand('function tp:status')
+    .filter((event) => event.type === 'say')
+    .map((event) => event.text);
+  assert.ok(says.includes('Tickpack: 画笔 = purple_wool'), JSON.stringify(says));
+  const brushSays = says.filter((text) => text.startsWith('Tickpack: 画笔 = '));
+  assert.equal(brushSays.length, 1, 'only the current palette entry prints');
+});
+
+test('semantics: brush(...) and paint work in the timeline, in fn bodies and in tick blocks', () => {
+  const out = compileOk(
+    [
+      'state x = 0',
+      'fn gold() {',
+      '  brush(gold_block)',
+      '}',
+      'tick {',
+      '  if now == 1 {',
+      '    paint',
+      '  }',
+      '}',
+      'over 2 as i {',
+      '  gold()',
+      '  paint()',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  assert.ok(out.ok, JSON.stringify(out.diagnostics));
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  sim.step();
+  sim.step();
+  const blocks = sim.getBlocks();
+  assert.ok(blocks.some((entry) => entry.block === 'gold_block'), 'fn body + paint() drew gold');
+  assert.equal(sim.getScore('#__brush'), 1, 'gold() ran in the timeline');
 });
 
 // ---------------------------------------------------------------------------
@@ -1337,6 +1684,30 @@ test('compile errors: reserved names and illegal writes', () => {
       line: 1,
       message: /cannot redefine standard-library function 'home'/,
     },
+    {
+      name: 'reserved name: state brush',
+      source: 'state brush = 0\n',
+      line: 1,
+      message: /'brush' is a reserved word/,
+    },
+    {
+      name: 'reserved name: fn paint',
+      source: 'fn paint() {\n}\n',
+      line: 1,
+      message: /'paint' is a reserved word/,
+    },
+    {
+      name: 'reserved name: parameter brush',
+      source: 'fn f(brush) {\n}\n',
+      line: 1,
+      message: /'brush' is a reserved word and cannot be used as a parameter/,
+    },
+    {
+      name: 'reserved name: loop index paint',
+      source: 'over 2 as paint {\n}\n',
+      line: 1,
+      message: /'paint' is a reserved word and cannot be used as a loop index/,
+    },
   ];
 
   for (const testCase of cases) {
@@ -1344,6 +1715,28 @@ test('compile errors: reserved names and illegal writes', () => {
     assert.equal(diagnostic.line, testCase.line, `${testCase.name}: wrong line (message: ${diagnostic.message})`);
     assert.match(diagnostic.message, testCase.message, `${testCase.name}: wrong message`);
   }
+});
+
+test('compile errors: brush validates against the compiler palette', () => {
+  const diagnostic = compileError('brush(nope)\n');
+  assert.equal(diagnostic.line, 1);
+  assert.match(diagnostic.message, /unknown brush block 'nope'; palette:/);
+  for (const block of PALETTE) {
+    assert.ok(diagnostic.message.includes(block), `palette error message is missing ${block}`);
+  }
+
+  // In an instant body the error still points at the user line.
+  const nested = compileError('fn f() {\n  brush(nope)\n}\n');
+  assert.equal(nested.line, 2);
+  assert.match(nested.message, /unknown brush block 'nope'/);
+
+  // Bad arguments are syntax errors (brush takes a bare block id, paint takes none).
+  for (const source of ['brush(5)\n', 'brush("stone")\n', 'brush()\n']) {
+    const bad = compileError(source);
+    assert.match(bad.message, /brush\(\.\.\.\) takes a bare palette block id/);
+  }
+  const paintArgument = compileError('paint(foo)\n');
+  assert.match(paintArgument.message, /paint takes no arguments/);
 });
 
 test('compile errors: bad syntax is reported with a user-source line', () => {
@@ -1409,7 +1802,7 @@ test('every sample program compiles to a pack inside the §5 command subset', ()
   }
 });
 
-test('the square sample generates a loop-as-clock state machine', () => {
+test('the square sample generates a loop-as-clock state machine with the runtime brush', () => {
   const sample = SAMPLES.find((candidate) => candidate.id === 'square');
   assert.ok(sample, 'the square sample exists');
   const out = compileOk(sample.source);
@@ -1419,8 +1812,11 @@ test('the square sample generates a loop-as-clock state machine', () => {
   const allStates = mainStatePaths(out).map((path) => out.files[path]).join('\n');
   assert.match(allStates, /if score #__i0 tp matches 0\.\.3 run function tp:main\/s/);
   assert.match(allStates, /if score #__i1 tp matches 0\.\.7 run function tp:main\/s/);
-  assert.match(allStates, /execute at @e\[tag=pen\] run setblock ~ ~ ~ stone/);
+  // The sample selected the stone brush once, then paints through tp:fn/paint.
+  assert.match(allStates, /scoreboard players set #__brush tp 0/);
+  assert.match(allStates, /function tp:fn\/paint/);
   assert.match(allStates, /execute as @e\[tag=pen\] at @s run tp @s ~ ~ ~ ~90 ~/);
+  assert.match(out.files['data/tp/function/fn/paint.mcfunction'], /setblock ~ ~ ~ stone/);
 });
 
 test('the samples execute 40 ticks with no MiniSim error', () => {
