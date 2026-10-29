@@ -281,7 +281,9 @@ export function startApp(api) {
     const tick = state.sim.getTick();
     for (const ev of events) {
       if (!ev) continue;
-      if (ev.type === 'say') state.lastSay = ev.text;
+      // tp:start's chat line is Minecraft-only onboarding (/function tp:start);
+      // the browser has no such command, so keep it out of the UI log/ticker.
+      if (ev.type === 'say' && !String(ev.file || '').endsWith('start.mcfunction')) state.lastSay = ev.text;
       else if (ev.type === 'error') {
         showToast(`runtime error: ${ev.message}`, 'error');
         state.runtimeError = ev.message;
@@ -649,6 +651,8 @@ export function startApp(api) {
     for (const ev of events) {
       if (!ev) continue;
       if (ev.type === 'say') {
+        // see addStep(): skip the Minecraft-only tp:start onboarding line
+        if (String(ev.file || '').endsWith('start.mcfunction')) continue;
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line');
       } else if (ev.type === 'error') {
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">error · ${esc(ev.message)}</span>`, 'log-error');

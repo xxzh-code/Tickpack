@@ -83,6 +83,14 @@ function lineIndex(list, needle) {
   return index;
 }
 
+/** The pen must never be spawned by world load: tp:start anchors it to a player. */
+function assertNoPenSummonInLoad(out) {
+  assert.ok(
+    !commands(out, 'data/tp/function/load.mcfunction').some((line) => line.startsWith('summon ')),
+    'load.mcfunction must not summon the pen; tp:start anchors it to the player',
+  );
+}
+
 function assertOrder(list, needles) {
   let previous = -1;
   for (const needle of needles) {
@@ -113,6 +121,18 @@ function matchesRange(value, range) {
 
 const WORLD_COMMAND = /^(tp|setblock|fill|summon|kill|tag|particle)\b/;
 
+const PLAYER_TYPE = 'player';
+
+function distanceSq(a, b) {
+  return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+}
+
+/**
+ * The stepper models just enough of vanilla to test the generated startup:
+ * a virtual player entity at (0.5, 1, 0.5), vanilla-ish @a/@p/@e selectors,
+ * `execute if entity`, `execute at @p`, summon with `~` offsets, kill and tp.
+ * The product simulator (src/sim) is the real thing; this is for compiler tests.
+ */
 class MiniSim {
   constructor(files) {
     this.files = files;
@@ -126,6 +146,9 @@ class MiniSim {
     this.tick = 0;
     this.scores = new Map();
     this.events = [];
+    this.entities = [];
+    this.blocks = new Map();
+    this.nextEntityId = 1;
   }
 
   objective() {
@@ -150,9 +173,56 @@ class MiniSim {
     this.scores.clear();
     this.tick = 0;
     this.events = [];
+    this.entities = [];
+    this.blocks = new Map();
+    this.nextEntityId = 1;
     this.objective();
+    this.addPlayer(); // the host player is already in the world when the sim starts
     this.runFunction('tp:load');
     this.events = [];
+  }
+
+  // -- virtual entities (test hooks) ---------------------------------------
+
+  addPlayer(x = 0.5, y = 1.0, z = 0.5) {
+    const player = { id: this.nextEntityId, type: PLAYER_TYPE, x, y, z, yaw: 0, pitch: 0, tags: [] };
+    this.nextEntityId += 1;
+    this.entities.push(player);
+    return player;
+  }
+
+  players() {
+    return this.entities.filter((entity) => entity.type === PLAYER_TYPE);
+  }
+
+  /** Models "nobody has joined the world yet". */
+  removePlayers() {
+    this.entities = this.entities.filter((entity) => entity.type !== PLAYER_TYPE);
+  }
+
+  movePlayer(x, y, z) {
+    const player = this.players()[0];
+    if (player) {
+      player.x = x;
+      player.y = y;
+      player.z = z;
+    }
+  }
+
+  getEntities() {
+    return this.entities.map((entity) => ({ ...entity, tags: entity.tags.slice() }));
+  }
+
+  findPen() {
+    return this.entities.find((entity) => entity.tags.includes('pen')) || null;
+  }
+
+  getBlocks() {
+    return [...this.blocks.values()];
+  }
+
+  rootContext() {
+    return { pos: { x: 0, y: 0, z: 0 }, rot: { yaw: 0, pitch: 0 }, executor: null };
   }
 
   press() {
@@ -171,30 +241,82 @@ class MiniSim {
     return events;
   }
 
-  runFunction(name) {
+  runFunction(name, ctx = this.rootContext()) {
     const fn = this.functions.get(name);
     assert.ok(fn, `MiniSim: unknown function '${name}'`);
     fn.lines.forEach((line, index) => {
       const text = line.trim();
       if (text === '' || text.startsWith('#')) return;
-      this.exec(text, fn.path, index + 1);
+      this.exec(text, fn.path, index + 1, ctx);
     });
   }
 
-  exec(text, file, line) {
+  // -- selectors -----------------------------------------------------------
+
+  select(selector, ctx) {
+    const text = String(selector).trim();
+    if (text === '@a') return this.players();
+    if (text === '@p') {
+      const nearest = this.players().slice();
+      nearest.sort((a, b) => distanceSq(a, ctx.pos) - distanceSq(b, ctx.pos) || a.id - b.id);
+      return nearest.slice(0, 1);
+    }
+    if (text === '@s') return ctx.executor ? [ctx.executor] : [];
+    if (text.startsWith('@e')) {
+      let list = this.entities.slice();
+      const match = /@e\[(.*)\]$/.exec(text);
+      if (match) {
+        for (const rawPart of match[1].split(',')) {
+          const [key, value] = rawPart.split('=').map((part) => part.trim());
+          if (key === 'tag') list = list.filter((entity) => entity.tags.includes(value));
+          else if (key === 'type') {
+            list = list.filter((entity) => entity.type === value.replace(/^minecraft:/, ''));
+          } else if (key === 'limit') {
+            list = list.slice(0, Number(value));
+          }
+        }
+      }
+      return list;
+    }
+    assert.fail(`MiniSim: unsupported selector '${selector}'`);
+  }
+
+  resolvePosition(tokens, ctx) {
+    const [tx, ty, tz] = tokens;
+    const parseOffset = (token) => (token.length === 1 ? 0 : Number(token.slice(1)));
+    const base = ctx.pos;
+    let x = tx.startsWith('~') ? base.x + parseOffset(tx) : Number(tx);
+    let y = ty.startsWith('~') ? base.y + parseOffset(ty) : Number(ty);
+    let z = tz.startsWith('~') ? base.z + parseOffset(tz) : Number(tz);
+    const localX = tx.startsWith('^') ? parseOffset(tx) : 0;
+    const localZ = tz.startsWith('^') ? parseOffset(tz) : 0;
+    if (tx.startsWith('^') || tz.startsWith('^')) {
+      const yaw = ((ctx.rot && ctx.rot.yaw) || 0) * (Math.PI / 180);
+      const sin = Math.sin(yaw);
+      const cos = Math.cos(yaw);
+      x = base.x + localX * cos - localZ * sin;
+      z = base.z + localX * sin + localZ * cos;
+    }
+    return { x, y, z };
+  }
+
+  // -- command execution ---------------------------------------------------
+
+  exec(text, file, line, ctx) {
     if (text.startsWith('execute ')) {
-      this.execExecute(text.slice('execute '.length), file, line);
+      this.execExecute(text.slice('execute '.length), file, line, ctx);
       return;
     }
     this.events.push({ type: 'command', tick: this.tick, file, line, text });
 
     if (/^say\b/.test(text)) {
-      this.events.push({ type: 'say', tick: this.tick, text: text.replace(/^say\s?/, '') });
+      this.events.push({ type: 'say', tick: this.tick, file, line, text: text.replace(/^say\s?/, '') });
       return;
     }
+
     let match;
     if ((match = /^function\s+(\S+)$/.exec(text))) {
-      this.runFunction(match[1]);
+      this.runFunction(match[1], ctx);
       return;
     }
     if (/^scoreboard objectives add \S+ dummy$/.test(text)) return;
@@ -234,11 +356,76 @@ class MiniSim {
       this.setScore(match[1], next);
       return;
     }
-    if (WORLD_COMMAND.test(text)) return; // recorded, not simulated (timing tests only)
+    if ((match = /^summon\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(.*))?$/.exec(text))) {
+      const pos = this.resolvePosition([match[2], match[3], match[4]], ctx);
+      const tags = [];
+      if (match[5]) {
+        const tagMatch = /Tags\s*:\s*\[([^\]]*)\]/.exec(match[5]);
+        if (tagMatch) {
+          for (const part of tagMatch[1].split(',')) {
+            const tag = part.trim().replace(/^"|"$/g, '');
+            if (tag) tags.push(tag);
+          }
+        }
+      }
+      this.entities.push({
+        id: this.nextEntityId,
+        type: match[1].replace(/^minecraft:/, ''),
+        x: pos.x,
+        y: pos.y,
+        z: pos.z,
+        yaw: 0,
+        pitch: 0,
+        tags,
+      });
+      this.nextEntityId += 1;
+      return;
+    }
+    if ((match = /^tp\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)(?:\s+(\S+)\s+(\S+))?$/.exec(text))) {
+      const targets = this.select(match[1], ctx);
+      const pos = this.resolvePosition([match[2], match[3], match[4]], ctx);
+      for (const entity of targets) {
+        entity.x = pos.x;
+        entity.y = pos.y;
+        entity.z = pos.z;
+        if (match[5] !== undefined) {
+          entity.yaw = match[5].startsWith('~')
+            ? entity.yaw + (match[5].length === 1 ? 0 : Number(match[5].slice(1)))
+            : Number(match[5]);
+        }
+        if (match[6] !== undefined) {
+          entity.pitch = match[6].startsWith('~')
+            ? entity.pitch + (match[6].length === 1 ? 0 : Number(match[6].slice(1)))
+            : Number(match[6]);
+        }
+      }
+      return;
+    }
+    if ((match = /^kill\s+(\S+)$/.exec(text))) {
+      const doomed = new Set(this.select(match[1], ctx));
+      this.entities = this.entities.filter((entity) => !doomed.has(entity));
+      return;
+    }
+    if ((match = /^tag\s+(\S+)\s+(add|remove)\s+(\S+)$/.exec(text))) {
+      for (const entity of this.select(match[1], ctx)) {
+        if (match[2] === 'add') {
+          if (!entity.tags.includes(match[3])) entity.tags.push(match[3]);
+        } else {
+          entity.tags = entity.tags.filter((tag) => tag !== match[3]);
+        }
+      }
+      return;
+    }
+    if ((match = /^setblock\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)/.exec(text))) {
+      const pos = this.resolvePosition([match[1], match[2], match[3]], ctx);
+      this.blocks.set(`${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`, match[4]);
+      return;
+    }
+    if (WORLD_COMMAND.test(text)) return; // fill/particle: recorded only, not simulated
     assert.fail(`MiniSim: unsupported command '${text}'`);
   }
 
-  execExecute(rest, file, line) {
+  execExecute(rest, file, line, ctx) {
     const runIndex = rest.indexOf(' run ');
     assert.ok(runIndex >= 0, `MiniSim: 'execute' without ' run ': ${rest}`);
     const head = rest.slice(0, runIndex).trim();
@@ -246,14 +433,29 @@ class MiniSim {
     const tokens = head.split(/\s+/).filter(Boolean);
 
     let passes = true;
+    const local = { pos: { ...ctx.pos }, rot: { ...ctx.rot }, executor: ctx.executor };
     let index = 0;
     while (index < tokens.length) {
       const word = tokens[index];
-      if (word === 'as' || word === 'at') {
+      if (word === 'as') {
+        const targets = this.select(tokens[index + 1], local);
+        if (targets.length === 0) passes = false;
+        else local.executor = targets[0];
+        index += 2;
+        continue;
+      }
+      if (word === 'at') {
+        const targets = this.select(tokens[index + 1], local);
+        if (targets.length === 0) passes = false;
+        else {
+          local.pos = { x: targets[0].x, y: targets[0].y, z: targets[0].z };
+          local.rot = { yaw: targets[0].yaw, pitch: targets[0].pitch };
+        }
         index += 2;
         continue;
       }
       if (word === 'positioned') {
+        local.pos = this.resolvePosition(tokens.slice(index + 1, index + 4), local);
         index += 4;
         continue;
       }
@@ -262,18 +464,26 @@ class MiniSim {
         continue;
       }
       if (word === 'if' || word === 'unless') {
-        assert.equal(tokens[index + 1], 'score', `MiniSim: only score conditions (${head})`);
-        assert.equal(tokens[index + 3], 'tp', `MiniSim: only objective tp (${head})`);
-        assert.equal(tokens[index + 4], 'matches', `MiniSim: only matches ranges (${head})`);
-        const value = this.getScore(tokens[index + 2]);
-        const ok = matchesRange(value, tokens[index + 5]);
-        passes = passes && (word === 'if' ? ok : !ok);
-        index += 6;
-        continue;
+        const kind = tokens[index + 1];
+        if (kind === 'score') {
+          assert.equal(tokens[index + 3], 'tp', `MiniSim: only objective tp (${head})`);
+          assert.equal(tokens[index + 4], 'matches', `MiniSim: only matches ranges (${head})`);
+          const ok = matchesRange(this.getScore(tokens[index + 2]), tokens[index + 5]);
+          passes = passes && (word === 'if' ? ok : !ok);
+          index += 6;
+          continue;
+        }
+        if (kind === 'entity') {
+          const ok = this.select(tokens[index + 2], local).length > 0;
+          passes = passes && (word === 'if' ? ok : !ok);
+          index += 3;
+          continue;
+        }
+        assert.fail(`MiniSim: unsupported condition '${kind}' in: ${head}`);
       }
       assert.fail(`MiniSim: unsupported execute clause '${word}' in: ${head}`);
     }
-    if (passes) this.exec(command, file, line);
+    if (passes) this.exec(command, file, line, local);
   }
 }
 
@@ -294,6 +504,21 @@ function eventTicks(events, predicate) {
   return events.filter(predicate).map((event) => event.tick);
 }
 
+// The auto-start chat line is not part of the user program: timeline tests look
+// at everything else so their tick assertions stay about the language semantics.
+const START_FILE = 'data/tp/function/start.mcfunction';
+
+function startSays(events) {
+  return events.filter((event) => event.type === 'say' && event.file === START_FILE);
+}
+
+/** `[[tick, text], ...]` for the user program's own say statements. */
+function programSays(events) {
+  return events
+    .filter((event) => event.type === 'say' && event.file !== START_FILE)
+    .map((event) => [event.tick, event.text]);
+}
+
 // ---------------------------------------------------------------------------
 // 1. pack skeleton / metadata / prelude
 // ---------------------------------------------------------------------------
@@ -306,7 +531,10 @@ test('an empty program compiles to a valid, runnable pack skeleton', () => {
     'data/minecraft/tags/function/load.json',
     'data/minecraft/tags/function/tick.json',
     'data/tp/function/load.mcfunction',
+    'data/tp/function/start.mcfunction',
+    'data/tp/function/status.mcfunction',
     'data/tp/function/tick.mcfunction',
+    'data/tp/function/tick/body.mcfunction',
     'data/tp/function/main/dispatch.mcfunction',
   ]) {
     assert.ok(out.files[path], `missing ${path}`);
@@ -319,12 +547,15 @@ test('an empty program compiles to a valid, runnable pack skeleton', () => {
 
   const mcmeta = JSON.parse(out.files['pack.mcmeta']);
   assert.equal(mcmeta.pack.pack_format, 48);
+  assert.deepEqual(mcmeta.pack.supported_formats, { min_inclusive: 48, max_inclusive: 9999 });
 
   assert.deepEqual(JSON.parse(out.files['data/minecraft/tags/function/load.json']), { values: ['tp:load'] });
   assert.deepEqual(JSON.parse(out.files['data/minecraft/tags/function/tick.json']), { values: ['tp:tick'] });
 
   // #__pc points at "no state" so dispatch does nothing.
   assert.ok(commands(out, 'data/tp/function/load.mcfunction').includes('scoreboard players set #__pc tp -1'));
+  assert.ok(commands(out, 'data/tp/function/load.mcfunction').includes('scoreboard players set #__started tp 0'));
+  assertNoPenSummonInLoad(out);
   assert.deepEqual(
     commands(out, 'data/tp/function/main/dispatch.mcfunction').filter((line) => line.startsWith('execute ')),
     [],
@@ -347,8 +578,10 @@ test('the prelude is prepended and provides the turtle stdlib', () => {
   assert.deepEqual(commands(out, 'data/tp/function/fn/walk2.mcfunction'), [
     'execute as @e[tag=pen] at @s run tp @s ^ ^ ^2',
   ]);
-  assert.deepEqual(commands(out, 'data/tp/function/fn/home.mcfunction'), ['tp @e[tag=pen] 0.5 0 0.5 0 0']);
-  assert.deepEqual(commands(out, 'data/tp/function/fn/clear_ground.mcfunction'), ['fill -16 0 -16 16 0 16 air']);
+  assert.deepEqual(commands(out, 'data/tp/function/fn/home.mcfunction'), [
+    'execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/fn/clear_ground.mcfunction'), ['execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air']);
   assert.deepEqual(commands(out, 'data/tp/function/fn/stamp.mcfunction'), [
     'execute at @e[tag=pen] run particle happy_villager ~ ~ ~ 0 0 0 0 1',
   ]);
@@ -383,7 +616,7 @@ test('meta reports user state, state count and generated function count', () => 
 
 const LOOP_SOURCE = 'state x = 0\nover 3 as i {\n  x = x + 1\n}\n';
 
-test('golden: load initializes the scoreboard machine in the documented order', () => {
+test('golden: load initializes the scoreboard machine but does not spawn the pen', () => {
   const out = compileOk(LOOP_SOURCE);
   assert.deepEqual(
     commands(out, 'data/tp/function/load.mcfunction'),
@@ -394,15 +627,19 @@ test('golden: load initializes the scoreboard machine in the documented order', 
       'scoreboard players set #__sleep tp 0',
       'scoreboard players set #__press tp 0',
       'scoreboard players set #__pressSeen tp 0',
+      'scoreboard players set #__started tp 0',
       'scoreboard players set #x tp 0',
       'scoreboard players set #__i0 tp 0',
       'kill @e[tag=pen]',
-      'summon armor_stand 0.5 0 0.5 {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}',
     ],
   );
-  // #__pc = 0 = first timeline state; the pen is respawned after the kill.
+  assert.ok(
+    !commands(out, 'data/tp/function/load.mcfunction').some((line) => line.startsWith('summon ')),
+    'load must not spawn the pen at an absolute position; tp:start anchors it to the player',
+  );
+  // #__pc = 0 = first timeline state.
   const load = lines(out, 'data/tp/function/load.mcfunction');
-  assertOrder(load, ['scoreboard objectives add tp dummy', '#__pc', '#__sleep', 'scoreboard players set #x tp 0', 'kill @e[tag=pen]', 'summon armor_stand']);
+  assertOrder(load, ['scoreboard objectives add tp dummy', '#__pc', '#__sleep', '#__started', 'scoreboard players set #x tp 0', 'kill @e[tag=pen]']);
 });
 
 test('golden: over lowers to init -> head -> body -> latch state machine', () => {
@@ -456,13 +693,57 @@ test('golden: dispatch has exactly one line per state behind the #__b latch', ()
   ]);
 });
 
-test('golden: tick runs tick blocks, press, dispatch, sleep countdown, then now++', () => {
+test('golden: tick is a thin gate, the old tick body lives in tp:tick/body', () => {
   const out = compileOk(LOOP_SOURCE);
   assert.deepEqual(commands(out, 'data/tp/function/tick.mcfunction'), [
+    'execute if score #__started tp matches 0 if entity @a run function tp:start',
+    'execute if score #__started tp matches 1 run function tp:tick/body',
+  ]);
+  assert.deepEqual(commands(out, 'data/tp/function/tick/body.mcfunction'), [
     'execute if score #__sleep tp matches 0 run function tp:main/dispatch',
     'execute if score #__sleep tp matches 1.. run scoreboard players remove #__sleep tp 1',
     'scoreboard players add #__tick tp 1',
   ]);
+});
+
+test('golden: start anchors the pen at the player and rewinds the whole run', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(commands(out, START_FILE), [
+    'kill @e[tag=pen]',
+    'execute at @p run summon armor_stand ~ ~-1 ~ {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}',
+    'scoreboard players set #__tick tp 0',
+    'scoreboard players set #__pc tp 0',
+    'scoreboard players set #__sleep tp 0',
+    'scoreboard players set #__press tp 0',
+    'scoreboard players set #__pressSeen tp 0',
+    'scoreboard players set #__b tp 1',
+    'scoreboard players set #x tp 0',
+    'scoreboard players set #__i0 tp 0',
+    'scoreboard players set #__started tp 1',
+    'say Tickpack: 开始在你脚边绘制（/function tp:start 可重画，图案会画在脚下的地面上）',
+  ]);
+  // Exactly one say line: the in-game feedback that the pack is alive.
+  const start = lines(out, START_FILE);
+  assert.equal(start.filter((line) => line.trim().startsWith('say ')).length, 1);
+});
+
+test('golden: status reports the runtime state in chat', () => {
+  const out = compileOk(LOOP_SOURCE);
+  assert.deepEqual(commands(out, 'data/tp/function/status.mcfunction'), [
+    'execute if score #__started tp matches 0 run say Tickpack: 等待玩家中（请到主世界，或手动 /function tp:start）',
+    'execute if score #__started tp matches 1 run say Tickpack: 运行中（/function tp:start 可重画）',
+    'execute if entity @e[tag=pen] run say Tickpack: 画笔已就位',
+    'execute unless entity @e[tag=pen] run say Tickpack: 没有找到画笔（/function tp:start）',
+  ]);
+});
+
+test('golden: pack.mcmeta advertises 1.21 compatibility and the /function hint', () => {
+  const out = compileOk(LOOP_SOURCE);
+  const mcmeta = JSON.parse(out.files['pack.mcmeta']);
+  assert.equal(mcmeta.pack.pack_format, 48);
+  assert.deepEqual(mcmeta.pack.supported_formats, { min_inclusive: 48, max_inclusive: 9999 });
+  assert.match(mcmeta.pack.description, /datapacks\//);
+  assert.match(mcmeta.pack.description, /\/function tp:start/);
 });
 
 test('golden: wait + if lower to a sleep/branch/join state machine', () => {
@@ -529,7 +810,7 @@ test('semantics: the loop iteration order is observable on the scoreboard', () =
 test('semantics: wait N resumes the timeline N ticks later', () => {
   const source = 'say "a"\nwait 2\nsay "b"\n';
   const { events } = runProgram(source, 6);
-  const says = events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]);
+  const says = programSays(events);
   assert.deepEqual(says, [
     [0, 'a'],
     [2, 'b'],
@@ -539,7 +820,7 @@ test('semantics: wait N resumes the timeline N ticks later', () => {
 test('semantics: wait 0 is equivalent to "resume next tick"', () => {
   const { events } = runProgram('say "a"\nwait 0\nsay "b"\n', 3);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [
       [0, 'a'],
       [1, 'b'],
@@ -551,7 +832,7 @@ test('semantics: if with an instant branch is decided and joined in one tick', (
   const source = 'state flag = 0\nif flag == 0 {\n  say "yes"\n} else {\n  say "no"\n}\n';
   const { sim, events } = runProgram(source, 1);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [[0, 'yes']],
   );
   assert.equal(sim.getScore('#__pc'), -1);
@@ -562,7 +843,7 @@ test('semantics: if with a temporal branch suspends and resumes correctly', () =
     'state flag = 1\nif flag == 1 {\n  say "yes"\n  wait 2\n  say "later"\n} else {\n  say "no"\n}\n';
   const { events } = runProgram(source, 4);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [
       [0, 'yes'],
       [2, 'later'],
@@ -574,7 +855,7 @@ test('semantics: the else branch runs when the condition is false', () => {
   const source = 'state flag = 0\nif flag {\n  say "yes"\n} else {\n  say "no"\n}\n';
   const { events } = runProgram(source, 2);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [[0, 'no']],
   );
 });
@@ -602,7 +883,7 @@ test('semantics: over 0 costs no tick', () => {
   const source = 'say "before"\nover 0 as i {\n  say "never"\n}\nsay "after"\n';
   const { sim, events } = runProgram(source, 2);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [
       [0, 'before'],
       [0, 'after'],
@@ -627,11 +908,20 @@ test('tick blocks are unaffected by a sleeping timeline', () => {
   assert.equal(events.filter((event) => event.type === 'say' && event.text === 'tick').length, 4);
 });
 
-test('tick ordering in tp:tick is exactly §2.2', () => {
+test('tick ordering is: gate (start) first, then the §2.2 body', () => {
   const source =
     'state n = 0\ntick {\n  n = n + 1\n}\nwhen press {\n  say "press"\n}\nover 2 as i {\n  n = n + 10\n}\n';
   const out = compileOk(source);
-  const tick = lines(out, 'data/tp/function/tick.mcfunction');
+
+  // tp:tick is only the gate: wait for a player/start, then run the body.
+  const gate = lines(out, 'data/tp/function/tick.mcfunction');
+  assertOrder(gate, [
+    'execute if score #__started tp matches 0 if entity @a run function tp:start',
+    'execute if score #__started tp matches 1 run function tp:tick/body',
+  ]);
+
+  // The old body is unchanged, in its old order (docs/LANG.md §2.2).
+  const tick = lines(out, 'data/tp/function/tick/body.mcfunction');
   assertOrder(tick, [
     'scoreboard players add #n tp 1', // 1) user tick blocks
     'scoreboard players operation #__a tp = #__press tp', // 2) press delta
@@ -661,7 +951,7 @@ test('semantics: when press runs exactly once per new host press', () => {
       sim.press();
       sim.press(); // two presses between ticks still run the handler once
     }
-    says.push(...sim.step().filter((event) => event.type === 'say'));
+    says.push(...sim.step().filter((event) => event.type === 'say' && event.file !== START_FILE));
   }
   assert.deepEqual(
     says.map((event) => [event.tick, event.text]),
@@ -676,22 +966,23 @@ test('semantics: press is a delta, not a level (no re-fire without a new press)'
   sim.reset();
   const fired = [];
   for (let tick = 0; tick < 3; tick += 1) {
-    if (tick === 0) sim.press();
-    for (const event of sim.step()) if (event.type === 'say') fired.push([tick, event.text]);
+    // Tick 0 starts the run (tp:start rewinds #__press), so press afterwards.
+    if (tick === 1) sim.press();
+    for (const event of sim.step()) if (event.type === 'say' && event.file !== START_FILE) fired.push([tick, event.text]);
   }
-  assert.deepEqual(fired, [[0, 'hi']]);
+  assert.deepEqual(fired, [[1, 'hi']]);
 });
 
 test('semantics: instant if inside a tick block becomes a snippet function', () => {
   const source = 'state n = 0\ntick {\n  n = n + 1\n  if n == 2 {\n    say "two"\n  }\n}\n';
   const out = compileOk(source);
   assert.ok(out.files['data/tp/function/snippet/0.mcfunction']);
-  assert.match(out.files['data/tp/function/tick.mcfunction'], /run function tp:snippet\/0/);
+  assert.match(out.files['data/tp/function/tick/body.mcfunction'], /run function tp:snippet\/0/);
   assert.deepEqual(commands(out, 'data/tp/function/snippet/0.mcfunction'), ['say two']);
 
   const { events } = runProgram(source, 4);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [[1, 'two']],
   );
 });
@@ -700,9 +991,113 @@ test('semantics: now is #__tick and advances once per tick', () => {
   const source = 'tick {\n  if now == 2 {\n    say "two"\n  }\n}\n';
   const { events } = runProgram(source, 4);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [[2, 'two']],
   );
+});
+
+// ---------------------------------------------------------------------------
+// 4b. player-anchored auto-start (the real-world visibility fix)
+// ---------------------------------------------------------------------------
+
+test('startup: with no player the runtime waits — no pen, no blocks, no timeline', () => {
+  const out = compileOk(LOOP_SOURCE);
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  sim.removePlayers(); // world loaded, nobody has joined yet
+  const events = [];
+  for (let tick = 0; tick < 3; tick += 1) events.push(...sim.step());
+
+  assert.equal(sim.getScore('#__started'), 0, 'the gate stays closed');
+  assert.equal(sim.getScore('#__pc'), 0, 'load leaves #__pc at the first state, but nothing runs it');
+  assert.equal(sim.getScore('#__tick'), 0, 'no ticks elapse');
+  assert.equal(sim.getScore('#x'), 0);
+  assert.equal(sim.findPen(), null, 'no pen is spawned before a player exists');
+  assert.deepEqual(sim.getBlocks(), [], 'nothing is drawn');
+  assert.equal(startSays(events).length, 0, 'no start message yet');
+  assert.equal(
+    events.filter((event) => event.type === 'command' && event.text === 'scoreboard players add #x tp 1').length,
+    0,
+    'the timeline body must not run while waiting',
+  );
+});
+
+test('startup: when a player appears the pen is anchored at their feet and tick 0 runs that same tick', () => {
+  const out = compileOk(LOOP_SOURCE);
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  sim.removePlayers();
+  sim.step(); // gate closed
+  assert.equal(sim.getScore('#__started'), 0);
+
+  sim.addPlayer(); // the host player joins at (0.5, 1, 0.5)
+  const events = sim.step();
+
+  const pen = sim.findPen();
+  assert.ok(pen, 'the detection tick spawns the pen');
+  assert.equal(pen.type, 'armor_stand');
+  assert.ok(pen.tags.includes('pen'));
+  assert.deepEqual([pen.x, pen.y, pen.z], [0.5, 0, 0.5], 'summon ~ ~-1 ~ from a player at y=1 lands on y=0');
+  assert.equal(sim.getScore('#__started'), 1, 'the run is started');
+  assert.equal(sim.getScore('#x'), 1, 'state 0 ran on the very tick the player was detected');
+  assert.equal(sim.getScore('#__tick'), 1, 'now advanced exactly once on that tick');
+  assert.equal(sim.getScore('#__pc'), 1, 'the loop advanced to its head state');
+
+  assert.equal(startSays(events).length, 1, 'exactly one chat line announces the start');
+  assert.match(startSays(events)[0].text, /^Tickpack: .*\/function tp:start/);
+});
+
+test('startup: /function tp:start rewinds the run and re-anchors the pen under the player', () => {
+  const out = compileOk('state x = 0\nover 5 as i {\n  x = x + 1\n}\n');
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  for (let tick = 0; tick < 3; tick += 1) sim.step();
+  assert.equal(sim.getScore('#x'), 3);
+  assert.equal(sim.getScore('#__tick'), 3);
+  assert.equal(sim.getScore('#__i0'), 3);
+  assert.equal(sim.findPen().y, 0);
+
+  // The player walks somewhere else and runs /function tp:start.
+  sim.movePlayer(3.5, 4, -2.5);
+  sim.runFunction('tp:start');
+
+  assert.equal(sim.getScore('#__started'), 1);
+  assert.equal(sim.getScore('#__tick'), 0, 'time restarts at 0');
+  assert.equal(sim.getScore('#__pc'), 0, 'the timeline goes back to state 0');
+  assert.equal(sim.getScore('#__sleep'), 0);
+  assert.equal(sim.getScore('#__press'), 0);
+  assert.equal(sim.getScore('#x'), 0, 'user state is back to its initial value');
+  assert.equal(sim.getScore('#__i0'), 0, 'loop indices are back to 0');
+
+  const pens = sim.getEntities().filter((entity) => entity.tags.includes('pen'));
+  assert.equal(pens.length, 1, 'the old pen was killed, exactly one anchored');
+  assert.deepEqual([pens[0].x, pens[0].y, pens[0].z], [3.5, 3, -2.5], 'the new pen is on the ground under the player');
+
+  sim.step();
+  assert.equal(sim.getScore('#x'), 1, 'the rewound timeline draws again');
+  assert.equal(sim.getScore('#__tick'), 1);
+});
+
+test('startup: load/start/status/tick/body exist in every pack, even with no timeline', () => {
+  const out = compileOk(LOOP_SOURCE);
+  for (const path of [
+    'data/tp/function/load.mcfunction',
+    'data/tp/function/start.mcfunction',
+    'data/tp/function/status.mcfunction',
+    'data/tp/function/tick.mcfunction',
+    'data/tp/function/tick/body.mcfunction',
+  ]) {
+    assert.ok(out.files[path], `missing ${path}`);
+  }
+  // start says /function tp:start once; status references both started values.
+  assert.match(out.files[START_FILE], /\/function tp:start/);
+  assert.match(out.files['data/tp/function/status.mcfunction'], /#__started tp matches 0/);
+  assert.match(out.files['data/tp/function/status.mcfunction'], /#__started tp matches 1/);
+
+  const empty = compileOk('');
+  assert.ok(empty.files['data/tp/function/start.mcfunction']);
+  assert.ok(empty.files['data/tp/function/status.mcfunction']);
+  assert.ok(empty.files['data/tp/function/tick/body.mcfunction']);
 });
 
 // ---------------------------------------------------------------------------
@@ -789,7 +1184,7 @@ test('say emits the string contents and run emits the raw command verbatim', () 
   const { sim, events } = runProgram('say "hello world"\n', 1);
   assert.equal(sim.getScore('#__pc'), -1);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => event.text),
+    programSays(events).map(([, text]) => text),
     ['hello world'],
   );
 });
@@ -1097,7 +1492,7 @@ test('semantics: empty if branches are compiled away', () => {
   assert.equal(out.meta.stateCount, 1, 'the empty if produces no branch states');
   const { events } = runProgram(source, 1);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [[0, 'after']],
   );
 });
@@ -1108,7 +1503,7 @@ test('semantics: an if with only an else branch joins the true path directly', (
   assert.equal(out.meta.stateCount, 3); // condition, false branch, join
   const { events } = runProgram(source, 1);
   assert.deepEqual(
-    events.filter((event) => event.type === 'say').map((event) => [event.tick, event.text]),
+    programSays(events),
     [[0, 'else']],
   );
 });
@@ -1166,4 +1561,5 @@ test('a kitchen-sink program stays inside the §5 command subset', () => {
   for (let tick = 0; tick < 12; tick += 1) sim.step();
   assert.equal(sim.getScore('#__pc'), -1, 'the kitchen sink must finish');
 });
+
 

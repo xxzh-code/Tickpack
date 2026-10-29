@@ -69,7 +69,7 @@ const PEN_SUMMON =
 // load / reset / world bootstrap
 // ---------------------------------------------------------------------------
 
-test('world starts empty; reset runs the load tag and summons the pen', () => {
+test('world starts empty; reset creates the host player and runs the load tag', () => {
   const load = `${BASE_LOAD}\nscoreboard players set #x tp 7\n${PEN_SUMMON}`;
   const sim = new Simulator(pack({ load }));
   assert.deepEqual(sim.getWorld(), { blocks: [], entities: [] });
@@ -81,11 +81,26 @@ test('world starts empty; reset runs the load tag and summons the pen', () => {
 
   const world = sim.getWorld();
   assert.deepEqual(world.blocks, []);
-  assert.equal(world.entities.length, 1);
-  assert.equal(world.entities[0].type, 'armor_stand');
-  assert.equal(world.entities[0].x, 0.5);
-  assert.equal(world.entities[0].z, 0.5);
-  assert.deepEqual(world.entities[0].tags, ['pen']);
+  assert.equal(world.entities.length, 2); // virtual host player + the pen
+
+  const player = world.entities.find((entity) => entity.type === 'player');
+  assert.ok(player, 'reset() must create the virtual host player');
+  assert.deepEqual(player, {
+    id: 1,
+    type: 'player',
+    x: 0.5,
+    y: 1.0,
+    z: 0.5,
+    yaw: 0,
+    pitch: 0,
+    tags: [],
+  });
+
+  const pen = world.entities.find((entity) => entity.tags.includes('pen'));
+  assert.equal(pen.type, 'armor_stand');
+  assert.equal(pen.x, 0.5);
+  assert.equal(pen.z, 0.5);
+  assert.deepEqual(pen.tags, ['pen']);
 });
 
 test('reset clears world, scores and tick count, then re-runs load', () => {
@@ -102,7 +117,9 @@ test('reset clears world, scores and tick count, then re-runs load', () => {
   sim.reset();
   assert.equal(sim.getTick(), 0);
   assert.deepEqual(worldBlocks(sim), []);
-  assert.equal(sim.getWorld().entities.length, 1);
+  // host player + pen respawned by load
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.type === 'player').length, 1);
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.tags.includes('pen')).length, 1);
   assert.equal(scoreOf(sim, '#n'), 0);
 });
 
@@ -357,9 +374,13 @@ test('selectors: @s, @p, @a, @e with tag/limit/type/distance', () => {
     tick: [
       'execute as @e[tag=pen] run say pen',
       'execute as @e[tag=pen,limit=1] run say one',
-      'execute as @a[tag=pen] run say allpens',
+      'execute as @e[tag=pen] run say allpens',
       'execute if entity @e[type=armor_stand] run scoreboard players set #typed tp 1',
       'execute as @p run say nearest',
+      'execute as @a run say players',
+      'execute as @a[tag=pen] run say nonplayer',
+      'execute as @e[type=player] run say playerentity',
+      'execute as @e run say every',
       'execute as @e[tag=pen,distance=..1] run say close',
       'execute as @s run say self',
       'execute as @e[tag=pen] run tag @s add marked',
@@ -370,7 +391,11 @@ test('selectors: @s, @p, @a, @e with tag/limit/type/distance', () => {
   assert.equal(says.filter((text) => text === 'pen').length, 2);
   assert.equal(says.filter((text) => text === 'one').length, 1);
   assert.equal(says.filter((text) => text === 'allpens').length, 2);
-  assert.equal(says.filter((text) => text === 'nearest').length, 1);
+  assert.equal(says.filter((text) => text === 'nearest').length, 1); // @p sees players only
+  assert.equal(says.filter((text) => text === 'players').length, 1); // @a sees players only
+  assert.equal(says.filter((text) => text === 'nonplayer').length, 0);
+  assert.equal(says.filter((text) => text === 'playerentity').length, 1);
+  assert.equal(says.filter((text) => text === 'every').length, 4); // player + 2 pens + pig
   assert.equal(says.filter((text) => text === 'close').length, 1);
   assert.equal(says.filter((text) => text === 'self').length, 0);
   assert.equal(scoreOf(sim, '#typed'), 1);
@@ -378,6 +403,9 @@ test('selectors: @s, @p, @a, @e with tag/limit/type/distance', () => {
   const penned = sim.getWorld().entities.filter((entity) => entity.tags.includes('pen'));
   assert.ok(penned.every((entity) => entity.tags.includes('marked')));
   assert.ok(!sim.getWorld().entities.find((entity) => entity.type === 'pig').tags.includes('marked'));
+  assert.ok(
+    !sim.getWorld().entities.find((entity) => entity.type === 'player').tags.includes('marked'),
+  );
 });
 
 test('tag add/remove and kill use the same selector semantics', () => {
@@ -392,8 +420,139 @@ test('tag add/remove and kill use the same selector semantics', () => {
   });
   sim.step();
   const entities = sim.getWorld().entities;
-  assert.equal(entities.length, 1);
-  assert.deepEqual(entities[0].tags, ['pen']);
+  assert.equal(entities.filter((entity) => entity.tags.includes('pen')).length, 1);
+  assert.equal(entities.filter((entity) => entity.type === 'player').length, 1);
+  const pen = entities.find((entity) => entity.tags.includes('pen'));
+  assert.deepEqual(pen.tags, ['pen']);
+});
+
+// ---------------------------------------------------------------------------
+// virtual host player + real-Minecraft start runtime (player gate / @p anchor)
+// ---------------------------------------------------------------------------
+
+test('@a/@p select only the host player; @e still selects every entity', () => {
+  const sim = makeSim({
+    load: [
+      BASE_LOAD,
+      PEN_SUMMON,
+      'summon pig 9 0 9 {Tags:["mob"]}',
+    ].join('\n'),
+    tick: [
+      'execute as @a run scoreboard players add #a tp 1',
+      'execute as @p run scoreboard players add #p tp 1',
+      'execute as @e run scoreboard players add #e tp 1',
+      'execute as @e[type=player] run scoreboard players add #player tp 1',
+      'execute if entity @e[type=minecraft:player] run scoreboard players set #typedPlayer tp 1',
+      'execute unless entity @a[tag=pen] run scoreboard players set #noPenPlayers tp 1',
+    ].join('\n'),
+  });
+  sim.step();
+  assert.equal(scoreOf(sim, '#a'), 1); // only the virtual player
+  assert.equal(scoreOf(sim, '#p'), 1);
+  assert.equal(scoreOf(sim, '#e'), 3); // player + pen + pig
+  assert.equal(scoreOf(sim, '#player'), 1);
+  assert.equal(scoreOf(sim, '#typedPlayer'), 1); // minecraft:player matches the host player
+  assert.equal(scoreOf(sim, '#noPenPlayers'), 1); // armor stands are not players
+});
+
+test('compiler-style runtime: player gate, @p-anchored summon, starts on tick 0', () => {
+  const sim = makeSim({
+    load: `${BASE_LOAD}\nscoreboard players set #__started tp 0`,
+    tick: [
+      'execute if score #__started tp matches 0 if entity @a run function tp:start',
+      'execute if score #__started tp matches 1 run function tp:tick/body',
+    ].join('\n'),
+    files: {
+      start: [
+        'kill @e[tag=pen]',
+        'execute at @p run summon armor_stand ~ ~-1 ~ {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}',
+        'scoreboard players set #__started tp 1',
+      ].join('\n'),
+      'tick/body': [
+        'execute if score #__sleep tp matches 0 run function tp:main/dispatch',
+        'scoreboard players add #__tick tp 1',
+      ].join('\n'),
+      'main/dispatch': 'execute if score #__pc tp matches 0 run function tp:main/s0',
+      'main/s0': 'execute as @e[tag=pen] at @s run tp @s ^ ^ ^1',
+    },
+  });
+
+  // Before the first tick the datapack is "waiting for a player": no pen yet.
+  assert.deepEqual(sim.getWorld().blocks, []);
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.tags.includes('pen')).length, 0);
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.type === 'player').length, 1);
+
+  const events = sim.step();
+  assert.equal(byType(events, 'error').length, 0);
+  assert.equal(scoreOf(sim, '#__started'), 1);
+  assert.equal(scoreOf(sim, '#__tick'), 1); // tick/body ran on the very first tick
+
+  const pen = sim.getWorld().entities.find((entity) => entity.tags.includes('pen'));
+  assert.ok(pen, 'start must summon the pen');
+  assert.equal(pen.y, 0); // ~ ~-1 ~ from the player's feet at y = 1.0
+  assert.equal(pen.x, 0.5);
+  assert.equal(pen.z, 1.5); // spawned at (0.5,0,0.5), walked once in the same tick
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.type === 'player').length, 1);
+
+  // The start gate must not fire a second pen on later ticks.
+  sim.step();
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.tags.includes('pen')).length, 1);
+  assert.equal(byType(events, 'error').length, 0);
+});
+
+test('a player-gated pack waits while no player exists', () => {
+  const sim = makeSim({
+    load: `${BASE_LOAD}\nscoreboard players set #__started tp 0`,
+    tick: [
+      'kill @a',
+      'execute if score #__started tp matches 0 if entity @a run function tp:start',
+    ].join('\n'),
+    files: {
+      start: [
+        'execute at @p run summon armor_stand ~ ~-1 ~ {Tags:["pen"]}',
+        'scoreboard players set #__started tp 1',
+      ].join('\n'),
+    },
+  });
+
+  const events = sim.step();
+  assert.equal(byType(events, 'error').length, 0);
+  assert.equal(scoreOf(sim, '#__started'), 0);
+  assert.equal(sim.getWorld().entities.length, 0); // player killed, nothing starts
+
+  const events2 = sim.step();
+  assert.equal(byType(events2, 'error').length, 0);
+  assert.equal(scoreOf(sim, '#__started'), 0);
+  assert.equal(sim.getWorld().entities.length, 0);
+});
+
+test('kill @a removes the player; if entity @a becomes false; state stays snapshot-able', () => {
+  const sim = makeSim({
+    load: `${BASE_LOAD}\n${PEN_SUMMON}`,
+    tick: [
+      'kill @a',
+      'execute if entity @a run say alive',
+      'execute at @p run say anchored',
+      'execute as @a run say players',
+    ].join('\n'),
+  });
+
+  const events = sim.step();
+  assert.equal(byType(events, 'error').length, 0);
+  assert.equal(byType(events, 'say').length, 0);
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.type === 'player').length, 0);
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.tags.includes('pen')).length, 1);
+
+  // A snapshot taken after the player died must restore that fact exactly.
+  const snap = structuredClone(sim.snapshot());
+  assert.equal(snap.entities.filter((entity) => entity.type === 'player').length, 0);
+  sim.restore(snap);
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.type === 'player').length, 0);
+  assert.equal(byType(sim.step(), 'error').length, 0);
+
+  // reset() brings the host player back.
+  sim.reset();
+  assert.equal(sim.getWorld().entities.filter((entity) => entity.type === 'player').length, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -530,12 +689,13 @@ test('summon reads Tags from NBT and ignores other NBT; kill removes', () => {
   });
   sim.step();
   const entities = sim.getWorld().entities;
-  assert.equal(entities.length, 1);
-  assert.equal(entities[0].type, 'armor_stand');
-  assert.deepEqual(entities[0].tags, ['alpha', 'beta']);
-  assert.deepEqual(entities[0].id, 1);
-  assert.equal(entities[0].x, 1);
-  assert.equal(entities[0].z, 1);
+  assert.equal(entities.length, 2); // host player + the armor stand
+  const summoned = entities.find((entity) => entity.type === 'armor_stand');
+  assert.deepEqual(summoned.tags, ['alpha', 'beta']);
+  assert.deepEqual(summoned.id, 2); // player is id 1
+  assert.equal(summoned.x, 1);
+  assert.equal(summoned.z, 1);
+  assert.equal(entities.find((entity) => entity.type === 'player').id, 1);
 });
 
 // ---------------------------------------------------------------------------
@@ -762,7 +922,8 @@ test('snapshot()/restore() round-trips plain state and replays deterministically
   assert.equal(cloned.presses, 1);
   assert.ok(Array.isArray(cloned.blocks));
   assert.equal(cloned.blocks.length, 3);
-  assert.equal(cloned.entities.length, 1);
+  assert.equal(cloned.entities.length, 2); // host player + pen
+  assert.equal(cloned.entities.filter((entity) => entity.type === 'player').length, 1);
   assert.equal(cloned.scores.tp['#n'], 3);
 
   // Record what the next two ticks do, then rewind and replay them.
@@ -776,13 +937,26 @@ test('snapshot()/restore() round-trips plain state and replays deterministically
     { x: -1, y: 0, z: 1, block: 'gold_block' },
     { x: 0, y: 0, z: 1, block: 'gold_block' },
   ]);
-  assert.equal(world.entities.length, 1);
-  assert.equal(world.entities[0].id, 1);
-  assert.equal(world.entities[0].type, 'armor_stand');
-  assert.deepEqual(world.entities[0].tags, ['pen']);
-  assert.equal(world.entities[0].yaw, 90);
-  assert.ok(Math.abs(world.entities[0].x - -1.8660254037844386) < 1e-9);
-  assert.ok(Math.abs(world.entities[0].z - 1.8660254037844388) < 1e-9);
+  assert.equal(world.entities.length, 2);
+  const player = world.entities.find((entity) => entity.type === 'player');
+  assert.ok(player, 'restore() must keep the virtual host player');
+  assert.deepEqual(player, {
+    id: 1,
+    type: 'player',
+    x: 0.5,
+    y: 1.0,
+    z: 0.5,
+    yaw: 0,
+    pitch: 0,
+    tags: [],
+  });
+
+  const pen = world.entities.find((entity) => entity.tags.includes('pen'));
+  assert.equal(pen.id, 2);
+  assert.equal(pen.type, 'armor_stand');
+  assert.equal(pen.yaw, 90);
+  assert.ok(Math.abs(pen.x - -1.8660254037844386) < 1e-9);
+  assert.ok(Math.abs(pen.z - 1.8660254037844388) < 1e-9);
 
   // A snapshot taken right after restore must reproduce the saved state exactly.
   assert.deepEqual(sim.snapshot(), cloned);

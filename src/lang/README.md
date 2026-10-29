@@ -25,11 +25,14 @@ const { ok, files, diagnostics, meta } = compile('over 3 as i {\n  walk\n}\n');
 ## Generated pack
 
 ```
-pack.mcmeta                                  pack_format 48
+pack.mcmeta                                  pack_format 48, supported_formats 48..9999, install hint
 data/minecraft/tags/function/load.json       {"values":["tp:load"]}
 data/minecraft/tags/function/tick.json       {"values":["tp:tick"]}
-data/tp/function/load.mcfunction             scoreboards, user state, loop indices, pen entity
-data/tp/function/tick.mcfunction             tick blocks -> press -> dispatch -> sleep-- -> now++
+data/tp/function/load.mcfunction             scoreboards, user state, loop indices, #__started=0
+data/tp/function/start.mcfunction            anchors the pen under the player, rewinds, says hello
+data/tp/function/status.mcfunction           chat diagnostics, run with /function tp:status
+data/tp/function/tick.mcfunction             thin gate: wait for a player, then call tp:tick/body
+data/tp/function/tick/body.mcfunction        tick blocks -> press -> dispatch -> sleep-- -> now++
 data/tp/function/main/dispatch.mcfunction    one line per timeline state
 data/tp/function/main/s<id>.mcfunction       timeline state machine (one state per over/if/wait)
 data/tp/function/fn/<name>.mcfunction        zero-parameter functions
@@ -41,6 +44,26 @@ Every generated function starts with a `# Tickpack ...` header and carries
 `# source line N` comments for user statements, so the pack can be read side by
 side with the source (`over` = init/head/body/latch states, `wait` = sleep, `if` =
 condition/branch/join states).
+
+## Real-world startup (player-anchored pen)
+
+`load.mcfunction` runs during world load, when no player exists yet — and in a
+normal world y=0 is nowhere near the surface. So the runtime never draws during
+load: it waits.
+
+* `#__started` (reserved, compiler-internal score) is 0 after load.
+* Every tick, `tp:tick` first runs
+  `execute if score #__started tp matches 0 if entity @a run function tp:start`,
+  then `execute if score #__started tp matches 1 run function tp:tick/body`.
+* `tp:start` kills any old pen, anchors a new one on the ground under the nearest
+  player (`execute at @p run summon armor_stand ~ ~-1 ~ ...`), rewinds the whole
+  scoreboard machine (`#__tick/#__pc/#__sleep/#__press/#__pressSeen`, user state,
+  loop indices), sets `#__started = 1` and prints one chat line. Because start and
+  the body run on the same tick, state 0 executes on the tick the player is
+  detected and `now`/one-iteration-per-tick are unchanged.
+* Any player can type `/function tp:start` to re-anchor the pen and redraw, and
+  `/function tp:status` to see whether the runtime is waiting, running, and
+  whether the pen exists.
 
 ## How the temporal lowering works
 

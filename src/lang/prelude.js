@@ -42,12 +42,12 @@ fn stamp() {
 }
 
 fn clear_ground() {
-  # wipe the visible 33x33 ground plane back to air
-  run fill -16 0 -16 16 0 16 air
+  # wipe a 33x33 ground layer around the player back to air
+  run execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air
 }
 
 fn home() {
-  # send the pen back to the origin, facing +Z
-  run tp @e[tag=pen] 0.5 0 0.5 0 0
+  # bring the pen back to the block under the player's feet, facing +Z
+  run execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0
 }
 `;

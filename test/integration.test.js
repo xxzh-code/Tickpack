@@ -1,9 +1,14 @@
-// End-to-end tests: real source -> compiler -> datapack files -> simulator.
+﻿// End-to-end tests: real source -> compiler -> datapack files -> simulator.
 // This is the contract that matters: the same six lines the user edits must
 // actually produce a pack whose mcfunction, executed tick by tick, moves the pen.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, Simulator, SAMPLES } from '../src/api.js';
+
+// The generated runtime starts the timeline when a player is present and emits
+// one chat line from tp:start; tests that count user `say`s must ignore it.
+const START_FILE = 'data/tp/function/start.mcfunction';
+const isProgramSay = (e) => e.type === 'say' && e.file !== START_FILE;
 
 function run(source, ticks, between) {
   const out = compile(source);
@@ -18,7 +23,7 @@ function run(source, ticks, between) {
   return { sim, out, events };
 }
 
-test('the square sample compiles to a real datapack', () => {
+test('the square sample compiles to a real datapack that waits for a player', () => {
   const sample = SAMPLES.find((s) => s.id === 'square');
   const out = compile(sample.source);
   assert.equal(out.ok, true, JSON.stringify(out.diagnostics));
@@ -28,13 +33,44 @@ test('the square sample compiles to a real datapack', () => {
     'data/minecraft/tags/function/tick.json',
     'data/tp/function/load.mcfunction',
     'data/tp/function/tick.mcfunction',
+    'data/tp/function/tick/body.mcfunction',
+    'data/tp/function/start.mcfunction',
+    'data/tp/function/status.mcfunction',
     'data/tp/function/main/dispatch.mcfunction',
   ]) {
     assert.ok(out.files[path], `missing ${path}`);
     assert.ok(out.files[path].length > 0, `empty ${path}`);
   }
-  assert.match(out.files['data/tp/function/tick.mcfunction'], /#__tick/);
-  assert.ok(out.meta.variables.length >= 0);
+  // the tick function is a gate: it anchors+starts when a player appears
+  assert.match(out.files['data/tp/function/tick.mcfunction'], /#__started/);
+  assert.match(out.files['data/tp/function/tick.mcfunction'], /run function tp:start/);
+  // the clock lives in the body, which only runs once started
+  assert.match(out.files['data/tp/function/tick/body.mcfunction'], /#__tick/);
+  // the datapack must load in 1.21.x without an "incompatible" warning
+  const meta = JSON.parse(out.files['pack.mcmeta']);
+  assert.equal(meta.pack.pack_format, 48);
+  assert.equal(meta.pack.supported_formats.min_inclusive, 48);
+  assert.ok(meta.pack.supported_formats.max_inclusive >= 48);
+  assert.match(meta.pack.description, /tp:start/);
+  // the loaded pack does not place a pen at a fixed absolute spot
+  assert.doesNotMatch(out.files['data/tp/function/load.mcfunction'], /summon armor_stand 0\.5 0 0\.5/);
+});
+
+test('the runtime waits for a player, then anchors the pen at their feet', () => {
+  const out = compile(`over 2 as i {\n  plot(gold_block)\n}\n`);
+  assert.equal(out.ok, true, JSON.stringify(out.diagnostics));
+  const sim = new Simulator(out.files);
+  sim.reset();
+  // before any tick: no pen yet, the simulator has a host player
+  assert.equal(sim.getWorld().entities.filter((e) => (e.tags || []).includes('pen')).length, 0);
+  const events = sim.step();
+  assert.equal(sim.getScores().tp['#__started'], 1);
+  const pens = sim.getWorld().entities.filter((e) => (e.tags || []).includes('pen'));
+  assert.equal(pens.length, 1, 'pen should be summoned on the first tick');
+  assert.equal(pens[0].y, 0, 'pen should sit on the block under the player feet (y=1-1)');
+  assert.ok(events.some((e) => e.type === 'say' && e.file === START_FILE), 'tp:start should say something');
+  // state 0 runs on the same tick the pen appears, so blocks are already placed
+  assert.ok(sim.getWorld().blocks.length > 0);
 });
 
 test('nested over loops: one iteration per tick', () => {
@@ -79,7 +115,7 @@ say "b"
 `,
     6,
   );
-  const says = events.filter((e) => e.type === 'say').map((e) => [e.tick, e.text]);
+  const says = events.filter(isProgramSay).map((e) => [e.tick, e.text]);
   assert.deepEqual(says, [
     [0, 'a'],
     [2, 'b'],
@@ -94,7 +130,7 @@ test('tick blocks run every tick and read now', () => {
 `,
     3,
   );
-  const says = events.filter((e) => e.type === 'say');
+  const says = events.filter(isProgramSay);
   assert.equal(says.length, 3);
   assert.deepEqual(
     says.map((e) => e.tick),
@@ -129,7 +165,7 @@ if flag == 1 {
 `,
     6,
   );
-  const says = events.filter((e) => e.type === 'say').map((e) => [e.tick, e.text]);
+  const says = events.filter(isProgramSay).map((e) => [e.tick, e.text]);
   assert.deepEqual(says, [
     [0, 'yes'],
     [2, 'later'],
@@ -192,7 +228,7 @@ when press {
   const says = [];
   for (let i = 0; i < 4; i++) {
     if (i === 2) sim.press();
-    says.push(...sim.step().filter((e) => e.type === 'say'));
+    says.push(...sim.step().filter(isProgramSay));
   }
   assert.equal(says.length, 1);
   assert.equal(says[0].text, 'pressed');
@@ -260,3 +296,4 @@ test('unknown names and duplicate declarations are compile errors', () => {
   assert.equal(compile('state x = 0\nstate x = 1\n').ok, false);
   assert.equal(compile('nope()\n').ok, false);
 });
+

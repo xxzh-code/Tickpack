@@ -84,14 +84,20 @@ main.tp ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfuncti
 - **控制流是状态机**：`over` / `wait` 编译成 `#__pc` + `#__sleep` 和一组 `main/sN.mcfunction`；
   每个 tick 只推进一个状态。记分板 `#i` 就是循环变量本身。
 - **时间轴是快照**：每个 tick 存一份世界快照，可以随意回放、倒带。
+- **真实世界里它等你**：数据包不会在世界加载时偷偷跑完；它等到有玩家，然后把画笔
+  锚定到**你脚下的地面**（`execute at @p run summon ... ~ ~-1 ~`），聊天栏报一句，
+  再开始逐 tick 画。`/function tp:start` 随时重画，`tp:status` 自检。
+  浏览器里则有一个虚拟玩家站在同一位置，所以两边画出同样的坐标。
 
 ## 把数据包放进 Minecraft
 
-仓库里已经带了可直接安装的包：
+仓库里已经带了可直接安装的包（每个示例一个）：
 
-- `dist/tickpack-square-datapack.zip`
-- `dist/tickpack-star-datapack.zip`
-- `dist/tickpack-spiral-datapack.zip`
+```
+dist/tickpack-square-datapack.zip    dist/tickpack-star-datapack.zip
+dist/tickpack-spiral-datapack.zip    dist/tickpack-circle-datapack.zip
+dist/tickpack-metronome-datapack.zip dist/tickpack-hello-datapack.zip
+```
 
 自己生成任意示例的包：
 
@@ -99,13 +105,33 @@ main.tp ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfuncti
 node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 ```
 
-安装：
+### 安装（1.21+，原版或 Fabric/Forge 都行）
 
-1. 解压到 `saves/<世界>/datapacks/tickpack/`（`pack.mcmeta` 在那一层的根上）；
-2. 进世界 `/reload`；
-3. 那只 armor stand 笔出现在 `(0.5, 0, 0.5)`，然后每个 tick 画一格。
+1. **放进世界的数据包目录，不是资源包目录**：
+   `saves/<世界名>/datapacks/tickpack-star-datapack.zip`
+   （zip 可以直接放，不用解压；也可以解压成文件夹，只要 `pack.mcmeta` 在文件夹根上。）
+2. 进世界（如果已经在游戏里，用 `/datapack list` 确认能看到
+   `file/tickpack-star-datapack.zip` 是 enabled，或者 `/reload` 一次）。
+3. **等 1 个 tick**：数据包会等到有玩家，然后自动把画笔放到**你脚下的地面**上，
+   聊天栏出现 `Tickpack: 开始在你脚边绘制…`，方块开始一个 tick 画一格。
+4. 想换个地方重画：`/function tp:start`（会在你当前脚下重新开始；旧图案会留在原地）。
 
-它没有用任何资源包/模组，纯原版数据包。
+> 数据包是「等你来」的：世界加载时它不会动，直到有玩家在**主世界**里才启动——
+> 这样你一进游戏就能看见它画，而不是加载时偷偷画完。
+
+### 看不到效果？按这个顺序查
+
+1. **你把它放到 `resourcepacks/` 了吗？** 这是最容易犯的错（资源包不会执行函数）。
+   正确位置是 `<存档>/datapacks/`，不是 `.minecraft/resourcepacks/`。
+2. `/datapack list` 里有没有它？没有就检查存档路径/zip 结构（`pack.mcmeta` 必须在 zip 根上）。
+3. 有但显示 disabled：`/datapack enable "file/tickpack-star-datapack.zip"`。
+4. 有没有聊天栏消息？没有说明 `tp:tick` 没跑起来（通常是没对上版本或没真正启用）。
+5. 手动 `/function tp:start`；再不行 `/function tp:load` 然后 `/function tp:start`。
+6. `/function tp:status` 会告诉你数据包现在怎么想：在等玩家 / 在运行 / 画笔在不在。
+7. 确保你在**主世界**，并且脚下方块正常（画笔画在脚下那一层，会替换地面方块）。
+
+它没有用任何资源包/模组，纯原版数据包；`pack.mcmeta` 带 `supported_formats`（48..9999），
+1.21.x 都能加载。
 
 ## 目录
 
@@ -141,6 +167,8 @@ node test/integration.test.js  # 只跑端到端
 - [x] 浏览器：三栏同屏、逐 tick 运行、源码↔mcfunction 行锁步、记分板观察面板、
       run log、时间轴拖动回放、示例程序
 - [x] 一键下载真正的数据包 `.zip`（零依赖 zip 写入器）
+- [x] 真实 Minecraft 行为：等玩家进世界 → 画笔锚在脚边 → 开始画；`/function tp:start`
+      重画、`tp:status` 自检；pack.mcmeta 兼容 1.21.x（supported_formats）
 - [ ] 分享链接 / 只读分享页
 - [ ] 积木视图（与文本共享 AST，时间线式布局）
 - [ ] 更多事件源（按钮、`/trigger`、玩家动作）、数组、`after N ticks` 语法糖

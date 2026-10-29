@@ -15,6 +15,7 @@
 
 import {
   canonicalBlock,
+  canonicalEntity,
   matchesRange,
   parseCommand,
   parseSelector,
@@ -26,6 +27,30 @@ import {
 export const MAX_COMMANDS_PER_TICK = 100000;
 export const MAX_FILL_VOLUME = 4096;
 export const MAX_FUNCTION_DEPTH = 256;
+
+// The virtual host player. Real Minecraft needs a player before the datapack can
+// start (`execute at @p run summon ...` anchors the pen under the player's feet),
+// so the simulator models one: feet at (0.5, 1.0, 0.5), i.e. standing on the block
+// (0,0,0) of the drawing plane, exactly where the pen used to be summoned.
+export const PLAYER_TYPE = 'player';
+export const PLAYER_SPAWN = Object.freeze({ x: 0.5, y: 1.0, z: 0.5 });
+
+function isPlayerEntity(entity) {
+  return canonicalEntity(entity && entity.type) === PLAYER_TYPE;
+}
+
+function createPlayerEntity(id) {
+  return {
+    id,
+    type: PLAYER_TYPE,
+    x: PLAYER_SPAWN.x,
+    y: PLAYER_SPAWN.y,
+    z: PLAYER_SPAWN.z,
+    yaw: 0,
+    pitch: 0,
+    tags: [],
+  };
+}
 
 const FUNCTION_PATH_RE = /^data\/([^/]+)\/function\/(.+)\.mcfunction$/;
 
@@ -179,9 +204,12 @@ export class Simulator {
 
   // --------------------------------------------------------------- public API
 
-  /** Clear scores/world/press state, then execute the load tag (`tp:load`). */
+  /** Clear scores/world/press state, create the host player, then run the load tag. */
   reset() {
     this.state = createState();
+    // The host player always exists when a world/reset happens; commands can still
+    // kill it (`kill @a`), and snapshots record whether it is alive.
+    this.state.entities.push(createPlayerEntity(this.state.nextEntityId++));
     this._events = [];
     this._budget = 0;
     this._depth = 0;
@@ -360,7 +388,7 @@ export class Simulator {
         if (!raw || typeof raw !== 'object') continue;
         state.entities.push({
           id: Number.isFinite(raw.id) ? raw.id : state.nextEntityId++,
-          type: canonicalBlock(raw.type),
+          type: canonicalEntity(raw.type),
           x: Number(raw.x) || 0,
           y: Number(raw.y) || 0,
           z: Number(raw.z) || 0,
@@ -855,7 +883,12 @@ export class Simulator {
     if (selector.base === 's') {
       if (!ctx || !ctx.executor) return [];
       list = [ctx.executor];
+    } else if (selector.base === 'a' || selector.base === 'p') {
+      // Vanilla: @a / @p only ever select players. The mini world's only player is
+      // the virtual host player; pen armor stands are deliberately not players.
+      list = this.state.entities.filter(isPlayerEntity);
     } else {
+      // @e selects every entity (player included).
       list = this.state.entities.slice();
     }
 
@@ -886,7 +919,7 @@ export class Simulator {
       if (!entity.tags.includes(tag)) return false;
     }
     if (selector.types.length) {
-      const type = canonicalBlock(entity.type);
+      const type = canonicalEntity(entity.type);
       if (!selector.types.includes(type)) return false;
     }
     if (selector.name !== null) {
