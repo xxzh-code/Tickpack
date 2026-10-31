@@ -1115,7 +1115,11 @@ test('semantics: instant if inside a tick block becomes a snippet function', () 
   const out = compileOk(source);
   assert.ok(out.files['data/tp/function/snippet/0.mcfunction']);
   assert.match(out.files['data/tp/function/tick/body.mcfunction'], /run function tp:snippet\/0/);
-  assert.deepEqual(commands(out, 'data/tp/function/snippet/0.mcfunction'), ['say two']);
+  // Every snippet claims the branch latch on entry (see the two-branch cases below).
+  assert.deepEqual(commands(out, 'data/tp/function/snippet/0.mcfunction'), [
+    'scoreboard players set #__b tp 0',
+    'say two',
+  ]);
 
   const { events } = runProgram(source, 4);
   assert.deepEqual(
@@ -1123,6 +1127,201 @@ test('semantics: instant if inside a tick block becomes a snippet function', () 
     [[1, 'two']],
   );
 });
+
+// ---------------------------------------------------------------------------
+// 4a. instant if/else must run exactly one branch (temp-clobber latch regression)
+// ---------------------------------------------------------------------------
+
+test('regression: instant if/else runs only the else branch when the condition is false', () => {
+  const source = [
+    'state n = 5',
+    'state x = 1',
+    'state y = 0',
+    'tick {',
+    '  if n == 0 {',
+    '    y = 1',
+    '  } else {',
+    '    x = x + y + 1',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const out = compileOk(source);
+
+  // Fixed shape: arm #__b, guard both branch calls with it, and every snippet
+  // clears the latch on entry. Without this the else snippet's temp usage
+  // clobbers the condition temp and the `unless` line fires as well.
+  const body = commands(out, 'data/tp/function/tick/body.mcfunction');
+  assert.equal(body.filter((line) => line === 'scoreboard players set #__b tp 1').length, 1, JSON.stringify(body));
+  assert.ok(
+    body.some((line) => /^execute if score #__b tp matches 1 if score #__t1 tp matches 0 run function tp:snippet\/1$/.test(line)),
+    JSON.stringify(body),
+  );
+  assert.ok(
+    body.some((line) => /^execute if score #__b tp matches 1 unless score #__t1 tp matches 0 run function tp:snippet\/0$/.test(line)),
+    JSON.stringify(body),
+  );
+  for (const id of [0, 1]) {
+    assert.equal(commands(out, `data/tp/function/snippet/${id}.mcfunction`)[0], 'scoreboard players set #__b tp 0');
+  }
+
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  sim.step(); // tick 0
+  assert.equal(sim.getScore('#y'), 0, 'the true branch must not run when n != 0');
+  assert.equal(sim.getScore('#x'), 2, 'the else branch ran exactly once on tick 0');
+  sim.step(); // tick 1
+  assert.equal(sim.getScore('#y'), 0);
+  assert.equal(sim.getScore('#x'), 3, 'exactly one else branch per tick (was 4 via the double-run bug)');
+  sim.step(); // tick 2
+  assert.equal(sim.getScore('#y'), 0);
+  assert.equal(sim.getScore('#x'), 4);
+});
+
+test('regression: the true branch with temp-using code runs exactly once when the condition is true', () => {
+  const source = [
+    'state n = 0',
+    'state x = 0',
+    'state y = 0',
+    'tick {',
+    '  if n == 0 {',
+    '    x = x + y + 1',
+    '  } else {',
+    '    y = 1',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const sim = new MiniSim(compileOk(source).files);
+  sim.reset();
+  for (let tick = 0; tick < 3; tick += 1) sim.step();
+  assert.equal(sim.getScore('#y'), 0, 'the else branch must never run');
+  assert.equal(sim.getScore('#x'), 3, 'one true branch per tick');
+});
+
+test('regression: a condition built from an expression cannot be clobbered into the other branch', () => {
+  const source = [
+    'state n = 5',
+    'state x = 1',
+    'state y = 0',
+    'tick {',
+    '  if n % 2 == 0 {',
+    '    y = 1',
+    '  } else {',
+    '    x = x + y + 1',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const sim = new MiniSim(compileOk(source).files);
+  sim.reset();
+  for (let tick = 0; tick < 3; tick += 1) sim.step();
+  assert.equal(sim.getScore('#y'), 0);
+  assert.equal(sim.getScore('#x'), 4);
+});
+
+test('regression: nested instant if/else runs only the matching branches', () => {
+  const source = [
+    'state n = 5',
+    'state a = 0',
+    'state b = 0',
+    'tick {',
+    '  if n == 0 {',
+    '    a = 1',
+    '  } else {',
+    '    if a == 0 {',
+    '      a = 10',
+    '    } else {',
+    '      b = b + a + 1',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const sim = new MiniSim(compileOk(source).files);
+  sim.reset();
+  sim.step(); // outer false -> inner true: a = 10
+  assert.equal(sim.getScore('#a'), 10);
+  assert.equal(sim.getScore('#b'), 0);
+  sim.step(); // outer false -> inner false: b = 0 + 10 + 1
+  assert.equal(sim.getScore('#a'), 10);
+  assert.equal(sim.getScore('#b'), 11);
+  sim.step();
+  assert.equal(sim.getScore('#b'), 22);
+});
+
+test('regression: instant if/else with an fn call in a branch runs only that branch', () => {
+  const fnCallSource = [
+    'state n = 0',
+    'state x = 0',
+    'state y = 0',
+    'fn takeit() {',
+    '  x = x + 1',
+    '}',
+    'tick {',
+    '  if n == 0 {',
+    '    takeit()',
+    '  } else {',
+    '    y = y + 1',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const sim = new MiniSim(compileOk(fnCallSource).files);
+  sim.reset();
+  for (let tick = 0; tick < 3; tick += 1) sim.step();
+  assert.equal(sim.getScore('#x'), 3);
+  assert.equal(sim.getScore('#y'), 0);
+
+  // The same body in a zero-parameter fn, called from the timeline.
+  const timelineSource = [
+    'state n = 5',
+    'state x = 0',
+    'fn decide() {',
+    '  if n == 0 {',
+    '    x = 1',
+    '  } else {',
+    '    x = x + 2',
+    '  }',
+    '}',
+    'over 2 as i {',
+    '  decide()',
+    '}',
+    '',
+  ].join('\n');
+  const timelineSim = new MiniSim(compileOk(timelineSource).files);
+  timelineSim.reset();
+  timelineSim.step();
+  timelineSim.step();
+  assert.equal(timelineSim.getScore('#x'), 4, 'fn body instant if/else inside the timeline runs one branch per call');
+});
+
+test('regression: instant if/else inside a when press handler runs only the taken branch', () => {
+  const source = [
+    'state x = 0',
+    'state y = 0',
+    'when press {',
+    '  if x == 0 {',
+    '    x = 1',
+    '  } else {',
+    '    y = y + x + 1',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+  const sim = new MiniSim(compileOk(source).files);
+  sim.reset();
+  sim.step(); // tick 0: auto-start
+  sim.press();
+  sim.step(); // x == 0 -> true branch
+  assert.equal(sim.getScore('#x'), 1);
+  assert.equal(sim.getScore('#y'), 0);
+  sim.press();
+  sim.step(); // x != 0 -> else branch only: y = 0 + 1 + 1
+  assert.equal(sim.getScore('#x'), 1);
+  assert.equal(sim.getScore('#y'), 2);
+});
+
 
 test('semantics: now is #__tick and advances once per tick', () => {
   const source = 'tick {\n  if now == 2 {\n    say "two"\n  }\n}\n';

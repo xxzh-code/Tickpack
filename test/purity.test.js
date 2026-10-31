@@ -82,6 +82,15 @@ test('web shell keeps its platform access in shell modules, not in the session',
   // must be the only place that implements the host adapter.
   const host = readFileSync(fileURLToPath(new URL('../web/host-web.js', import.meta.url)), 'utf8');
   assert.match(host, /export function createWebHost/);
-  assert.match(host, /exportDatapack/);
-  assert.match(host, /copyText/);
+  for (const method of [
+    'exportDatapack',
+    'importTextFile',
+    'exportTextFile',
+    'copyText',
+    'storageGet',
+    'storageSet',
+    'storageRemove',
+  ]) {
+    assert.match(host, new RegExp(method), `host-web must implement ${method}`);
+  }
 });

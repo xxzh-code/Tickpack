@@ -105,8 +105,8 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       row.type = 'button';
       row.className = 'tree-row tree-file prelude-row' + (currentPath === '__prelude__' ? ' active' : '');
       row.dataset.path = '__prelude__';
-      row.title = 'standard library — read-only, prepended to every program';
-      row.innerHTML = '<span class="ext ext-txt">✦</span><span class="tname">prelude.tp</span><span class="ro">stdlib</span>';
+      row.title = '标准库 —— 只读，编译时会自动拼在程序前面';
+      row.innerHTML = '<span class="ext ext-txt">✦</span><span class="tname">prelude.tp</span><span class="ro">标准库</span>';
       row.addEventListener('click', () => viewFile('__prelude__'));
       frag.append(row);
       treeRows.push(row);
@@ -118,7 +118,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
 
     if (packMetaEl) {
       const count = Object.keys(files).length;
-      packMetaEl.textContent = count ? `${count} files` : '';
+      packMetaEl.textContent = count ? `${count} 个文件` : '';
     }
   }
 
@@ -138,7 +138,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
     else if (currentPath && files[currentPath] != null) text = String(files[currentPath]);
 
     if (!text) {
-      codeEl.innerHTML = '<div class="code-empty">select a file</div>';
+      codeEl.innerHTML = '<div class="code-empty">选择一个文件</div>';
       return;
     }
     const lines = text.split('\n');
@@ -197,7 +197,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       (exec.tick != null ? `<span class="exec-tick">t${exec.tick}</span>` : '') +
       (exec.sourceLine ? `<span class="exec-src">↳ main.tp:${exec.sourceLine}</span>` : '');
     execEl.title = exec.sourceLine
-      ? `${exec.file}:${exec.line} ← generated from main.tp line ${exec.sourceLine}`
+      ? `${exec.file}:${exec.line} ← 来自源码第 ${exec.sourceLine} 行`
       : `${exec.file}:${exec.line}`;
   }
 
@@ -258,8 +258,8 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
 
     setMeta(meta) {
       if (packMetaEl && meta) {
-        const states = meta.stateCount != null ? `${meta.stateCount} states` : '';
-        const fns = meta.functionCount != null ? `${meta.functionCount} fns` : '';
+        const states = meta.stateCount != null ? `${meta.stateCount} 个状态` : '';
+        const fns = meta.functionCount != null ? `${meta.functionCount} 个函数` : '';
         packMetaEl.textContent = [states, fns].filter(Boolean).join(' · ');
       }
     },
@@ -274,7 +274,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       currentPath = null;
       expanded.clear();
       renderTree();
-      codeEl.innerHTML = '<div class="code-empty">press ▶ Run to compile</div>';
+      codeEl.innerHTML = '<div class="code-empty">按「运行」编译</div>';
       pathEl.textContent = '—';
       pathEl.classList.remove('readonly');
       api.clearExecuting();
@@ -292,7 +292,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       } catch {
         delivered = false;
       }
-      copyBtn.textContent = delivered ? 'copied ✓' : 'copy failed';
+      copyBtn.textContent = delivered ? '已复制 ✓' : '复制失败';
       setTimeout(() => { copyBtn.textContent = 'copy'; }, 1200);
     });
   }

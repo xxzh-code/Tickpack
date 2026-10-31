@@ -136,9 +136,9 @@ export function createEditor({ textarea, highlight, gutter, diagEl, onChange, on
     diagEl.hidden = false;
     diagEl.innerHTML = diagnostics.map((d) => {
       const sev = d.severity === 'warning' ? 'warning' : 'error';
-      return `<button class="diag diag-${sev}" data-line="${d.line || 1}" title="jump to line ${d.line}">
+      return `<button class="diag diag-${sev}" data-line="${d.line || 1}" title="跳到第 ${d.line} 行">
         <span class="diag-line">${d.line != null ? d.line : '?'}</span>
-        <span class="diag-sev">${sev === 'warning' ? 'warn' : 'error'}</span>
+        <span class="diag-sev">${sev === 'warning' ? '警告' : '错误'}</span>
         <span class="diag-msg">${esc(d.message)}</span>
       </button>`;
     }).join('');

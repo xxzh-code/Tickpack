@@ -1,13 +1,15 @@
 // The block world: an unbounded top-down canvas with an auto-fitting camera,
-// manual pan/zoom, beveled block tiles, placement "pop" animation and particles.
-// Pure canvas 2D, no dependencies.
+// manual pan/zoom, flat block tiles, a restrained placement "pop" and particles.
+// Colours come from the active theme palette (web/theme.js) so light/dark both
+// look native; there are no gradients or glows in the world rendering.
 //
 // Camera = { cx, cz, span }: world centre and the number of world units across
 // the smaller canvas side. There is no board clamp — blocks may exist anywhere;
 // the 33x33 board is only drawn as a subtle reference frame.
 
-import { blockColor, isGlass, shade, withAlpha } from './blocks.js';
+import { blockColor, isGlass } from './blocks.js';
 import { clamp } from './util.js';
+import { CANVAS_THEMES } from './theme.js';
 
 const BOARD_LO = -16; // reference board: block coordinates -16 .. 16 inclusive
 const BOARD_HI = 17; // world-unit edge (block x occupies [x, x+1))
@@ -20,7 +22,7 @@ const FIT_MIN_SPAN = 12; // auto-fit never zooms in further than this
 const FIT_PADDING = 1.5; // blocks of padding around the content
 const FIT_GROW = 1.25; // refit while running after the content grows this much
 const FEW_BLOCKS = 8; // below this a run keeps the default 33x33 framing
-const POP_MS = 190;
+const POP_MS = 140;
 const PARTICLE_MS = 760;
 const CAM_EASE = 6.5;
 
@@ -57,6 +59,7 @@ export function createWorld(canvas, options = {}) {
   const cam = { ...DEFAULT_CAM };
   let camTarget = { ...DEFAULT_CAM };
   let lastNow = 0;
+  let palette = CANVAS_THEMES.dark;
 
   let autoFit = true; // follow the drawing
   let fitLocked = false; // debug query pinned the camera: never auto-fit
@@ -293,25 +296,11 @@ export function createWorld(canvas, options = {}) {
   }
 
   function drawBackdrop() {
-    ctx.save();
-    ctx.shadowColor = 'rgba(95, 232, 224, 0.18)';
-    ctx.shadowBlur = 26;
-    ctx.fillStyle = 'rgba(7, 11, 16, 0.72)';
-    roundRect(4, 4, w - 8, h - 8, 12);
-    ctx.fill();
-    ctx.restore();
-
-    const g = ctx.createLinearGradient(0, 0, w * 0.4, h);
-    g.addColorStop(0, 'rgba(20, 29, 39, 0.92)');
-    g.addColorStop(0.55, 'rgba(12, 18, 25, 0.95)');
-    g.addColorStop(1, 'rgba(9, 13, 19, 0.97)');
-    ctx.fillStyle = g;
-    roundRect(4, 4, w - 8, h - 8, 12);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(120, 160, 180, 0.14)';
+    ctx.fillStyle = palette.canvasBg;
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = palette.canvasEdge;
     ctx.lineWidth = 1;
-    roundRect(4.5, 4.5, w - 9, h - 9, 12);
-    ctx.stroke();
+    ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
   }
 
   function gridStepFor(cellPx) {
@@ -405,69 +394,118 @@ export function createWorld(canvas, options = {}) {
     ctx.stroke();
   }
 
-  function drawViewfinder() {
-    const br = Math.max(10, Math.min(24, cell * 1.4));
-    const insetX = 10;
-    const insetY = 10;
-    const farX = w - 10;
-    const farY = h - 10;
-    ctx.strokeStyle = 'rgba(95, 232, 224, 0.32)';
-    ctx.lineWidth = 1.5;
+  /** The whole visible plane, with a flat reference frame where the board is. */
+  function drawPlane() {
+    const r = visibleRange();
+
+    // board reference: flat tint + 1px outline, never a clip
+    const bx = wx2px(BOARD_LO);
+    const by = wz2py(BOARD_LO);
+    const bs = cell * BOARD_SIZE;
+    if (bx + bs > 0 && by + bs > 0 && bx < w && by < h) {
+      ctx.fillStyle = palette.boardFill;
+      ctx.fillRect(bx, by, bs, bs);
+      ctx.strokeStyle = palette.boardEdge;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(bx) + 0.5, Math.round(by) + 0.5, Math.round(bs), Math.round(bs));
+      if (bs > 130) {
+        ctx.font = '500 9px ui-monospace, Consolas, monospace';
+        ctx.fillStyle = palette.labelDim;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('33 × 33', bx + 6, by + 6);
+      }
+    }
+
+    // unbounded grid, stepping up as we zoom out
+    const step = gridStepFor(cell);
+    let gx0 = Math.ceil(r.x0 / step) * step;
+    let gx1 = Math.floor(r.x1 / step) * step;
+    let gz0 = Math.ceil(r.z0 / step) * step;
+    let gz1 = Math.floor(r.z1 / step) * step;
+    if ((gx1 - gx0) / step > 500) gx1 = gx0 + step * 500;
+    if ((gz1 - gz0) / step > 500) gz1 = gz0 + step * 500;
+
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(insetX, insetY + br); ctx.lineTo(insetX, insetY); ctx.lineTo(insetX + br, insetY);
-    ctx.moveTo(farX - br, insetY); ctx.lineTo(farX, insetY); ctx.lineTo(farX, insetY + br);
-    ctx.moveTo(insetX, farY - br); ctx.lineTo(insetX, farY); ctx.lineTo(insetX + br, farY);
-    ctx.moveTo(farX - br, farY); ctx.lineTo(farX, farY); ctx.lineTo(farX, farY - br);
+    for (let gx = gx0; gx <= gx1; gx += step) {
+      const x = Math.round(wx2px(gx)) + 0.5;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+    }
+    for (let gz = gz0; gz <= gz1; gz += step) {
+      const y = Math.round(wz2py(gz)) + 0.5;
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+    }
+    ctx.strokeStyle = palette.grid;
+    ctx.stroke();
+
+    // stronger lines on every 5th step
+    const major = step * 5;
+    ctx.beginPath();
+    for (let gx = Math.ceil(r.x0 / major) * major; gx <= r.x1; gx += major) {
+      const x = Math.round(wx2px(gx)) + 0.5;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+    }
+    for (let gz = Math.ceil(r.z0 / major) * major; gz <= r.z1; gz += major) {
+      const y = Math.round(wz2py(gz)) + 0.5;
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+    }
+    ctx.strokeStyle = palette.gridMajor;
+    ctx.stroke();
+
+    // axes through the world origin
+    ctx.strokeStyle = palette.axis;
+    ctx.beginPath();
+    if (0 >= r.x0 && 0 <= r.x1) {
+      const x = Math.round(wx2px(0)) + 0.5;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+    }
+    if (0 >= r.z0 && 0 <= r.z1) {
+      const y = Math.round(wz2py(0)) + 0.5;
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+    }
     ctx.stroke();
   }
 
   function drawTile(wx, wz, block, popStart, now) {
-    const name = block;
-    const color = blockColor(name);
-    const glass = isGlass(name);
+    const color = blockColor(block);
+    const glass = isGlass(block);
 
     let scale = 1;
     if (popStart != null) {
       const p = clamp((now - popStart) / POP_MS, 0, 1);
-      scale = 0.28 + 0.72 * easeOutBack(p);
+      scale = 0.4 + 0.6 * easeOutBack(p);
     }
 
     const cx0 = wx2px(wx + 0.5);
     const cy0 = wz2py(wz + 0.5);
     const s = cell * 0.84 * scale;
-    const r = Math.max(1.5, s * 0.2);
+    const r = Math.max(1.5, s * 0.16);
     const x = cx0 - s / 2;
     const y = cy0 - s / 2;
 
-    if (glass) ctx.globalAlpha = 0.55;
-
-    ctx.fillStyle = withAlpha(shade(color, -0.7), 0.85);
-    roundRect(x + s * 0.05, y + s * 0.08, s, s, r);
-    ctx.fill();
-
-    const g = ctx.createLinearGradient(x, y, x + s, y + s);
-    g.addColorStop(0, shade(color, 0.34));
-    g.addColorStop(0.42, color);
-    g.addColorStop(1, shade(color, -0.26));
-    ctx.fillStyle = g;
+    if (glass) ctx.globalAlpha = 0.5;
+    ctx.fillStyle = color;
     roundRect(x, y, s, s, r);
     ctx.fill();
 
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    roundRect(x + s * 0.13, y + s * 0.11, s * 0.74, s * 0.24, Math.max(1, r * 0.55));
-    ctx.fill();
+    // flat 1px top highlight strip (no gradients)
+    if (s >= 6) {
+      ctx.fillStyle = palette.tileGloss;
+      ctx.fillRect(x + r, y + Math.max(1, s * 0.08), Math.max(1, s - r * 2), Math.max(1, s * 0.14));
+    }
 
-    ctx.strokeStyle = withAlpha(shade(color, -0.5), glass ? 0.5 : 0.85);
+    ctx.strokeStyle = palette.tileEdge;
     ctx.lineWidth = 1;
     roundRect(x + 0.5, y + 0.5, Math.max(1, s - 1), Math.max(1, s - 1), r);
     ctx.stroke();
-
-    if (glass) {
-      ctx.strokeStyle = 'rgba(235, 250, 255, 0.65)';
-      roundRect(x + 0.75, y + 0.75, Math.max(1, s - 1.5), Math.max(1, s - 1.5), r);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
+    if (glass) ctx.globalAlpha = 1;
   }
 
   function drawBlocks(now) {
@@ -496,64 +534,32 @@ export function createWorld(canvas, options = {}) {
         continue;
       }
       const t = age / PARTICLE_MS;
-      const alpha = Math.pow(1 - t, 1.5);
-      const px = wx2px(p.x) + Math.sin(p.seed * 9.1) * cell * 0.55 * t;
-      const py = wz2py(p.z) + Math.cos(p.seed * 5.3) * cell * 0.55 * t - t * cell * 1.2;
-      const rad = Math.max(0.7, cell * (0.12 + 0.3 * t) * (0.7 + p.seed * 0.5));
-
-      ctx.save();
+      const alpha = Math.pow(1 - t, 1.4);
+      const px = wx2px(p.x) + Math.sin(p.seed * 9.1) * cell * 0.5 * t;
+      const py = wz2py(p.z) + Math.cos(p.seed * 5.3) * cell * 0.5 * t - t * cell * 1.1;
+      const size = Math.max(1.5, cell * 0.2 * (1 - t * 0.5));
       ctx.globalAlpha = alpha;
-      const g = ctx.createRadialGradient(px, py, 0, px, py, rad * 3.2);
-      g.addColorStop(0, 'rgba(255, 240, 190, 0.95)');
-      g.addColorStop(0.45, 'rgba(246, 211, 60, 0.55)');
-      g.addColorStop(1, 'rgba(246, 211, 60, 0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(px, py, rad * 3.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = 'rgba(255, 252, 235, 0.95)';
-      ctx.lineWidth = Math.max(1, cell * 0.07);
-      ctx.beginPath();
-      ctx.moveTo(px - rad, py); ctx.lineTo(px + rad, py);
-      ctx.moveTo(px, py - rad); ctx.lineTo(px, py + rad);
-      ctx.stroke();
-      ctx.restore();
+      ctx.fillStyle = palette.particle;
+      ctx.fillRect(px - size / 2, py - size / 2, size, size);
     }
+    ctx.globalAlpha = 1;
   }
 
-  function drawPen(now) {
+  function drawPen() {
     if (!hasPen) return;
     const px = wx2px(pen.x);
     const py = wz2py(pen.z);
-    const pulse = 0.5 + 0.5 * Math.sin(now / 320);
-
-    const glowR = Math.max(6, cell * (2.4 + pulse * 0.5));
-    const g = ctx.createRadialGradient(px, py, 0, px, py, glowR);
-    g.addColorStop(0, `rgba(95, 232, 224, ${0.26 + pulse * 0.08})`);
-    g.addColorStop(0.55, 'rgba(95, 232, 224, 0.09)');
-    g.addColorStop(1, 'rgba(95, 232, 224, 0)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(px, py, glowR, 0, Math.PI * 2);
-    ctx.fill();
 
     if (cell < 2.4) {
-      // zoomed far out: a bright marker dot is more readable than an arrow
-      ctx.fillStyle = '#eafffd';
+      // zoomed far out: a solid marker dot is more readable than an arrow
+      ctx.fillStyle = palette.pen;
       ctx.beginPath();
-      ctx.arc(px, py, Math.max(2, cell * 0.9), 0, Math.PI * 2);
+      ctx.arc(px, py, Math.max(2.2, cell * 0.9), 0, Math.PI * 2);
       ctx.fill();
       return;
     }
 
-    ctx.strokeStyle = `rgba(95, 232, 224, ${0.32 + pulse * 0.2})`;
-    ctx.lineWidth = Math.max(1, cell * 0.08);
-    ctx.beginPath();
-    ctx.arc(px, py, cell * 0.64, 0, Math.PI * 2);
-    ctx.stroke();
-
-    const r = cell * 0.6;
+    const r = cell * 0.58;
     ctx.save();
     ctx.translate(px, py);
     ctx.rotate(((pen.yaw || 0) * Math.PI) / 180);
@@ -563,32 +569,24 @@ export function createWorld(canvas, options = {}) {
     ctx.lineTo(0, -r * 0.34);
     ctx.lineTo(r * 0.78, -r * 0.82);
     ctx.closePath();
-    ctx.fillStyle = '#f2fbff';
-    ctx.shadowColor = 'rgba(95, 232, 224, 0.9)';
-    ctx.shadowBlur = Math.min(30, cell * 0.9);
+    ctx.fillStyle = palette.pen;
     ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(5, 22, 28, 0.85)';
-    ctx.lineWidth = Math.max(0.8, cell * 0.06);
+    ctx.strokeStyle = palette.penInk;
+    ctx.lineWidth = Math.max(1, cell * 0.05);
     ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(0, r * 0.9, Math.max(0.8, cell * 0.07), 0, Math.PI * 2);
-    ctx.fillStyle = '#5fe8e0';
-    ctx.fill();
     ctx.restore();
   }
 
   function drawCornerLabels() {
     ctx.save();
     ctx.font = '500 10px ui-monospace, Consolas, monospace';
-    ctx.fillStyle = 'rgba(124, 139, 158, 0.75)';
+    ctx.fillStyle = palette.label;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(`elapsed ${tick}`, 13, h - 10);
+    ctx.fillText(`已运行 ${tick}`, 10, h - 8);
     ctx.textAlign = 'right';
-    ctx.fillStyle = 'rgba(124, 139, 158, 0.45)';
-    ctx.fillText(`y=0 · ×${formatZoom(BOARD_SIZE / cam.span)}`, w - 13, h - 10);
+    ctx.fillStyle = palette.labelDim;
+    ctx.fillText(`y=0 · ×${formatZoom(BOARD_SIZE / cam.span)}`, w - 10, h - 8);
     ctx.restore();
   }
 
@@ -676,6 +674,11 @@ export function createWorld(canvas, options = {}) {
       tick = n | 0;
     },
 
+    /** Switch the flat canvas palette with the UI theme ('light' | 'dark'). */
+    setTheme(name) {
+      palette = CANVAS_THEMES[name === 'light' ? 'light' : 'dark'] || CANVAS_THEMES.dark;
+    },
+
     /** Debounced re-fit; used when a run pauses/finishes or the timeline is scrubbed. */
     requestFit,
 
@@ -729,7 +732,6 @@ export function createWorld(canvas, options = {}) {
       drawBlocks(now);
       drawParticles(now);
       drawPen(now);
-      drawViewfinder();
       drawCornerLabels();
       reportCamera();
 

@@ -12,8 +12,8 @@
 | **核心** | `src/session.js` | 一次运行的语义：compile → 模拟器 → 每 tick 快照 → seek/回放 → 完成判定 → trace→源码行映射 → 导出包 | **不知道窗口、文件、下载、localStorage 是什么** |
 | **核心** | `src/zip.js` | 纯字节进出：文件表 → zip | 纯 |
 | **核心** | `src/samples.js` / `src/api.js` | 示例数据；核心对外的唯一门面 | `api.js` 是外壳 import 核心的唯一入口 |
-| **外壳** | `web/**`（app/boot/editor/world/datapack/timeline/blocks/util/host-web） | DOM、Canvas、事件、rAF/speed、URL 查询参数、渲染 | 可以碰 `window/document/navigator` |
-| **外壳** | `web/host-web.js` | 平台副作用的唯一实现：下载 zip、写剪贴板 | 未来桌面端/CLI 换一个实现，`app.js` 不变 |
+| **外壳** | `web/**`（app/boot/editor/world/datapack/timeline/blocks/util/theme/layout/host-web） | DOM、Canvas、事件、rAF/speed、URL 查询参数、主题、标签页/分栏、渲染 | 可以碰 `window/document/navigator` |
+| **外壳** | `web/host-web.js` | 平台副作用的唯一实现：下载/导入文件、写剪贴板、偏好持久化 | 未来桌面端/CLI 换一个实现，`app.js`/`layout.js` 不变 |
 | **外壳** | `server.mjs`、`scripts/*.mjs` | 静态服务器；CLI：打印/打包数据包到磁盘 | Node 专属，注入平台能力 |
 | **测试** | `test/**` | 核心验收标准 + 边界守卫 | 见下 |
 
@@ -42,7 +42,7 @@
   它们天然与 Canvas/DOM 绑定，且换平台也大概率要重写渲染层，抽出去只会多一层转发。
 - `web/boot.js` 与 URL 查询参数（`?src/?sample/?auto/?t`）：平台入口，放外壳正好。
 - `server.mjs`、`scripts/pack.mjs`、`scripts/dump.mjs`：Node 外壳已各自完成平台工作。
-- 持久化 / 文件打开 / 分享链接目前**还没有**；等真做的时候按下面的 host 契约加方法，不提前发明扩展点。
+- 分享链接、桌面菜单、文件关联还没有；等真做的时候按下面的 host 契约加方法，不提前发明扩展点。
 
 ## 外壳层窄接口（Host contract）
 
@@ -54,19 +54,25 @@ export function createWebHost() {
   return {
     // bundle = session.exportBundle() -> { filename, files, zip: Uint8Array }
     // 浏览器：Blob + <a download>；桌面端：写目录；CLI：fs.writeFile
-    exportDatapack(bundle) {}, // -> Promise<string>（实际交付的文件名）
+    exportDatapack(bundle) {},                  // -> Promise<string>（实际交付的文件名）
+    // 打开 .tp：浏览器 File System Access API / <input type=file>；桌面端：原生打开对话框
+    importTextFile({ accept }) {},              // -> Promise<{name,text}|null>（取消为 null）
+    // 保存 .tp：浏览器 Blob 下载；桌面端：写文件
+    exportTextFile({ filename, text, mime }) {},// -> Promise<string>
     // 浏览器：navigator.clipboard（带退化路径）；桌面端：系统剪贴板
-    copyText(text) {},        // -> Promise<boolean>
-    canExport: true,
+    copyText(text) {},                          // -> Promise<boolean>
+    // 偏好持久化（主题/布局）：浏览器 localStorage；桌面端：配置文件
+    storageGet(key) {}, storageSet(key, value) {}, storageRemove(key) {},
+    canExport: true, canImport: true, canPersist: true, // 能力标志，UI 据此隐藏不可用按钮
   };
 }
 ```
 
 现有 CLI 的等价实现就是 `scripts/pack.mjs`（`fs.writeFileSync` 到 `dist/`），
-它不需要 DOM，也不经过 `host-web.js`——这正是接口存在的意义：同一个 bundle，不同落盘方式。
+它不需要 DOM，也不经过 `host-web.js`——这正是接口存在的意义：同一份数据，不同落盘方式。
 
-如果以后要加「打开/保存源码」「分享链接」「持久化」，在 host 上加方法并在对应外壳实现，
-**不要**在 `src/**` 里写 `if (isElectron)` / `if (isWeb)`。
+`web/app.js`、`web/layout.js` 等业务外壳不直接碰 `localStorage` / `<input type=file>` /
+`URL.createObjectURL`，一律走 host。
 
 ## 边界守卫（自动化）
 
@@ -89,7 +95,7 @@ export function createWebHost() {
   `test/session.test.js`（核心会话：tick/快照/seek/完成规则/导出包）、
   `test/zip.test.js`、`test/purity.test.js`。
 - 外壳（网页）用截图 + 手工玩验证；不把 DOM 细节写进核心测试。
-- 当前：**139 个测试全绿**（`npm test`）。
+- 当前：**145 个测试全绿**（`npm test`）。
 
 ## 现在需要重写吗？
 

@@ -1,83 +1,82 @@
-# Tickpack v0.1 — Language & Runtime Spec
+# Tickpack v0.1 — 语言与运行时规范
 
-Status: **frozen for slice 1**. If an implementation detail is unclear, ask the Lead;
-do not silently change semantics.
+状态：**已在 slice 1 冻结**。如果某个实现细节不清楚，去问 Lead；
+不要悄悄改语义。
 
-Tickpack is a tiny language that compiles to a real Minecraft datapack.
-The point of the language: **control flow is temporal by default.**
-A `over` loop spends one tick per iteration; state lives in scoreboards;
-the compiled program is a state machine that is resumed once per tick.
+Tickpack 是一门很小的语言，最终编译成真正的 Minecraft 数据包。
+这门语言的重点在于：**控制流默认是跨时间的。**
+一次 `over` 循环每次迭代消耗一个 tick；状态活在记分板上；
+编译产物是一个每 tick 恢复一次的状态机。
 
-## 1. Source language
+## 1. 源语言
 
-Line-oriented, braces for blocks, `#` starts a comment (outside strings).
-Indentation is irrelevant. Statements are terminated by newline.
+按行组织，用花括号表示块，`#` 开始注释（字符串之外）。
+缩进不影响语义。语句以换行结束。
 
-### 1.1 Declarations (top level only)
-
-```
-state x = 0                     # integer state -> scoreboard #x on objective `tp`
-fn walk() { ... }               # instant function, compiled to a mcfunction
-fn turn(deg) { ... }            # constant-parameter macro function (see 1.6)
-tick { ... }                    # runs at the start of every tick (instant code only)
-when press { ... }              # runs once per host "press" input (instant code only)
-```
-
-- `state` initial value is an integer literal. States are global; `x` in an
-  expression reads `#x` on objective `tp`.
-- `now` is a built-in expression: the number of ticks elapsed so far (starts at 0).
-- User state/loop/fn names must match `[A-Za-z_][A-Za-z0-9_]*`. Names starting
-  with `__` are reserved for the compiler.
-- Duplicate state names, duplicate fn names, unknown names => compile error.
-
-### 1.2 Timeline statements (top level, and inside `if` / `over` bodies)
-
-These run as the **main timeline**: the program starts at tick 0 and is resumed
-once per tick.
+### 1.1 声明（仅顶层）
 
 ```
-over 8 as i { ... }             # temporal loop: body executes once per tick, i = 0..7
-wait 5                          # suspend the timeline for 5 ticks
-if cond { ... } else { ... }    # branch (branches may contain temporal statements)
-say "text"                      # raw /say (strings only, no interpolation)
-run <raw command>               # inject a vanilla command verbatim (rest of the line)
-x = expr                        # assign to state
-walk()                          # call a fn (instant)
-name(arg1, arg2)                # call a macro fn
-brush(gold_block)               # set the runtime brush (see 1.7)
-paint                           # paint the current brush block at the pen
+state x = 0                     # 整数状态 -> 记分板 tp 上的 #x
+fn walk() { ... }               # 即时函数，编译成一个 mcfunction
+fn turn(deg) { ... }            # 常量参数宏函数（见 1.6）
+tick { ... }                    # 每个 tick 开始时运行（只允许即时代码）
+when press { ... }              # 每次宿主 "press" 输入运行一次（只允许即时代码）
 ```
 
-`over` semantics: iteration `k` (starting at 0) **starts on a new tick**; a body
-made only of instant statements costs exactly one tick per iteration. The
-statement after the loop starts on the tick after the last iteration finished.
-Nesting is allowed.
+- `state` 的初始值是一个整数字面量。状态是全局的；表达式里的 `x`
+  读的是记分板 `tp` 上的 `#x`。
+- `now` 是内置表达式：到目前为止经过的 tick 数（从 0 开始）。
+- 用户的状态/循环/fn 名字必须匹配 `[A-Za-z_][A-Za-z0-9_]*`。以 `__`
+  开头的名字保留给编译器。
+- 重名状态、重名 fn、未知名字 => 编译错误。
 
-`wait N` costs exactly N ticks; N may be 0 (equivalent to "resume next tick";
-in the emitted machine `wait 0` and `wait 1` both resume on the following tick,
-because the yield + post-dispatch decrement are 1-based).
+### 1.2 时间线语句（顶层，以及 `if` / `over` 体内）
 
-`if/else` branches may contain `over`/`wait`; the timeline state machine handles
-both branches uniformly.
+这些语句跑在**主时间线**上：程序从 tick 0 开始，每 tick 恢复一次。
 
-### 1.3 Instant statements (inside `fn`, `tick`, `when`, and also usable anywhere)
+```
+over 8 as i { ... }             # 时间线循环：循环体每 tick 执行一次，i = 0..7
+wait 5                          # 让时间线挂起 5 个 tick
+if cond { ... } else { ... }    # 分支（两个分支都可以包含跨时间的语句）
+say "text"                      # 原样发送 /say（只支持字符串，不做插值）
+run <raw command>               # 原样注入一条原版命令（本行剩余内容）
+x = expr                        # 给状态赋值
+walk()                          # 调用一个 fn（即时）
+name(arg1, arg2)                # 调用一个宏 fn
+brush(gold_block)               # 设置运行时画笔（见 1.7）
+paint                           # 在笔尖处绘制当前画笔的方块
+```
+
+`over` 的语义：迭代 `k`（从 0 开始）**在一个新的 tick 上开始**；
+一个只由即时语句组成的循环体，每次迭代恰好消耗一个 tick。
+循环之后的语句，在最后一次迭代结束后的那个 tick 开始执行。
+允许嵌套。
+
+`wait N` 恰好消耗 N 个 tick；N 可以是 0（等价于“下一个 tick 恢复”；
+在实际生成的机器里，`wait 0` 和 `wait 1` 都会在下一个 tick 恢复，
+因为 yield 之后、dispatch 之后的递减是按 1 为基准的）。
+
+`if/else` 的两个分支都可以包含 `over`/`wait`；时间线状态机会统一处理
+两个分支。
+
+### 1.3 即时语句（`fn`、`tick`、`when` 内，也可以用在任何地方）
 
 ```
 x = expr
 say "text"
 run <raw command>
 fnCall(...)
-brush(gold_block)               # set the runtime brush (see 1.7)
-paint                           # paint the current brush block at the pen
-if cond { ... } else { ... }    # branches must be instant-only
+brush(gold_block)               # 设置运行时画笔（见 1.7）
+paint                           # 在笔尖处绘制当前画笔的方块
+if cond { ... } else { ... }    # 两个分支只能是即时代码
 ```
 
-**Hard rule:** `fn`, `tick` and `when` bodies may not contain `over` or `wait`.
-Those are timeline-only. Attempting it is a compile error
-("… spans time; move it to the timeline"). This keeps functions plain
-mcfunction files and makes the tick/time split explicit.
+**硬性规则：**`fn`、`tick` 和 `when` 的函数体里不能包含 `over` 或 `wait`。
+它们只属于时间线。尝试这样做是编译错误
+（"… spans time; move it to the timeline"）。这条规则让函数保持为普通的
+mcfunction 文件，也让「tick / 时间」的分界保持清晰。
 
-### 1.4 Expressions
+### 1.4 表达式
 
 ```
 expr   := or
@@ -90,49 +89,49 @@ unary  := ('-'|'not') unary | atom
 atom   := INT | 'now' | IDENT | '$' PARAM | '(' expr ')'
 ```
 
-- Integers only (scoreboards are 32-bit ints). Division/modulo by zero => 0.
-- Comparison yields 0/1. `and`/`or`/`not` operate on the 0/1 values
-  (`a and b` = 1 iff both nonzero).
-- In `if`, a condition is true when the value is nonzero.
-- Function calls are statements only, never expressions (v0.1).
+- 只支持整数（记分板是 32 位整数）。除以/模以零 => 0。
+- 比较的结果是 0/1。`and`/`or`/`not` 基于 0/1 值运算
+  （`a and b` 当且仅当两者都非零时为 1）。
+- 在 `if` 中，条件值非零即为真。
+- 函数调用只能作为语句，不能出现在表达式里（v0.1）。
 
-### 1.5 `run` lines
+### 1.5 `run` 行
 
-The text after `run` is a vanilla command, passed through verbatim
-(a trailing `# comment` is stripped). It is executed where it appears:
-inside a timeline state, inside a fn, inside a tick block. No interpolation
-except macro parameters (1.6).
+`run` 之后的文本是一条原版命令，会原样传递
+（行尾的 `# 注释` 会被去掉）。它在出现的位置执行：
+时间线状态里、fn 里、tick 块里。除了宏参数（1.6）之外不做任何插值。
 
-### 1.6 Constant-parameter macro functions
+### 1.6 常量参数宏函数
 
-`fn turn(deg) { run ... ~$deg ~ }` — parameters are **compile-time constants**.
-Arguments must be integer literals or bare identifiers (e.g. `gold_block`).
-At the call site the compiler substitutes each `$param` occurrence in `run`
-lines with the argument's source text. Integer params may also be used in
-expressions as literals (`x = $deg * 2`).
+`fn turn(deg) { run ... ~$deg ~ }` —— 参数是**编译期常量**。
+实参必须是整数字面量或裸标识符（例如 `gold_block`）。
+在调用点，编译器会把 `run` 行里每个 `$param` 替换成实参的源文本。
+整数参数也可以在表达式里当字面量使用（`x = $deg * 2`）。
 
-- Macro expansion is recursive (fn A may call fn B), cycles are compile errors.
-- A parameter used in an expression that receives an identifier argument is an
-  error.
-- `$unknown` inside a fn body is an error.
-- Calls are statements, not expressions.
+- 宏展开是递归的（fn A 可以调用 fn B），出现环是编译错误。
+- 一个参数如果用在表达式里，却收到了标识符实参，是错误。
+- fn 体内出现 `$unknown` 是错误。
+- 调用是语句，不是表达式。
+- 为了方便组合，宏参数也可以作为实参传给另一个宏函数
+  （如 `fn quad(b) { plot($b) }`）；普通实参仍然只允许整数字面量或
+  裸标识符。
 
-### 1.7 Brush and paint (runtime block palette)
+### 1.7 画笔与 paint（运行时方块调色板）
 
-`brush` and `paint` are **compiler builtins**, not prelude functions, so a block
-name can be validated and mapped to a palette index at compile time.
+`brush` 和 `paint` 是**编译器内置**，不是 prelude 函数；这样方块名才能
+在编译期被校验并映射成调色板序号。
 
-- `brush(<bare block id>)` — sets the runtime brush: `scoreboard players set
-  #__brush tp <index>`. Valid anywhere an instant statement is valid (timeline,
-  `fn`, `tick`, `when`). `brush` takes a literal block id, not a `$param`.
-  A block outside the palette is a compile error that lists the palette.
-- `paint` (also `paint()`) — paints the current brush block at the pen. Compiles
-  to `function tp:fn/paint`, a generated dispatch over the palette.
-- `brush` and `paint` are reserved names: user states/fns may not shadow them.
+- `brush(<裸方块 id>)` —— 设置运行时画笔：`scoreboard players set
+  #__brush tp <index>`。任何可以写即时语句的地方都可以用（时间线、
+  `fn`、`tick`、`when`）。`brush` 只接受字面量方块 id，不接受 `$param`。
+  传入调色板之外的方块是编译错误，错误信息会列出整个调色板。
+- `paint`（也接受 `paint()`）—— 在笔尖处绘制当前画笔的方块。编译成
+  `function tp:fn/paint`，即一个针对调色板生成的 dispatch 函数。
+- `brush` 和 `paint` 是保留名：用户的状态/fn 不能和它们重名。
 
-Palette (fixed order = `#__brush` index):
+调色板（固定顺序 = `#__brush` 的序号）：
 
-| idx | block | idx | block |
+| 序号 | 方块 | 序号 | 方块 |
 | --- | --- | --- | --- |
 | 0 | stone | 6 | coal_block |
 | 1 | gold_block | 7 | glowstone |
@@ -141,164 +140,172 @@ Palette (fixed order = `#__brush` index):
 | 4 | lapis_block | 10 | oak_planks |
 | 5 | diamond_block | 11 | glass |
 
-The palette also exists in-game: `/function tp:brush/<block>` selects one,
-`/function tp:brush/next` cycles (wraps at 12). The brush is runtime state, so
-changing it while a program is running changes the following `paint`s; a
-`brush(...)` statement in the program overwrites it. `tp:start` / `tp:start_at`
-rewind `#__brush` to 0 (stone).
+这个调色板在游戏里同样存在：`/function tp:brush/<block>` 选择一种，
+`/function tp:brush/next` 循环切换（到 12 后绕回 0）。画笔是运行时状态，
+所以程序运行中改画笔会影响之后的 `paint`；程序里的 `brush(...)` 语句会
+覆盖它。`tp:start` / `tp:start_at` 会把 `#__brush` 重置回 0（stone）。
 
-## 2. Compilation model
+## 2. 编译模型
 
-### 2.1 Scoreboard layout
+### 2.1 记分板布局
 
-One objective: **`tp`** (dummy). Fake players:
+只有一个 objective：**`tp`**（dummy）。假玩家（fake player）：
 
-| name | meaning |
+| 名字 | 含义 |
 | --- | --- |
-| `#__tick` | ticks elapsed (`now`) |
-| `#__pc` | main timeline program counter (state id); `-1` = finished |
-| `#__sleep` | ticks left to sleep before dispatching again |
-| `#__started` | 0 = waiting for a player, 1 = running (set by `tp:start`) |
-| `#__paused` | 1 = explicitly paused via `tp:stop` (suppresses the auto-start gate); cleared by `tp:start` / `tp:start_at` |
-| `#__brush` | runtime brush palette index (0..11, see 1.7) |
-| `#__press` | host input: incremented by the simulator on each press |
-| `#__pressSeen` | last press count consumed by the event handler |
-| `#__a` | press delta / scratch |
-| `#__b` | dispatch latch (see 2.3) |
-| `#__t0`..`#__t9` | expression temporaries (compiler may use more) |
-| `#<state>` | user state variable |
-| `#__i<k>` | loop index of the k-th `over` loop (unique per loop) |
+| `#__tick` | 已经过的 tick 数（`now`） |
+| `#__pc` | 主时间线程序计数器（状态 id）；`-1` = 已结束 |
+| `#__sleep` | 距离下次 dispatch 还要睡的 tick 数 |
+| `#__started` | 0 = 等待玩家，1 = 运行中（由 `tp:start` 设置） |
+| `#__paused` | 1 = 通过 `tp:stop` 显式暂停（用于压制自动启动门）；由 `tp:start` / `tp:start_at` 清零 |
+| `#__brush` | 运行时画笔的调色板序号（0..11，见 1.7） |
+| `#__press` | 宿主输入：模拟器每次按下时自增 |
+| `#__pressSeen` | 事件处理器已经消费到的 press 计数 |
+| `#__a` | press 差值 / 临时草稿 |
+| `#__b` | dispatch/分支闩锁（见 2.3） |
+| `#__t0`..`#__t9` | 表达式临时变量（编译器可能会用更多） |
+| `#<state>` | 用户状态变量 |
+| `#__i<k>` | 第 k 个 `over` 循环的循环下标（每个循环唯一） |
 
-All values are signed 32-bit integers.
+所有值都是有符号 32 位整数。
 
-### 2.2 Tick order (`tp:tick`, registered in `minecraft/tags/function/tick.json`)
+### 2.2 tick 顺序（`tp:tick`，注册在 `minecraft/tags/function/tick.json`）
 
-`tp:tick` is a thin gate; the real work is `tp:tick/body`.
+`tp:tick` 本身只是一层薄门；真正的工作在 `tp:tick/body`。
 
-0. **anchor & start**: if `#__started == 0`, `#__paused == 0` and a player exists
-   (`if entity @a`), call `tp:start` (kills the old pen, summons it under the nearest
-   player's feet, rewinds the whole run, says one chat line, sets `#__started = 1`).
-   The body then runs in the same tick, so state 0 executes on the tick the player is
-   detected. `tp:stop` sets `#__started = 0` + `#__paused = 1`, so an explicit pause is
-   not undone by this gate; `tp:start` clears the pause again.
-1. user `tick {}` blocks, in source order
-2. `when press` handlers (guarded by press counter delta)
-3. timeline dispatch, only if `#__sleep == 0`
-4. if `#__sleep >= 1`: `#__sleep -= 1`
+0. **锚定并启动**：如果 `#__started == 0`、`#__paused == 0` 且世界里存在
+   玩家（`if entity @a`），调用 `tp:start`（杀掉旧笔、在最近玩家脚下召唤
+   新笔、重绕整次运行、打印一行聊天、设置 `#__started = 1`）。
+   随后 body 会在同一个 tick 里运行，所以状态 0 就在检测到玩家的那个
+   tick 上执行。`tp:stop` 会设置 `#__started = 0` + `#__paused = 1`，因此
+   显式暂停不会被这个门覆盖；再次 `tp:start` 会清掉暂停。
+1. 用户 `tick {}` 块，按源码顺序
+2. `when press` 处理器（用 press 计数的差值做保护）
+3. 时间线 dispatch，仅当 `#__sleep == 0`
+4. 如果 `#__sleep >= 1`：`#__sleep -= 1`
 5. `#__tick += 1`
 
-Steps 1–5 only run while `#__started == 1`. Order matters and is part of the
-observable behavior. The pack deliberately does nothing before a player exists —
-in a real world the timeline would otherwise finish during world load, off-screen.
+步骤 1–5 只在 `#__started == 1` 时运行。顺序很重要，是可观察行为的一部分。
+数据包在玩家出现之前会刻意什么都不做——在真实世界里，否则时间线会在
+世界加载期间、在玩家看不到的地方就跑完。
 
-### 2.3 Timeline state machine
+### 2.3 时间线状态机
 
-Each state is one function `tp:main/s<id>`. A state contains a straight-line
-sequence of commands and ends in exactly one of:
+每个状态是一个函数 `tp:main/s<id>`。一个状态包含一段直线排列的命令，
+并且以恰好以下三种方式之一结束：
 
-- **chain**: set `#__pc` to the next state id and `function` it;
-- **yield**: set `#__sleep` (>= 1) and `#__pc` to the state to resume, then return;
-- **finish**: set `#__pc` to `-1`, return.
+- **chain**：把 `#__pc` 设为下一个状态 id，并用 `function` 调用它；
+- **yield**：把 `#__sleep` 设为 >= 1、`#__pc` 设为要恢复的状态，然后返回；
+- **finish**：把 `#__pc` 设为 `-1`，返回。
 
-`tp:main/dispatch` contains one line per state:
-`execute if score #__pc tp matches <id> if score #__b tp matches 1 run function tp:main/s<id>`.
-`tp:tick` calls dispatch only when `#__sleep == 0`.
+`tp:main/dispatch` 里每个状态一行：
+`execute if score #__b tp matches 1 if score #__pc tp matches <id> run function tp:main/s<id>`。
+`tp:tick` 只在 `#__sleep == 0` 时调用 dispatch。
 
-**Implementation note (dispatch latch).** The naive form
-`execute if score #__pc tp matches <id> run function tp:main/s<id>` is *wrong*
-in real Minecraft (and in the simulator): a function's lines run sequentially,
-and a state mutates `#__pc` before dispatch returns, so a later line of the same
-dispatch function would run a second state in the same tick. The compiler
-therefore emits a latch: dispatch sets `#__b = 1` once, and every state / branch
-decision function clears `#__b = 0` on entry. Every dispatch line is guarded by
-`if score #__b tp matches 1`. Observable semantics are exactly §2.2/§2.3 —
-one state transition per tick, one `over` iteration per tick — only the guard
-shape differs. (`#__b` is a reserved compiler score; `#__a` holds the press delta.)
+**实现注记（dispatch 闩锁）。** 天真写法
+`execute if score #__pc tp matches <id> run function tp:main/s<id>` 在真实的
+Minecraft（以及模拟器）里是*错的*：一个函数里的行是按顺序执行的，而状态
+会在 dispatch 返回之前修改 `#__pc`，于是同一个 dispatch 函数的后面几行会
+在同一个 tick 里再跑一个状态。因此编译器会生成一个闩锁：dispatch 先把
+`#__b = 1` 设置一次，每个状态 / 分支判定函数在进入时把 `#__b = 0` 清掉。
+每一行 dispatch 都带有 `if score #__b tp matches 1` 的保护。可观察语义与
+§2.2/§2.3 完全一致——每 tick 一次状态转移、`over` 每 tick 一次迭代——
+只是保护条件的形状不同。（`#__b` 是编译器保留的记分板项；`#__a` 存
+press 差值。）
 
-Canonical lowering of `over N as i { body }` (ids are illustrative):
+`over N as i { body }` 的规范化 lowering（id 只是示意）：
 
 ```
 init   : set #__i 0; pc=next; call next
-head   : if #__i matches 0..N-1 -> body entry, else -> after   (via execute if/unless)
+head   : if #__i matches 0..N-1 -> body entry, else -> after   (通过 execute if/unless)
 body...: ...
-after body: #__i += 1; sleep=1; pc=head; return        # yields exactly one tick
+after body: #__i += 1; sleep=1; pc=head; return        # 恰好让出一个 tick
 after  : continue with the following statement
 ```
 
-Canonical lowering of `wait N`:
-`#__sleep = N; pc = resume-state; return`.
+`wait N` 的规范化 lowering：
+`#__sleep = N; pc = resume-state; return`。
 
-Canonical lowering of `if c { A } else { B }`:
-evaluate c into a temp, then
-`execute if score #__t0 tp matches 1.. run function <A entry>` and
-`execute if score #__t0 tp matches ..0 run function <B entry>` (0 = false).
-Both branch entries chain to the join state. A missing `else` gets an empty
-branch that jumps to the join. This works for both instant and temporal branches.
+`if c { A } else { B }` 的规范化 lowering：先把 c 求值进临时记分板 `<tmp>`，
+然后执行两条命令：`execute if score #__b tp matches 1 if score <tmp> tp matches 0
+run function <B entry>`（0 = 假）以及 `execute if score #__b tp matches 1 unless
+score <tmp> tp matches 0 run function <A entry>`（开头的 `#__b` 是分支闩锁，
+理由同上面的实现注记：第一个分支执行时会把它清掉，第二行就不会重复进入）。
+两个分支入口最后都 chain 到 join 状态。缺少 `else` 时，假分支直接指向 join。
+即时分支和时间线分支都适用。
 
-### 2.4 Instant code lowering
+### 2.4 即时代码 lowering
 
-Sequences of instant statements become straight-line functions.
-`if` inside instant code lowers to `execute if score ... run function tp:snippet/<id>`
-for each branch (snippets chain back by simply returning).
-Expressions compile to temp scores:
+一段段即时语句会变成直线排列的函数。
+即时代码里的 `if` 降级成 `tp:snippet/<id>` 分支函数：只有一个分支时是一行
+`execute if/unless score <条件值> matches 0 run function tp:snippet/<id>`；
+两个分支都存在时，两行调用前会先 `scoreboard players set #__b tp 1`，两行都
+带上 `if score #__b tp matches 1` 保护，并且 snippet 进入时把 `#__b` 清 0——
+这样先执行的分支即使改写了条件用的 `#__t*` 临时变量，后面的行也不会再触发
+另一个分支。snippet 结束时直接返回，就回到了调用点。
+表达式会编译成临时记分板：
 
-- literal `n` -> `scoreboard players set #__t0 tp n`
-- var `x` -> `scoreboard players operation #__t0 tp = #x tp`
-- `a + b` -> eval a into t0, b into t1, `operation #__t0 tp += #__t1 tp`
-- comparisons: subtract then `execute if score <tmp> tp matches <range> run
-  scoreboard players set <dst> tp 1` (dst preset to 0)
-- assignment to a var: eval into temp, then `operation #<var> tp = #__t<tmp>`
+- 字面量 `n` -> `scoreboard players set #__t0 tp n`
+- 变量 `x` -> `scoreboard players operation #__t0 tp = #x tp`
+- `a + b` -> 先把 a、b 分别求值到 t0、t1，再 `operation #__t0 tp += #__t1 tp`
+- 比较：两个动态值比较时先相减，再
+  `execute if score <tmp> tp matches <range> run
+  scoreboard players set <dst> tp 1`（dst 预先置 0）。
+  与字面量比较时则省掉临时变量和减法，直接使用平移后的 `matches`
+  区间（例如 `x >= 3` -> `matches 3..`）。
+- 给变量赋值：先求值进临时变量，再 `operation #<var> tp = #__t<tmp>`
 
-Optimization (`x = x + 1` -> `scoreboard players add #x tp 1`) is welcome but optional.
-Correctness first, readability second: every emitted command should be real,
-loadable Minecraft syntax.
+优化（`x = x + 1` -> `scoreboard players add #x tp 1`，以及
+`x = <int>`、`x = y` 的直写形式）已经实现，用来让生成代码更好读。
+正确性优先，可读性其次：每一条生成的命令都必须是真实、可加载的
+Minecraft 语法。
 
-## 3. Datapack output layout
+## 3. 数据包输出布局
 
-Namespace `tp`, pack format 48 (Minecraft 1.21+; `supported_formats` 48..9999).
-All paths relative to the datapack root:
+命名空间 `tp`，数据包格式 48（Minecraft 1.21+；`supported_formats` 为
+48..9999）。所有路径都相对于数据包根目录：
 
 ```
 pack.mcmeta
 data/minecraft/tags/function/load.json     {"values":["tp:load"]}
 data/minecraft/tags/function/tick.json     {"values":["tp:tick"]}
 data/tp/function/load.mcfunction
-data/tp/function/tick.mcfunction           gate: start on player presence, then body
-data/tp/function/tick/body.mcfunction      the per-tick work (steps 1-5)
-data/tp/function/start.mcfunction          tp:start  (pen under player, then rewind)
-data/tp/function/start_at.mcfunction       tp:start_at (pen at execution position, then rewind)
-data/tp/function/start/rewind.mcfunction   the one shared reset + say
-data/tp/function/stop.mcfunction           tp:stop (pause in place)
-data/tp/function/status.mcfunction         tp:status (chat diagnostics, incl. current brush)
-data/tp/function/fn/paint.mcfunction       palette dispatch for `paint`
-data/tp/function/brush/<block>.mcfunction  x12, one palette selector each
-data/tp/function/brush/next.mcfunction     cycle the brush (wraps at 12)
+data/tp/function/tick.mcfunction           门：检测到玩家后启动，然后交给 body
+data/tp/function/tick/body.mcfunction      每 tick 的实际工作（步骤 1-5）
+data/tp/function/start.mcfunction          tp:start（笔在玩家脚下，然后重绕）
+data/tp/function/start_at.mcfunction       tp:start_at（笔在命令执行位置，然后重绕）
+data/tp/function/start/rewind.mcfunction   唯一共享的重置逻辑 + 一行 say
+data/tp/function/stop.mcfunction           tp:stop（原地暂停）
+data/tp/function/status.mcfunction         tp:status（聊天诊断，含当前画笔）
+data/tp/function/fn/paint.mcfunction       `paint` 的调色板 dispatch
+data/tp/function/brush/<block>.mcfunction  x12，每种调色板方块一个选择器
+data/tp/function/brush/next.mcfunction     循环切换画笔（到 12 后绕回）
 data/tp/function/main/dispatch.mcfunction
 data/tp/function/main/s<id>.mcfunction
 data/tp/function/fn/<name>.mcfunction
 data/tp/function/snippet/<id>.mcfunction
-data/tp/function/event/press.mcfunction        (only if `when press` exists)
+data/tp/function/event/press.mcfunction        （仅当存在 `when press`）
 ```
 
-`load.mcfunction` (runs on /reload and world load):
+`load.mcfunction`（在 /reload 和世界加载时运行）：
 
 ```
-# generated by Tickpack
+# Tickpack load — generated by Tickpack; do not edit
 scoreboard objectives add tp dummy
 scoreboard players set #__tick tp 0
 scoreboard players set #__pc tp <first state id or -1>
 scoreboard players set #__sleep tp 0
 scoreboard players set #__press tp 0
 scoreboard players set #__pressSeen tp 0
+scoreboard players set #__brush tp 0
 scoreboard players set #__started tp 0
 scoreboard players set #__paused tp 0
-scoreboard players set #__brush tp 0
-scoreboard players set #x tp <init>      # one per declared state
-scoreboard players set #__i0 tp 0        # loop indices if used
+scoreboard players set #x tp <init>      # 每个声明过的状态一行
+scoreboard players set #__i0 tp 0        # 如果用到循环下标
 kill @e[tag=pen]
 ```
 
-`start.mcfunction` (`/function tp:start`, also auto-called by the tick gate):
+`start.mcfunction`（`/function tp:start`，tick 门也会自动调用）：
 
 ```
 kill @e[tag=pen]
@@ -306,7 +313,7 @@ execute at @p run summon armor_stand ~ ~-1 ~ {Tags:["pen"],Invisible:1b,NoGravit
 function tp:start/rewind
 ```
 
-`start_at.mcfunction` (`/execute positioned X Y Z run function tp:start_at`):
+`start_at.mcfunction`（`/execute positioned X Y Z run function tp:start_at`）：
 
 ```
 kill @e[tag=pen]
@@ -314,13 +321,13 @@ summon armor_stand ~ ~ ~ {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}
 function tp:start/rewind
 ```
 
-`start/rewind.mcfunction` — the one shared reset: `#__tick 0`, `#__pc` first/-1,
-`#__sleep 0`, `#__press 0`, `#__pressSeen 0`, `#__b 1`, every user state to its
-initial value, every loop index 0, `#__brush 0`, `#__paused 0`, then
-`#__started 1`, and one `say` line explaining `/function tp:start` and
-`/execute positioned ... tp:start_at`.
+`start/rewind.mcfunction`——唯一共享的重置逻辑：`#__tick 0`、`#__pc`
+首个状态/-1、`#__sleep 0`、`#__press 0`、`#__pressSeen 0`、`#__b 1`、
+`#__brush 0`、每个用户状态回到初始值、每个循环下标归 0、`#__paused 0`，
+然后 `#__started 1`，最后一行 `say` 解释 `/function tp:start` 和
+`/execute positioned ... tp:start_at`。
 
-`stop.mcfunction` (`/function tp:stop`):
+`stop.mcfunction`（`/function tp:stop`）：
 
 ```
 scoreboard players set #__started tp 0
@@ -329,85 +336,83 @@ scoreboard players set #__sleep tp 0
 say Tickpack: 已暂停（/function tp:start 重新开始；/function tp:status 查看状态）
 ```
 
-The pen and the existing blocks stay. `tp:status` reports one of three states:
+笔和已经画出的方块都会留在原地。`tp:status` 会报告三种状态之一：
 `未运行（等玩家，或 /function tp:start 开始）` / `已暂停（/function tp:start 继续）` /
-`运行中（/function tp:start 可重画）`, plus the current brush and whether the pen exists.
+`运行中（/function tp:start 可重画）`，外加当前画笔，以及笔是否存在。
 
-The world: the browser renders the pen on a top-down plane at y=0 (with an
-unbounded, auto-fitting viewport), and the drawing may extend anywhere. The pen is
-the turtle entity (armor stand, tag `pen`, yaw 0 = facing +Z). In real Minecraft
-the pen is anchored to the block under the nearest player's feet
-(`~ ~-1 ~` from `execute at @p`), so the drawing appears on the ground around the
-player instead of at a fixed world coordinate; `tp:start` re-anchors and rewinds,
-`tp:start_at` uses the command's execution position. In the simulator a virtual
-host `player` entity stands at `(0.5, 1, 0.5)`, so the anchored summon lands at
-`(0.5, 0, 0.5)` exactly like before and every sample keeps its block coordinates.
-Blocks are placed at the pen's y level; `setblock ~ ~ ~` after
-`execute at @e[tag=pen]` lands on the pen's block. (The simulator floors positions
-for block commands.)
+关于世界：浏览器把世界渲染成一个俯视平面：笔和方块都画在 y=0 这一层，
+绘制范围可以延伸到任意坐标（具体视口/缩放属于外壳的渲染细节）。
+笔就是那只乌龟实体（armor stand，tag `pen`，yaw 0 = 朝向 +Z）。
+在真实的 Minecraft 里，笔会锚定在最近玩家脚下那块方块上
+（`execute at @p` 之后的 `~ ~-1 ~`），于是图案出现在玩家周围的地面上，
+而不是某个固定的世界坐标；`tp:start` 会重新锚定并重绕，
+`tp:start_at` 则使用命令本身的执行位置。在模拟器里，一个虚拟宿主
+`player` 实体站在 `(0.5, 1, 0.5)`，所以锚定召唤出的笔正好落在
+`(0.5, 0, 0.5)`，所有示例的方块坐标都保持不变。方块会放在笔所在的
+y 层；在 `execute at @e[tag=pen]` 之后执行 `setblock ~ ~ ~`，落点就是
+笔所在的方块。（模拟器做方块命令时会对坐标向下取整。）
 
-Every generated function starts with a `# Tickpack ...` header and may contain
-`# source line N` comments for traceability. Comments must not affect execution.
+每个生成的函数都以一个 `# Tickpack ...` 头注释开头，并且可能带有
+`# source line N` 注释用于追溯。注释不得影响执行。
 
-## 4. Standard library (prelude)
+## 4. 标准库（prelude）
 
-The compiler always prepends `src/lang/prelude.js` (`PRELUDE`, a `.tp`-syntax
-string) before user source. It defines the turtle API below. Users may not
-redefine prelude function names (compile error), but may add their own fns.
-`prelude.js` may also be extended by the compiler owner if samples need more.
+编译器总是在用户源码之前拼上 `src/lang/prelude.js`（`PRELUDE`，一段
+`.tp` 语法的字符串）。它定义下面的乌龟 API。用户不能重定义 prelude 里
+的函数名（编译错误），但可以添加自己的 fn。
+如果示例需要更多能力，编译器负责人也可以扩展 `prelude.js`。
 
-Required prelude functions (implementation note: `walk`, `walk2`, `stamp`,
-`clear_ground`, `home` compile to real `tp:fn/*` functions; `turn(deg)` and
-`plot(block)` are constant-parameter macros and are therefore inlined at the
-call site, which is why the pack has no `fn/turn.mcfunction`):
+必需的 prelude 函数（实现注记：`walk`、`walk2`、`stamp`、`clear_ground`、
+`home` 会编译成真正的 `tp:fn/*` 函数；`turn(deg)` 和 `plot(block)` 是
+常量参数宏，因此在调用点内联，所以数据包里没有 `fn/turn.mcfunction`）：
 
 ```
-fn walk()                 # move pen 1 block forward (^ ^ ^1)
-fn walk2()                # move 2 forward
-fn turn(deg)              # rotate yaw by deg degrees (macro, e.g. turn(90), turn(-45))
-fn plot(block)            # setblock at pen's block position to `block` (macro, literal)
-fn plot_under(block)      # same but one block below (macro, literal)
-fn stamp()                # particle at pen position (visual sparkle)
-fn clear_ground()         # fill a 33x33 layer under the player with air
-fn home()                 # teleport the pen back under the player's feet, yaw 0
+fn walk()                 # 笔向前走 1 格（^ ^ ^1）
+fn walk2()                # 向前走 2 格
+fn turn(deg)              # yaw 旋转 deg 度（宏，例如 turn(90)、turn(-45)）
+fn plot(block)            # 在笔所在方块位置 setblock 成 `block`（宏，字面量）
+fn plot_under(block)      # 同上，但放在笔下方一格（宏，字面量）
+fn stamp()                # 在笔的位置放粒子（视觉上的小闪光）
+fn clear_ground()         # 把玩家周围 33x33 的地面层填回 air
+fn home()                 # 把笔送回玩家脚下的方块，yaw 归 0
 ```
 
-`brush(<block>)` and `paint` are compiler builtins (§1.7), not prelude functions:
-the compiler must validate the block id and know the palette index. `plot(block)`
-remains the literal escape hatch for blocks outside the palette.
+`brush(<block>)` 和 `paint` 是编译器内置（§1.7），不是 prelude 函数：
+编译器必须校验方块 id 并知道调色板序号。`plot(block)` 仍然是绘制
+调色板之外方块的“字面量逃生口”。
 
-Implementation notes:
-- `walk`: `execute as @e[tag=pen] at @s run tp @s ^ ^ ^1`
-- `turn(deg)`: `execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~$deg ~`
-- `plot(block)`: `execute at @e[tag=pen] run setblock ~ ~ ~ $block`
-  (same-block replacement is fine; the simulator ignores no-op setblocks in
-  the trace so the timeline stays meaningful)
-- `stamp`: `execute at @e[tag=pen] run particle happy_villager ~ ~ ~ 0 0 0 0 1`
-- `clear_ground`: `run execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air`
-- `home`: `run execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0`
+实现注记：
+- `walk`：`execute as @e[tag=pen] at @s run tp @s ^ ^ ^1`
+- `turn(deg)`：`execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~$deg ~`
+- `plot(block)`：`execute at @e[tag=pen] run setblock ~ ~ ~ $block`
+  （同方块替换没有问题；模拟器会在 trace 里忽略没有变化的 setblock，
+  这样时间线仍然有意义）
+- `stamp`：`execute at @e[tag=pen] run particle happy_villager ~ ~ ~ 0 0 0 0 1`
+- `clear_ground`：`run execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air`
+- `home`：`run execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0`
 
-Both are player-relative on purpose: in a real world `(0.5, 0, 0.5)` is usually deep
-underground or high in the air. In the simulator the virtual player stands at
-`(0.5, 1, 0.5)`, so both resolve to exactly the old coordinates.
+这两个函数（`clear_ground`、`home`）刻意做成相对于玩家的：在真实世界里
+`(0.5, 0, 0.5)` 通常位于很深的地下或很高的空中。在模拟器里，虚拟玩家站在
+`(0.5, 1, 0.5)`，所以它们解析出的坐标和旧坐标完全一致。
 
-## 5. Simulator contract
+## 5. 模拟器契约
 
-`src/sim/sim.js` exports `class Simulator`. It loads a virtual pack
-(`{ [path]: text }`) and executes **the generated mcfunction** (not the AST).
+`src/sim/sim.js` 导出 `class Simulator`。它加载一个虚拟数据包
+（`{ [path]: text }`），执行**生成的 mcfunction**（不是 AST）。
 
 ```js
 const sim = new Simulator(files);   // files = compile(...).files
-sim.reset();                        // clear scores/world, run tp:load
-const events = sim.step();          // run exactly one tick (tp:tick), then tick++
-sim.press();                        // host input; increments #__press
-sim.getTick();                      // number of ticks stepped
+sim.reset();                        // 清空记分板/世界，运行 tp:load
+const events = sim.step();          // 恰好运行一个 tick（tp:tick），然后 tick++
+sim.press();                        // 宿主输入；让 #__press 自增
+sim.getTick();                      // 已经过的 tick 数
 sim.getWorld();                     // { blocks: [{x,y,z,block}], entities: [{id,type,x,y,z,yaw,pitch,tags}] }
 sim.getScores();                    // { [objective]: { [fakePlayer]: value } }
-sim.snapshot();                     // structured-cloneable full state
-sim.restore(snapshot);              // restore state (no tag reload)
+sim.snapshot();                     // 可 structured-clone 的完整状态
+sim.restore(snapshot);              // 恢复状态（不重新加载 tag）
 ```
 
-Trace events returned by `step()` (must be stable; the UI depends on them):
+`step()` 返回的 trace 事件（必须保持稳定；UI 依赖它们）：
 
 ```js
 { type:'command', tick, file:'data/tp/function/main/s0.mcfunction', line:3,
@@ -417,71 +422,87 @@ Trace events returned by `step()` (must be stable; the UI depends on them):
 { type:'error', tick, message, file?, line? }
 ```
 
-`file` is the pack-relative path; `line` is 1-based in that file.
-`getWorld()` blocks are only non-air blocks; coordinates are integers.
-`snapshot()` must survive `structuredClone` (plain objects/arrays/strings/numbers).
+`file` 是数据包内的相对路径；`line` 是该文件中从 1 开始的行号。
+`say` / `particle` 事件也可能附带 `file`/`line`/`fn` 这些定位字段。
+`getWorld()` 里的方块只包含非空气方块；坐标是整数。
+`snapshot()` 必须能通过 `structuredClone`（纯对象/数组/字符串/数字）。
 
-`reset()` also creates one **virtual host player**: `{type:'player', x:0.5, y:1.0,
-z:0.5, yaw:0, pitch:0, tags:[]}` (entity id 1). Selectors follow vanilla:
-`@a` = players only, `@p` = nearest player, `@e` = all entities (pen and player),
-`@s` = the execution entity. This is what lets the generated player-gated runtime
-(`if entity @a` → `tp:start` → `execute at @p ... ~ ~-1 ~`) behave in the browser
-exactly as in Minecraft: the pen lands at `(0.5, 0, 0.5)`, so every sample keeps
-its coordinates, and `if entity @a` is true after the first `reset()`.
+`reset()` 还会创建一个**虚拟宿主玩家**：`{type:'player', x:0.5, y:1.0,
+z:0.5, yaw:0, pitch:0, tags:[]}`（实体 id 为 1）。选择器遵循原版语义：
+`@a` = 只有玩家，`@p` = 最近的玩家，`@e` = 所有实体（笔和玩家），
+`@s` = 当前执行实体。正因如此，生成的“等玩家再启动”运行时
+（`if entity @a` → `tp:start` → `execute at @p ... ~ ~-1 ~`）在浏览器里
+才能和 Minecraft 里完全一致：笔落在 `(0.5, 0, 0.5)`，所有示例保持原来的
+坐标，并且第一次 `reset()` 之后 `if entity @a` 就为真。
 
-Supported command subset in v0.1 (unknown commands produce an `error` event,
-never a crash):
+v0.1 支持的命令子集（未知命令产生 `error` 事件，绝不崩溃）：
 
 - `scoreboard objectives add|remove <obj> dummy ...`
 - `scoreboard players set|add|remove <target> <obj> <int>`
 - `scoreboard players reset <target> [<obj>]`
 - `scoreboard players operation <t> <obj> (=|+=|-=|*=|/=|%=) <src> <obj>`
-- `execute [as <sel>] [at <sel>] [positioned <x> <y> <z>]
+- `execute [as <sel>] [at <sel>] [positioned <x> <y> <z>] [rotated <yaw> <pitch>]
    [if score <t> <obj> matches <range>] [unless score ...]
-   [if block <x> <y> <z> <block>] [unless block ...] run <command>`
-- selectors: `@s`, `@p`, `@a`, `@e[...]` with `tag=`, `limit=`, `type=`
-- `tp <targets> <x> <y> <z> [<yaw> <pitch>]` (absolute, `~` offsets, `^` local,
-  relative rotation `~N` = target yaw + N)
+   [if block <x> <y> <z> <block>] [unless block ...]
+   [if entity <sel>] [unless entity <sel>] run <command>`
+- 选择器：`@s`、`@p`、`@a`、`@e[...]`，支持 `tag=`、`limit=`、`type=`、
+  `sort=`、`distance=`、`name=`（未知参数会被忽略）
+- `tp <targets> <x> <y> <z> [<yaw> <pitch>]`（绝对坐标、`~` 偏移、`^` 局部坐标，
+  相对旋转 `~N` = 目标 yaw + N）
 - `setblock <x> <y> <z> <block> [replace|destroy|keep]`
-- `fill <x1> <y1> <z1> <x2> <y2> <z2> <block>`
-- `summon <type> <x> <y> <z> [<nbt>]` (only `Tags:[...]` is read; other NBT ignored)
-- `kill <targets>`, `tag <targets> add|remove <tag>`
-- `say <text>`, `function <ns:path>`, `particle <name> <x> <y> <z> ...`
-- comments (`#...`) and blank lines
+- `fill <x1> <y1> <z1> <x2> <y2> <z2> <block> [replace|destroy|keep]`
+- `summon <type> <x> <y> <z> [<nbt>]`（只读取 `Tags:[...]`，其他 NBT 忽略）
+- `kill <targets>`、`tag <targets> add|remove <tag>`
+- `say <text>`、`function <ns:path>`、`particle <name> <x> <y> <z> ...`
+- 注释（`#...`）和空行
 
-Semantics notes:
-- Unknown score = 0. Scores are 32-bit signed ints, `/` truncates toward zero.
-- `matches` range syntax: `5`, `5..`, `..5`, `5..10`, `..` (always).
-- Block coordinates for `setblock`/`fill`/`if block` are floored from floats.
-- Yaw 0 faces +Z; direction = (-sin(yaw), 0, cos(yaw)); `~N` rotation on `tp`
-  adds N to the target's own yaw. Pitch unused (flat world).
-- Execution budget: hard cap ~100k commands per tick to catch infinite loops;
-  emit an `error` event and stop the tick.
-- `fill` volume cap 4096 blocks.
-- Function recursion is allowed; depth cap 256 (error event beyond).
+语义注记：
+- 未知记分板值 = 0。记分板是 32 位有符号整数，`/` 向零截断。
+- `matches` 区间语法：`5`、`5..`、`..5`、`5..10`、`..`（总是真）。
+- `setblock`/`fill`/`if block` 的方块坐标会从浮点数向下取整。
+- yaw 0 朝 +Z；方向 = (-sin(yaw), 0, cos(yaw))；`tp` 上的 `~N` 旋转会把 N
+  加到目标自己的 yaw 上。pitch 未使用（平面世界）。
+- 执行预算：每 tick 约 10 万条命令的硬上限，用来抓住死循环；
+  触发时发出 `error` 事件并停止该 tick。
+- 体积上限：`fill` 最多 4096 个方块。
+- 允许函数递归；深度上限 256（超过时发出 error 事件）。
 
-## 6. Browser app contract
+## 6. 浏览器应用契约
 
-`web/index.html` (served at `/`, static, no build step) imports
-`../src/api.js` and is the only UI. `src/api.js` (Lead-owned) exposes:
+`web/**` 是唯一的 UI（`web/index.html` 由静态服务器挂在 `/`，无构建步骤）。
+外壳（`web/boot.js` 等）只通过 `src/api.js` 使用核心能力。
+`src/api.js`（Lead 负责）暴露：
 
 ```js
 export { compile } from './lang/compile.js';
 export { Simulator } from './sim/sim.js';
 export { PRELUDE } from './lang/prelude.js';
 export { SAMPLES } from './samples.js';   // [{ id, title, description, source }]
-export { packToZip } from './zip.js';     // (files) -> Uint8Array, real store-only .zip
+export { packToZip } from './zip.js';     // (files) -> Uint8Array，真实 store-only .zip
+export {
+  TickpackSession, MAX_SNAPSHOTS,         // 与宿主无关的「一次运行」控制器
+  isOnboardingSay, pickExecuting,
+  directSourceLine, looseSourceLine,
+} from './session.js';
 ```
 
 `compile(source) -> { ok, files, diagnostics, meta }`
-- `files`: `{ 'pack.mcmeta': '...', 'data/tp/function/load.mcfunction': '...' }`
-- `diagnostics`: `[{ severity:'error'|'warning', line, message }]`, `line` is
-  1-based **user source** line (prelude offset already subtracted).
-- `meta`: `{ preludeLines, variables:[{name,initial}], stateCount, functionCount, hasTickBlocks }`
-  — `hasTickBlocks` is true iff the user program declares a `tick { ... }` block; the UI
-  uses it to keep such ambient programs running even when the timeline is finished
-  (`#__pc == -1`).
+- `files`：`{ 'pack.mcmeta': '...', 'data/tp/function/load.mcfunction': '...' }`
+- `diagnostics`：`[{ severity:'error'|'warning', line, message }]`，`line` 是从
+  1 开始的**用户源码**行号（prelude 的偏移已经减掉）。
+- `meta`：`{ preludeLines, variables:[{name,initial}], stateCount, functionCount, hasTickBlocks }`
+  —— `hasTickBlocks` 当且仅当用户程序声明了 `tick { ... }` 块时为真；UI 用它
+  让这类“环境型”程序在时间线已经结束（`#__pc == -1`）时继续运行。
 
-No UI component may depend on compiler internals or simulator internals beyond
-these two contracts. UI must not be added to the repo outside `web/**`
-(Lead integrates `src/api.js`).
+`TickpackSession` 是核心层里“一次运行”的宿主无关控制器（详见
+`docs/ARCH.md`）：`load(source)`、`reset()`、`step()`、`seek(index)`、
+`view()`、`press()`、`exportBundle({ filename })`；只读属性有 `ok`/`files`/
+`meta`/`diagnostics`/`tick`/`cursor`/`total`/`finished`/`capped`/
+`snapshotsCount`/`hasTickBlocks`/`lastSay`。`step()` 返回的 TickResult 包含
+`tick`、`index`、`total`、`events`、`world`、`scores`、`changes`、`exec`、
+`lastSay`、`finished`、`runtimeError`、`errors`、`capped`。
+播放计时（rAF、速度）、渲染、输入以及平台副作用（下载/剪贴板/文件）属于
+外壳，由外壳自己的 host 适配器实现。
+
+UI 组件不得依赖编译器内部或模拟器内部，只能使用上面这两个契约。
+UI 不得加在 `web/**` 之外的仓库里（`src/api.js` 由 Lead 集成）。

@@ -1,28 +1,31 @@
 // Tickpack browser shell.
 //
 // This module is SHELL LAYER: it owns rendering, playback timing (rAF/speed),
-// DOM events, query params and toasts. The run itself — compile, simulator,
-// snapshots, cursor/seek, completion rules, trace→source mapping, export bytes —
-// lives in the host-agnostic core session (src/session.js), reached here through
-// src/api.js only. Platform side effects (download / clipboard) go through the
-// web host adapter (./host-web.js), never directly from here.
+// DOM events, workspace layout, query params and toasts. The run itself —
+// compile, simulator, snapshots, cursor/seek, completion rules, trace→source
+// mapping, export bytes — lives in the host-agnostic core session
+// (src/session.js), reached here through src/api.js only. Platform side effects
+// (download / import / clipboard / persistence) go through the web host adapter
+// (./host-web.js), never directly from here.
 
 import { createEditor } from './editor.js';
 import { createWorld } from './world.js';
 import { createDatapack } from './datapack.js';
 import { createTimeline } from './timeline.js';
+import { createLayout, PANEL_DEFS } from './layout.js';
 import { createWebHost } from './host-web.js';
+import { resolveInitialTheme, applyTheme, persistTheme } from './theme.js';
 import { blockColor } from './blocks.js';
-import { clamp, esc, flash, fmtInt, prefersReducedMotion, showToast } from './util.js';
+import { clamp, esc, flash, fmtInt, showToast } from './util.js';
 
 const DEFAULT_SPEED = 10;
 const ZIP_FILENAME = 'tickpack-datapack.zip';
 const PHASE_LABEL = {
-  idle: 'idle',
-  running: 'running',
-  paused: 'paused',
-  finished: 'finished',
-  error: 'error',
+  idle: '空闲',
+  running: '运行中',
+  paused: '已暂停',
+  finished: '已完成',
+  error: '错误',
 };
 
 function parseQueryInt(q, key) {
@@ -86,6 +89,14 @@ export function startApp(api) {
     tickLabel: byId('tick-label'),
     back: byId('btn-back'),
     fwd: byId('btn-fwd'),
+    theme: byId('btn-theme'),
+    importBtn: byId('btn-import'),
+    exportBtn: byId('btn-export'),
+    workspace: byId('workspace'),
+    tabs: byId('tabs'),
+    newTab: byId('btn-new-tab'),
+    resetLayout: byId('btn-reset-layout'),
+    panelBank: byId('panel-bank'),
   };
 
   // ---------------------------------------------------------------- state
@@ -103,13 +114,21 @@ export function startApp(api) {
     scoreRows: [],
     sampleId: null,
     logCount: 0,
+    theme: 'dark',
   };
 
+  const q = new URLSearchParams(location.search);
   const session = new TickpackSession();
   const host = createWebHost();
 
+  // Theme first (before any panel paints): URL override wins, then persisted
+  // preference, then prefers-color-scheme. Only user toggles persist.
+  const initialTheme = resolveInitialTheme(host, q.get('theme'));
+  state.theme = applyTheme(initialTheme.theme);
+
   // --------------------------------------------------------------- modules
   const world = createWorld(dom.canvas, { onCamera: updateViewReadout });
+  world.setTheme(state.theme);
   const editor = createEditor({
     textarea: dom.source,
     highlight: dom.highlight,
@@ -134,13 +153,32 @@ export function startApp(api) {
     labelEl: dom.tickLabel,
     onSeek: seekTo,
   });
+  timeline.setTheme(state.theme);
+
+  // ------------------------------------------------------------- workspace
+  const panelNodes = {};
+  for (const def of PANEL_DEFS) {
+    const node = dom.panelBank.querySelector(`.panel[data-panel-id="${def.id}"]`);
+    if (node) panelNodes[def.id] = node;
+  }
+  const layout = createLayout({
+    host,
+    workspaceEl: dom.workspace,
+    tabsEl: dom.tabs,
+    newTabBtn: dom.newTab,
+    resetBtn: dom.resetLayout,
+    panelNodes,
+    onLayoutChange: handleLayoutChange,
+    onNotify: (message) => showToast(message, 'ok'),
+  });
+  layout.init(q.get('tab'));
 
   // ------------------------------------------------------------ sample list
   function fillSamples() {
     dom.sampleSelect.innerHTML = '';
     if (!SAMPLES.length) {
       const o = document.createElement('option');
-      o.textContent = 'no samples';
+      o.textContent = '没有样例';
       o.disabled = true;
       dom.sampleSelect.appendChild(o);
       return;
@@ -171,7 +209,7 @@ export function startApp(api) {
       state.playing = false;
       setPhase('error');
       updateWorldChip();
-      showToast(`compile crashed: ${err && err.message ? err.message : err}`, 'error');
+      showToast(`编译崩溃：${err && err.message ? err.message : err}`, 'error');
       return false;
     }
 
@@ -184,11 +222,11 @@ export function startApp(api) {
       editor.setSourceLine(null);
       const first = (loaded.diagnostics || [])[0];
       consoleLine(
-        `<span class="log-t">!</span> <span class="log-err">compile failed${first ? ` · line ${first.line}: ${esc(first.message)}` : ''}</span>`,
+        `<span class="log-t">!</span> <span class="log-err">编译失败${first ? ` · 第 ${first.line} 行：${esc(first.message)}` : ''}</span>`,
         'log-error',
       );
       updateWorldChip();
-      showToast('compile failed — see diagnostics', 'error');
+      showToast('编译失败 — 请查看诊断', 'error');
       return false;
     }
 
@@ -201,8 +239,8 @@ export function startApp(api) {
     updatePressHint(loaded.files || {});
     buildScorePanel(loaded.meta);
     if (dom.editorMeta && loaded.meta) {
-      const fns = loaded.meta.functionCount != null ? `${loaded.meta.functionCount} fns` : '';
-      const states = loaded.meta.stateCount != null ? `${loaded.meta.stateCount} states` : '';
+      const fns = loaded.meta.functionCount != null ? `${loaded.meta.functionCount} 个函数` : '';
+      const states = loaded.meta.stateCount != null ? `${loaded.meta.stateCount} 个状态` : '';
       dom.editorMeta.textContent = [fns, states].filter(Boolean).join(' · ');
     }
 
@@ -275,14 +313,14 @@ export function startApp(api) {
       state.playing = false;
       setPhase('error');
       updateWorldChip();
-      showToast(`simulator crashed: ${err && err.message ? err.message : err}`, 'error');
+      showToast(`模拟器崩溃：${err && err.message ? err.message : err}`, 'error');
       return false;
     }
     if (!result) {
       // session.step() returns null when the snapshot cap is reached (or there
       // is no live run): stop driving playback and keep the existing cap toast.
       state.playing = false;
-      if (session.capped) showToast(`tick cap reached (${MAX_SNAPSHOTS} snapshots)`, 'error');
+      if (session.capped) showToast(`已达到快照上限（${MAX_SNAPSHOTS} 个 tick）`, 'error');
       setPhase(session.finished ? 'finished' : 'paused');
       return false;
     }
@@ -311,7 +349,7 @@ export function startApp(api) {
     }
 
     if (result.errors.length) {
-      for (const ev of result.errors) showToast(`runtime error: ${ev.message}`, 'error');
+      for (const ev of result.errors) showToast(`运行时错误：${ev.message}`, 'error');
       state.playing = false;
       setPhase('error');
     }
@@ -319,14 +357,13 @@ export function startApp(api) {
 
     logTick(result.events, result.changes, result.tick);
 
-    if (!instant) pulseTickStat();
     updateStatus(result.tick);
     timeline.setData(session.total, session.cursor);
     updateWorldChip();
 
     if (result.capped) {
       state.playing = false;
-      showToast(`tick cap reached (${MAX_SNAPSHOTS} snapshots)`, 'error');
+      showToast(`已达到快照上限（${MAX_SNAPSHOTS} 个 tick）`, 'error');
       setPhase('paused');
     } else if (result.finished && state.playing) {
       state.playing = false;
@@ -459,7 +496,7 @@ export function startApp(api) {
     state.scoreRows = [];
     dom.scoresGrid.innerHTML = '';
     if (!vars.length && !loopNames.length) {
-      dom.scoresGrid.innerHTML = '<div class="scores-empty">no state variables — try <code>state x = 0</code></div>';
+      dom.scoresGrid.innerHTML = '<div class="scores-empty">暂无状态变量 — 试试 <code>state x = 0</code></div>';
       return;
     }
 
@@ -480,8 +517,8 @@ export function startApp(api) {
       });
     };
 
-    for (const v of vars) addChip(`#${v.name}`, `#${v.name}`, 'state');
-    loopNames.forEach((name, i) => addChip(name, `#__i${i}`, 'loop'));
+    for (const v of vars) addChip(`#${v.name}`, `#${v.name}`, '状态');
+    loopNames.forEach((name, i) => addChip(name, `#__i${i}`, '循环'));
   }
 
   function updateScores(scores, tick) {
@@ -501,13 +538,13 @@ export function startApp(api) {
     if (tp['#__press'] !== undefined) parts.push(`press <b>${tp['#__press']}</b>`);
     let html = parts.join(' <span class="dot">·</span> ');
     if (state.lastSay) html += ` <span class="say">say “${esc(state.lastSay)}”</span>`;
-    dom.scoresFoot.innerHTML = html || '<span class="muted">scoreboard idle</span>';
+    dom.scoresFoot.innerHTML = html || '<span class="muted">计分板空闲</span>';
   }
 
   function updatePen() {
     const pen = world.getPen();
     if (!pen.visible) {
-      dom.penReadout.innerHTML = '<span class="pen-dot off"></span>no pen';
+      dom.penReadout.innerHTML = '<span class="pen-dot off"></span>没有笔';
       return;
     }
     dom.penReadout.innerHTML =
@@ -525,8 +562,8 @@ export function startApp(api) {
     dom.viewReadout.textContent = `y=0 · ×${zoom} · (${cx}, ${cz})`;
     dom.viewReadout.dataset.auto = cam.autoFit ? '1' : '0';
     dom.viewReadout.title = cam.autoFit
-      ? 'viewport: auto-fit on · wheel zoom · drag pan · double-click/F to re-fit'
-      : 'viewport: manual · wheel zoom · drag pan · double-click/F to re-fit';
+      ? '视口：自动适配 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配'
+      : '视口：手动控制 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配';
     if (dom.fit) dom.fit.classList.toggle('is-auto', !!cam.autoFit);
   }
 
@@ -541,43 +578,43 @@ export function startApp(api) {
       chip.hidden = false;
       chip.dataset.kind = state.phase === 'error' ? 'error' : 'idle';
       chip.textContent = state.phase === 'error'
-        ? 'error — see diagnostics'
-        : 'press ▶ Run to trace time';
+        ? '出错 — 请查看诊断'
+        : '按「运行」开始观察时间';
       return;
     }
     if (state.phase === 'error') {
       chip.hidden = false;
       chip.dataset.kind = 'error';
-      chip.textContent = 'error — see diagnostics';
+      chip.textContent = '出错 — 请查看诊断';
       return;
     }
     if (state.phase === 'finished') {
       chip.hidden = false;
       chip.dataset.kind = 'done';
       const secs = (session.total / 20).toFixed(2);
-      chip.textContent = `done · ${world.blockCount()} blocks · ${session.total} ticks · ${secs} s @20tps`;
+      chip.textContent = `完成 · ${world.blockCount()} 个方块 · ${session.total} tick · ${secs} 秒 @20tps`;
       return;
     }
     if (state.phase === 'paused' && session.cursor === 0) {
       chip.hidden = false;
       chip.dataset.kind = 'idle';
-      chip.textContent = 'ready — press ▶ Run or Step';
+      chip.textContent = '就绪 — 按「运行」或「单步」';
       return;
     }
     if (state.phase === 'paused') {
       chip.hidden = false;
       chip.dataset.kind = 'paused';
-      chip.textContent = `❚❚ paused · elapsed ${session.cursor}`;
+      chip.textContent = `❚❚ 已暂停 · 已运行 ${session.cursor}`;
       return;
     }
     chip.hidden = true;
   }
 
   // --------------------------------------------------------------- run log
-  function resetConsole(hint = 'press ▶ Run — one line per tick streams here') {
+  function resetConsole(hint = '按「运行」开始 —— 每个 tick 输出一行') {
     if (!dom.consoleLines) return;
     dom.consoleLines.innerHTML = `<div class="log-empty">${esc(hint)}</div>`;
-    if (dom.consoleMeta) dom.consoleMeta.textContent = 'idle';
+    if (dom.consoleMeta) dom.consoleMeta.textContent = '空闲';
     state.logCount = 0;
   }
 
@@ -608,17 +645,17 @@ export function startApp(api) {
     const has = (test) => [...fns].some(test);
     const tags = [];
     if (has((f) => f === 'tp:tick' || f.startsWith('tp:tick/'))) tags.push('tick');
-    if (has((f) => f.startsWith('tp:event'))) tags.push('press');
-    if (has((f) => /^tp:main\/s\d+/.test(f) || f.startsWith('tp:snippet'))) tags.push('timeline');
-    if (has((f) => f.startsWith('tp:fn'))) tags.push('fn');
+    if (has((f) => f.startsWith('tp:event'))) tags.push('输入');
+    if (has((f) => /^tp:main\/s\d+/.test(f) || f.startsWith('tp:snippet'))) tags.push('时间轴');
+    if (has((f) => f.startsWith('tp:fn'))) tags.push('函数');
     const particles = events.filter((e) => e && e.type === 'particle').length;
     const adds = changes ? changes.length : 0;
     const bits = [
       `<span class="log-t">t${tNo}</span>`,
-      `<span class="log-cmd">${cmds.length} cmd</span>`,
-      `<span class="log-tags">${tags.join(' + ') || 'idle'}</span>`,
+      `<span class="log-cmd">${cmds.length} 条指令</span>`,
+      `<span class="log-tags">${tags.join(' + ') || '空闲'}</span>`,
     ];
-    if (adds) bits.push(`<span class="log-add">+${adds} block${adds === 1 ? '' : 's'}</span>`);
+    if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
     if (particles) bits.push(`<span class="log-fx">✦${particles}</span>`);
     consoleLine(bits.join(' '), 'log-summary');
 
@@ -629,23 +666,10 @@ export function startApp(api) {
         if (isOnboardingSay(ev.file)) continue;
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line');
       } else if (ev.type === 'error') {
-        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">error · ${esc(ev.message)}</span>`, 'log-error');
+        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">错误 · ${esc(ev.message)}</span>`, 'log-error');
       }
     }
     if (dom.consoleMeta) dom.consoleMeta.textContent = `t ${tNo}`;
-  }
-
-  let tickAnim = null;
-  function pulseTickStat() {
-    if (prefersReducedMotion()) return;
-    if (tickAnim) tickAnim.cancel();
-    tickAnim = dom.statTick.animate(
-      [
-        { transform: 'translateY(-1px) scale(1.16)', color: '#a8fbf5' },
-        { transform: 'scale(1)', color: '#f6d33c' },
-      ],
-      { duration: 340, easing: 'cubic-bezier(.2,.9,.2,1)' },
-    );
   }
 
   function setPhase(phase) {
@@ -653,7 +677,7 @@ export function startApp(api) {
     state.phase = phase;
     dom.statPhase.textContent = PHASE_LABEL[phase] || phase;
     dom.stateLed.dataset.phase = phase;
-    dom.pause.textContent = phase === 'running' ? '❚❚ Pause' : (phase === 'finished' ? '↺ Replay' : '▶ Resume');
+    dom.pause.textContent = phase === 'running' ? '❚❚ 暂停' : (phase === 'finished' ? '↺ 重播' : '▶ 继续');
     const canRun = session.ok;
     dom.pause.disabled = !canRun;
     dom.step.disabled = !canRun;
@@ -684,11 +708,10 @@ export function startApp(api) {
     if (!dom.press) return;
     dom.press.classList.toggle('has-press', hasPress);
     dom.press.title = hasPress
-      ? 'host input: press — this program has a `when press` block'
-      : 'host input: press';
+      ? '宿主输入：press — 该程序包含 `when press` 代码块'
+      : '宿主输入：press';
     clearTimeout(pressHintTimer);
     if (hasPress) {
-      // pulse once so people discover the input
       dom.press.classList.remove('press-hint');
       void dom.press.offsetWidth;
       dom.press.classList.add('press-hint');
@@ -698,12 +721,88 @@ export function startApp(api) {
     }
   }
 
+  // ------------------------------------------------------- theme + layout
+  function updateThemeButton() {
+    if (!dom.theme) return;
+    const light = document.documentElement.dataset.theme === 'light';
+    // the sun/moon SVGs are toggled by CSS on :root[data-theme]
+    dom.theme.title = light ? '切换到深色模式' : '切换到明亮模式';
+    dom.theme.setAttribute('aria-label', dom.theme.title);
+  }
+
+  function setTheme(theme, { persist = false } = {}) {
+    state.theme = applyTheme(theme);
+    if (persist) persistTheme(host, state.theme);
+    world.setTheme(state.theme);
+    timeline.setTheme(state.theme);
+    timeline.markDirty();
+    world.render(performance.now());
+    updateThemeButton();
+  }
+
+  /** Called by layout.js after every tab/panel change. */
+  function handleLayoutChange(info) {
+    if (!info) return;
+    if (info.visiblePanels.has('world')) {
+      // a hidden canvas has zero size; when it reappears, refit + repaint
+      world.requestFit(0, true);
+      world.render(performance.now());
+    }
+    if (info.visiblePanels.has('timeline')) timeline.markDirty();
+    timeline.render();
+  }
+
+  // ---------------------------------------------------- .tp import / export
+  async function importProgram() {
+    if (typeof host.importTextFile !== 'function') {
+      showToast('当前宿主不支持导入文件', 'error');
+      return;
+    }
+    let picked = null;
+    try {
+      picked = await host.importTextFile({ accept: '.tp,.txt,text/plain' });
+    } catch {
+      showToast('导入失败', 'error');
+      return;
+    }
+    if (!picked || typeof picked.text !== 'string') return;
+    if (state.dirty) {
+      const ok = typeof window.confirm === 'function'
+        ? window.confirm('当前源码还有未编译的修改，导入会覆盖它。继续吗？')
+        : true;
+      if (!ok) return;
+    }
+    state.sampleId = null;
+    state.dirty = false;
+    dom.dirtyBadge.hidden = true;
+    applySampleDescription(null);
+    editor.setValue(picked.text, { silent: true });
+    startRun({ autoPlay: false });
+    showToast(`已导入 ${picked.name || '程序'}`, 'ok');
+  }
+
+  async function exportProgram() {
+    const text = editor.getValue();
+    const base = state.sampleId || 'program';
+    const filename = `tickpack-${base}.tp`;
+    if (typeof host.exportTextFile !== 'function') {
+      showToast('当前宿主不支持导出文件', 'error');
+      return;
+    }
+    try {
+      const delivered = await host.exportTextFile({ filename, text, mime: 'text/plain;charset=utf-8' });
+      showToast(`已导出 ${delivered}`, 'ok');
+    } catch (err) {
+      showToast(`导出失败：${err && err.message ? err.message : err}`, 'error');
+    }
+  }
+
   // ------------------------------------------------------------------ init
   function initSpeed(value) {
     const speed = clamp(Math.round(value), 1, 60);
     state.speed = speed;
     dom.speed.value = String(speed);
-    dom.speedOut.textContent = `${speed} t/s`;
+    dom.speedOut.textContent = `${speed} tick/秒`;
     const pct = ((speed - 1) / 59) * 100;
     dom.speed.style.setProperty('--fill', `${pct}%`);
   }
@@ -721,21 +820,46 @@ export function startApp(api) {
     // Host input belongs to the session; the web shell never touches the simulator.
     if (session.press() === false) return;
     flash(dom.press, 'press-flash');
-    showToast('press sent → #__press + 1', 'ok');
+    showToast('已发送触发 → #__press + 1', 'ok');
   });
 
   // world viewport controls (auto-fit / manual zoom / pan)
   dom.fit.addEventListener('click', () => {
     world.fit();
-    showToast('fit to content · auto-fit on', 'ok');
+    showToast('已适配内容 · 自动适配开启', 'ok');
   });
   dom.zoomIn.addEventListener('click', () => world.zoomBy(1.25));
   dom.zoomOut.addEventListener('click', () => world.zoomBy(1 / 1.25));
 
+  // theme toggle (persisted through the host adapter only)
+  if (dom.theme) {
+    updateThemeButton();
+    dom.theme.addEventListener('click', () => {
+      const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+      setTheme(next, { persist: true });
+    });
+  }
+
+  // .tp import / export (platform file access only through the host adapter)
+  if (dom.importBtn) {
+    if (host.canImport === false) {
+      dom.importBtn.disabled = true;
+      dom.importBtn.title = '当前宿主不支持导入文件';
+    }
+    dom.importBtn.addEventListener('click', () => importProgram());
+  }
+  if (dom.exportBtn) {
+    if (host.canExport === false) {
+      dom.exportBtn.disabled = true;
+      dom.exportBtn.title = '当前宿主不支持导出文件';
+    }
+    dom.exportBtn.addEventListener('click', () => exportProgram());
+  }
+
   // "send it to a friend": the core builds files+zip, the web host delivers it.
   dom.zip.addEventListener('click', async () => {
     if (!session.ok) {
-      showToast('run the program first — nothing to zip yet', 'error');
+      showToast('先运行程序 —— 现在还没有可打包的数据包', 'error');
       return;
     }
     try {
@@ -743,12 +867,12 @@ export function startApp(api) {
       const delivered = await host.exportDatapack(bundle);
       showToast(`${delivered} ↓ — 放进存档的 datapacks/ 里，/reload 即可`, 'ok');
     } catch (err) {
-      showToast(`zip failed: ${err && err.message ? err.message : err}`, 'error');
+      showToast(`打包失败：${err && err.message ? err.message : err}`, 'error');
     }
   });
   if (dom.zip && host.canExport === false) {
     dom.zip.disabled = true;
-    dom.zip.title = 'this host cannot download files';
+    dom.zip.title = '当前宿主不支持下载文件';
   }
 
   dom.sampleSelect.addEventListener('change', () => {
@@ -786,12 +910,11 @@ export function startApp(api) {
 
   window.addEventListener('error', (e) => {
     document.body.dataset.appError = String(e.message || 'unknown error');
-    showToast(`JS error: ${e.message}`, 'error');
+    showToast(`页面脚本错误：${e.message}`, 'error');
   });
 
   // --------------------------------------------------------------- startup
   fillSamples();
-  const q = new URLSearchParams(location.search);
   world.applyQuery(location.search);
   updateViewReadout(world.getCamera());
   initSpeed(parseQueryInt(q, 'speed') != null ? parseQueryInt(q, 'speed') : DEFAULT_SPEED);
@@ -801,8 +924,8 @@ export function startApp(api) {
   const seekTick = parseQueryInt(q, 't');
 
   if (!SAMPLES.length) {
-    editor.setValue('# No samples found.\n# src/api.js should export SAMPLES = [{ id, title, description, source }].\n');
-    editor.setDiagnostics([{ severity: 'warning', line: 1, message: 'src/api.js exports no SAMPLES' }]);
+    editor.setValue('# 没有样例。\n# src/api.js 应导出 SAMPLES = [{ id, title, description, source }]。\n');
+    editor.setDiagnostics([{ severity: 'warning', line: 1, message: 'src/api.js 没有导出 SAMPLES' }]);
     setPhase('idle');
     updateWorldChip();
     requestAnimationFrame(frame);
@@ -853,6 +976,7 @@ export function startApp(api) {
     state,
     session,
     host,
+    layout,
     startRun,
     play,
     pause,
@@ -860,6 +984,9 @@ export function startApp(api) {
     stepForward,
     stepBack,
     doReset,
+    setTheme,
+    importProgram,
+    exportProgram,
     timeline,
     datapack,
     world,

@@ -1,9 +1,10 @@
 // Bottom timeline: auto-scaling tick ruler, one colored mark per tick where
 // blocks changed, a draggable playhead with a handle. Scrubbing calls back into
-// the app, which restores the per-tick snapshot.
+// the app, which restores the per-tick snapshot. Flat, theme-aware rendering.
 
 import { clamp } from './util.js';
-import { withAlpha } from './blocks.js';
+import { shade, withAlpha } from './blocks.js';
+import { CANVAS_THEMES } from './theme.js';
 
 // The ruler never starts below 40 ticks, then grows in readable steps so the
 // playhead does not jump every frame while a run is in progress.
@@ -38,6 +39,8 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
   let hover = null; // tick under the pointer
   let dragging = false;
   let dirty = true;
+  let palette = CANVAS_THEMES.dark.timeline;
+  let themeName = 'dark';
 
   const ro = new ResizeObserver(() => {
     const rect = canvas.getBoundingClientRect();
@@ -61,7 +64,7 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
   function updateLabel() {
     if (!labelEl) return;
     labelEl.innerHTML =
-      `<span class="tl-elapsed">elapsed</span> ` +
+      `<span class="tl-elapsed">已运行</span> ` +
       `<span class="tl-cursor">${cursor}</span> ` +
       `<span class="tl-sep">/</span> ` +
       `<span class="tl-total">${total}</span>`;
@@ -95,18 +98,15 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       const colors = mark.colors;
       const count = mark.count || colors.length;
       const barH = clamp(4 + count * 2.3, 5, maxBar);
-      const c0 = colors[0] || '#5fe8e0';
-
-      const grad = ctx.createLinearGradient(0, baseY - 4 - barH, 0, baseY - 3);
-      grad.addColorStop(0, withAlpha(c0, 0.85));
-      grad.addColorStop(1, withAlpha(c0, 0.14));
-      ctx.fillStyle = grad;
-      roundRect(x - markW / 2, baseY - 4 - barH, markW, barH, 1.4);
-      ctx.fill();
+      const c0 = colors[0] || palette.playhead;
+      const markBase = themeName === 'light' ? shade(c0, -0.18) : c0;
+      ctx.fillStyle = withAlpha(markBase, 0.92);
+      ctx.fillRect(x - markW / 2, baseY - 4 - barH, markW, barH);
 
       // stacked block-color caps at the top of the column
       for (let i = 0; i < colors.length && i < 3; i++) {
-        ctx.fillStyle = withAlpha(colors[i], 0.95);
+        const cap = themeName === 'light' ? shade(colors[i], -0.12) : colors[i];
+        ctx.fillStyle = withAlpha(cap, 0.95);
         ctx.fillRect(x - markW / 2, baseY - 4 - barH + i * 2.8, markW, 2.5);
       }
       ctx.fillStyle = colors[colors.length - 1] || c0;
@@ -114,7 +114,7 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
     }
 
     // ---- rail
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.strokeStyle = palette.rail;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(PAD, baseY + 0.5);
@@ -124,7 +124,7 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
     const step = niceStep(pxPerTick);
 
     // faint vertical ruler grid
-    ctx.strokeStyle = 'rgba(140, 165, 190, 0.055)';
+    ctx.strokeStyle = withAlpha(palette.rail, 0.35);
     ctx.beginPath();
     for (let t = 0; t <= dom + 0.5; t += step) {
       const x = Math.round(xOf(t)) + 0.5;
@@ -134,27 +134,24 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
     ctx.stroke();
 
     // labels + ticks
-    ctx.font = '500 9.5px ui-monospace, Consolas, monospace';
+    ctx.font = '500 10.5px ui-monospace, Consolas, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     for (let t = 0; t <= dom + 0.5; t += step) {
       const x = Math.round(xOf(t)) + 0.5;
-      ctx.strokeStyle = 'rgba(190, 210, 230, 0.22)';
+      ctx.strokeStyle = palette.ruler;
       ctx.beginPath();
       ctx.moveTo(x, baseY);
       ctx.lineTo(x, baseY + 4);
       ctx.stroke();
-      ctx.fillStyle = t <= cursor ? 'rgba(140, 195, 200, 0.9)' : 'rgba(105, 122, 142, 0.65)';
+      ctx.fillStyle = t <= cursor ? palette.text : palette.textMuted;
       ctx.fillText(String(t), x, baseY + 7);
     }
 
     // ---- progress rail (drawn over the ruler line)
     if (cursor > 0) {
       const xc = xOf(cursor);
-      const grad = ctx.createLinearGradient(xOf(0), 0, xc, 0);
-      grad.addColorStop(0, 'rgba(95, 232, 224, 0.35)');
-      grad.addColorStop(1, 'rgba(95, 232, 224, 0.95)');
-      ctx.strokeStyle = grad;
+      ctx.strokeStyle = palette.progress;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(PAD, baseY + 0.5);
@@ -168,9 +165,7 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       ctx.save();
       ctx.translate(xe, baseY - 10);
       ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = 'rgba(246, 211, 60, 0.95)';
-      ctx.shadowColor = 'rgba(246, 211, 60, 0.7)';
-      ctx.shadowBlur = 7;
+      ctx.fillStyle = palette.end;
       ctx.fillRect(-2.4, -2.4, 4.8, 4.8);
       ctx.restore();
     }
@@ -178,7 +173,7 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
     // ---- hover guide
     if (hover != null && !dragging) {
       const xh = Math.round(xOf(hover)) + 0.5;
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.strokeStyle = palette.hover;
       ctx.setLineDash([2, 3]);
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -188,18 +183,19 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       ctx.setLineDash([]);
 
       const mk = marks.get(hover);
+      const blocks = mk ? mk.count : 0;
       const label = mk
-        ? `t=${hover} · ${mk.count} block${mk.count === 1 ? '' : 's'} · ${mk.cmds || 0} cmd`
+        ? `t=${hover} · ${blocks} 方块 · ${mk.cmds || 0} 指令`
         : `t=${hover}`;
-      ctx.font = '600 9.5px ui-monospace, Consolas, monospace';
+      ctx.font = '600 10.5px ui-monospace, Consolas, monospace';
       const tw = ctx.measureText(label).width + 10;
       const bx = clamp(xh - tw / 2, 2, w - tw - 2);
-      ctx.fillStyle = 'rgba(16, 24, 32, 0.95)';
-      ctx.strokeStyle = 'rgba(95, 232, 224, 0.35)';
+      ctx.fillStyle = palette.tipBg;
+      ctx.strokeStyle = palette.tipBorder;
       roundRect(bx, 1, tw, 13, 4);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = 'rgba(200, 240, 240, 0.95)';
+      ctx.fillStyle = palette.tipText;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(label, bx + 5, 8);
@@ -207,31 +203,23 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
 
     // ---- playhead line + handle
     const x = xOf(cursor);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(95, 232, 224, 0.95)';
-    ctx.shadowColor = 'rgba(95, 232, 224, 0.85)';
-    ctx.shadowBlur = 9;
+    ctx.strokeStyle = palette.playhead;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(x, topY + 6);
     ctx.lineTo(x, baseY + 3);
     ctx.stroke();
-    ctx.restore();
 
-    // top handle
-    ctx.save();
-    ctx.shadowColor = 'rgba(95, 232, 224, 0.7)';
-    ctx.shadowBlur = 10;
-    ctx.fillStyle = '#eafffd';
+    // top handle (flat)
+    ctx.fillStyle = palette.playhead;
     roundRect(x - 4, topY - 4, 8, 15, 3);
     ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = 'rgba(6, 24, 28, 0.85)';
+    ctx.fillStyle = palette.tipBg;
     roundRect(x - 1.5, topY - 1, 3, 9, 1.5);
     ctx.fill();
 
     // bottom pointer
-    ctx.fillStyle = 'rgba(95, 232, 224, 0.95)';
+    ctx.fillStyle = palette.playhead;
     ctx.beginPath();
     ctx.moveTo(x - 4, baseY + 4);
     ctx.lineTo(x + 4, baseY + 4);
@@ -320,6 +308,12 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
     },
     markDirty() { dirty = true; },
     markCount() { return marks.size; },
+    /** Switch the flat canvas palette with the UI theme ('light' | 'dark'). */
+    setTheme(name) {
+      themeName = name === 'light' ? 'light' : 'dark';
+      palette = (CANVAS_THEMES[themeName] || CANVAS_THEMES.dark).timeline;
+      dirty = true;
+    },
   };
 
   updateLabel();

@@ -307,10 +307,19 @@ export class CodeGen {
     if (hasThen) thenId = this.genSnippet(statement.then, statement.line, env, 'true');
     if (hasElse) elseId = this.genSnippet(statement.else, statement.line, env, 'false');
 
-    if (elseId !== null) {
+    if (elseId !== null && thenId !== null) {
+      // Two mutually exclusive branches: arm the same `#__b` latch that the
+      // timeline condition states use, and let every snippet clear it on entry.
+      // The first branch's snippet reuses the `#__t*` temp pool, so its body can
+      // clobber `temp`; without the latch the second guard line would re-read a
+      // clobbered value and run the other branch as well (the both-branches bug).
+      out.push('# two branches: arm the latch so only the taken snippet runs');
+      out.push('scoreboard players set #__b tp 1');
+      out.push(`execute if score #__b tp matches 1 if score ${temp} tp matches 0 run function tp:snippet/${elseId}`);
+      out.push(`execute if score #__b tp matches 1 unless score ${temp} tp matches 0 run function tp:snippet/${thenId}`);
+    } else if (elseId !== null) {
       out.push(`execute if score ${temp} tp matches 0 run function tp:snippet/${elseId}`);
-    }
-    if (thenId !== null) {
+    } else if (thenId !== null) {
       out.push(`execute unless score ${temp} tp matches 0 run function tp:snippet/${thenId}`);
     }
     env.allocator.free(temp);
@@ -319,7 +328,10 @@ export class CodeGen {
   genSnippet(statements, sourceLine, parentEnv, branch) {
     const id = this.snippetCount;
     this.snippetCount += 1;
-    const out = [];
+    const out = [
+      '# claim the branch latch so a taken branch cannot let the other one run',
+      'scoreboard players set #__b tp 0',
+    ];
     this.genInstantStatements(statements, out, {
       allocator: new TempAllocator(),
       bindings: parentEnv.bindings,

@@ -3,75 +3,117 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tickpack — loops become time</title>
+  <meta name="color-scheme" content="light dark">
+  <title>Tickpack — 循环就是时钟</title>
+  <link rel="icon" href="/logo/logo-minimal.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/web/style.css">
+  <script>
+    // Pre-paint theme bootstrap only (prevents a light/dark flash). Runtime
+    // reads/writes still go through web/host-web.js storage helpers.
+    (function () {
+      try {
+        var saved = localStorage.getItem('tickpack.theme');
+        if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+      } catch (e) { /* storage may be unavailable */ }
+    })();
+  </script>
 </head>
 <body>
-  <div class="app" id="app">
-    <!-- ------------------------------------------------------- top bar -->
+  <div class="app">
+    <!-- --------------------------------------------------------- 顶栏 -->
     <header class="topbar">
       <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <i class="l l1"></i><i class="l l2"></i><i class="l l3"></i><i class="l l4"></i>
-        </div>
+        <img class="brand-logo" src="/logo/logo-small.svg" alt="Tickpack 标志"
+             onerror="this.onerror=null;this.src='/logo/logo-small.png'">
         <div class="brand-text">
           <div class="wordmark">Tickpack<span class="wordmark-dot">.</span></div>
-          <div class="tagline">loops become time <span class="sep">·</span> 循环就是时钟</div>
+          <div class="tagline">循环就是时钟</div>
         </div>
       </div>
 
       <div class="toolbar">
         <label class="field sample-field">
-          <span class="field-label">sample</span>
-          <select id="sample-select" title="pick a sample program"></select>
+          <span class="field-label">样例</span>
+          <select id="sample-select" title="选择一个示例程序"></select>
         </label>
 
         <div class="btn-group">
-          <button id="btn-run" class="btn btn-run" title="compile and run (Ctrl+Enter)">
-            <span class="btn-icon">▶</span> Run
+          <button id="btn-run" class="btn btn-run" title="编译并运行（Ctrl+Enter）">
+            <span class="btn-icon">▶</span> 运行
           </button>
-          <button id="btn-pause" class="btn" title="pause / resume (Space)" disabled>❚❚ Pause</button>
-          <button id="btn-step" class="btn" title="advance one tick (→)" disabled>Step <span class="btn-icon">›</span></button>
-          <button id="btn-reset" class="btn" title="reset the world to tick 0 (R)" disabled>Reset</button>
+          <button id="btn-pause" class="btn" title="暂停 / 继续（空格）" disabled>暂停</button>
+          <button id="btn-step" class="btn" title="前进一 tick（→）" disabled>单步</button>
+          <button id="btn-reset" class="btn" title="重置到第 0 tick（R）" disabled>重置</button>
         </div>
 
         <label class="field speed-field">
-          <span class="field-label">speed</span>
-          <input id="speed" type="range" min="1" max="60" step="1" value="10" aria-label="ticks per second">
-          <output id="speed-out" for="speed">10 t/s</output>
+          <span class="field-label">速度</span>
+          <input id="speed" type="range" min="1" max="60" step="1" value="10" aria-label="每秒 tick 数">
+          <output id="speed-out" for="speed">10 tick/秒</output>
         </label>
       </div>
 
-      <div class="status">
-        <div class="stat stat-tick">
-          <span class="stat-k">tick</span>
-          <span class="stat-v" id="stat-tick">0</span>
+      <div class="topbar-right">
+        <div class="file-btn-group">
+          <button id="btn-import" class="btn btn-soft" title="导入 .tp 程序文件">导入&nbsp;.tp</button>
+          <button id="btn-export" class="btn btn-soft" title="导出当前程序为 .tp 文件">导出&nbsp;.tp</button>
         </div>
-        <div class="stat">
-          <span class="stat-k">blocks</span>
-          <span class="stat-v" id="stat-blocks">0</span>
-        </div>
-        <div class="stat stat-phase">
-          <span class="led" id="state-led" data-phase="idle"></span>
-          <span class="phase" id="stat-phase">idle</span>
+        <div class="topbar-sep" aria-hidden="true"></div>
+        <button id="btn-theme" class="icon-btn theme-btn" title="切换到深色模式" aria-label="切换明亮 / 深色模式">
+          <svg class="icon-sun" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3.1" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1v1.8M8 13.2V15M1 8h1.8M13.2 8H15M3.1 3.1l1.3 1.3M11.6 11.6l1.3 1.3M12.9 3.1l-1.3 1.3M4.4 11.6l-1.3 1.3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <svg class="icon-moon" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.1 2.1a5.9 5.9 0 1 0 3.8 8.2A5.6 5.6 0 0 1 10.1 2.1Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        </button>
+
+        <div class="status">
+          <div class="stat stat-tick">
+            <span class="stat-k">tick</span>
+            <span class="stat-v" id="stat-tick">0</span>
+          </div>
+          <div class="stat">
+            <span class="stat-k">方块</span>
+            <span class="stat-v" id="stat-blocks">0</span>
+          </div>
+          <div class="stat stat-phase">
+            <span class="led" id="state-led" data-phase="idle"></span>
+            <span class="phase" id="stat-phase">空闲</span>
+          </div>
         </div>
       </div>
     </header>
 
-    <!-- --------------------------------------------------------- panes -->
-    <main class="main">
-      <!-- source -->
-      <section class="panel panel-source" aria-label="source editor">
-        <header class="panel-head">
-          <div class="head-left">
-            <span class="tab tab-active">main.tp</span>
-            <span class="head-sub" id="editor-meta"></span>
-          </div>
-          <div class="head-right">
-            <span class="badge badge-warn" id="dirty-badge" hidden>source changed — Run to rebuild</span>
-            <span class="kbd-hint">Ctrl+Enter</span>
-          </div>
-        </header>
+    <!-- ------------------------------------------------------- 标签栏 -->
+    <nav class="tab-bar" id="tab-bar" aria-label="工作区标签页">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <div class="tab-actions">
+        <button id="btn-new-tab" class="btn btn-soft btn-sm" title="新建一个空标签页">＋ 新建标签页</button>
+        <button id="btn-reset-layout" class="btn btn-soft btn-sm" title="恢复默认的分栏布局">重置布局</button>
+      </div>
+    </nav>
+
+    <!-- --------------------------------------------------------- 工作区 -->
+    <main class="workspace" id="workspace" aria-label="工作区"></main>
+  </div>
+
+  <!-- 分栏本体：只在这里定义一次，由 layout.js 挂载到当前标签页 -->
+  <div id="panel-bank" hidden>
+    <!-- 源码 -->
+    <section class="panel panel-source" data-panel-id="source" aria-label="源码">
+      <header class="panel-head">
+        <div class="head-left">
+          <span class="panel-title">源码</span>
+          <span class="head-meta" id="editor-meta"></span>
+        </div>
+        <div class="head-right">
+          <span class="badge badge-warn" id="dirty-badge" hidden>源码已修改 — 运行以重建</span>
+          <span class="kbd-hint">Ctrl+Enter</span>
+          <span class="panel-actions">
+            <button type="button" class="icon-btn" data-action="collapse" title="折叠">«</button>
+            <button type="button" class="icon-btn" data-action="maximize" title="最大化">□</button>
+            <button type="button" class="icon-btn" data-action="menu" title="更多操作">⋯</button>
+          </span>
+        </div>
+      </header>
+      <div class="panel-body">
         <div class="sample-desc" id="sample-desc" hidden>
           <span class="sample-desc-mark"></span>
           <span id="sample-desc-text"></span>
@@ -82,97 +124,142 @@
             <pre class="highlight" id="highlight" aria-hidden="true"></pre>
             <textarea id="source" class="source" spellcheck="false" autocapitalize="off"
                       autocomplete="off" autocorrect="off" wrap="off"
-                      aria-label="Tickpack source code"></textarea>
+                      aria-label="Tickpack 源码"></textarea>
           </div>
         </div>
         <div class="diagnostics" id="diagnostics" hidden></div>
         <footer class="panel-foot">
-          <span class="hint">Tab → 2 spaces</span>
-          <span class="hint hint-right">one loop iteration = one tick</span>
+          <span class="hint">Tab → 2 个空格</span>
+          <span class="hint hint-right">一次循环迭代 = 1 tick</span>
         </footer>
-      </section>
+      </div>
+    </section>
 
-      <!-- world -->
-      <section class="panel panel-world" aria-label="block world">
-        <header class="panel-head">
-          <div class="head-left">
-            <span class="tab tab-active">world</span>
-            <span class="view-readout" id="view-readout" data-auto="1" title="viewport: auto-fit on">y=0 · ×1.0 · (0, 0)</span>
-          </div>
-          <div class="head-right view-ctrls">
-            <button id="btn-zoom-out" class="btn btn-mini btn-sq" title="缩小 · zoom out">−</button>
-            <button id="btn-fit" class="btn btn-mini btn-fit is-auto" title="适配内容 · fit to content (F / double-click)">fit ⤢</button>
-            <button id="btn-zoom-in" class="btn btn-mini btn-sq" title="放大 · zoom in">+</button>
-          </div>
-        </header>
+    <!-- 世界 -->
+    <section class="panel panel-world" data-panel-id="world" aria-label="世界">
+      <header class="panel-head">
+        <div class="head-left">
+          <span class="panel-title">世界</span>
+          <span class="view-readout" id="view-readout" data-auto="1" title="视口：自动适配">y=0 · ×1.0 · (0, 0)</span>
+        </div>
+        <div class="head-right">
+          <span class="view-ctrls">
+            <button id="btn-zoom-out" class="btn btn-soft btn-sq" title="缩小">−</button>
+            <button id="btn-fit" class="btn btn-soft btn-fit is-auto" title="适配内容（F / 双击画布）">适配</button>
+            <button id="btn-zoom-in" class="btn btn-soft btn-sq" title="放大">＋</button>
+          </span>
+          <span class="panel-actions">
+            <button type="button" class="icon-btn" data-action="collapse" title="折叠">«</button>
+            <button type="button" class="icon-btn" data-action="maximize" title="最大化">□</button>
+            <button type="button" class="icon-btn" data-action="menu" title="更多操作">⋯</button>
+          </span>
+        </div>
+      </header>
+      <div class="panel-body">
         <div class="canvas-wrap" id="canvas-wrap">
           <canvas id="world"></canvas>
           <div class="view-hint">滚轮缩放 · 拖动平移 · 双击适配</div>
-          <div class="world-chip" id="world-chip" data-kind="idle">press ▶ Run to trace time</div>
-        </div>
-        <div class="scores">
-          <div class="scores-head">
-            <div class="scores-title">
-              <span class="sb-mark"></span>scoreboard <code>tp</code>
-            </div>
-            <div class="scores-actions">
-              <span class="pen-readout" id="pen-readout"><span class="pen-dot off"></span>no pen</span>
-              <button id="btn-press" class="btn btn-mini" title="host input: sim.press()">press ⌁</button>
-            </div>
-          </div>
-          <div class="scores-grid" id="scores-grid"></div>
-          <div class="scores-foot" id="scores-foot"><span class="muted">scoreboard idle</span></div>
-        </div>
-      </section>
-
-      <!-- datapack -->
-      <section class="panel panel-pack" aria-label="generated datapack">
-        <header class="panel-head">
-          <div class="head-left">
-            <span class="tab tab-active">datapack</span>
-            <span class="head-sub" id="pack-meta"></span>
-          </div>
-          <div class="head-right">
-            <button id="btn-copy" class="btn btn-mini" title="copy the selected file">copy</button>
-            <button id="btn-zip" class="btn btn-mini btn-zip" title="下载整包 · 放进存档的 datapacks/ 里，/reload 即可">↓ .zip</button>
-          </div>
-        </header>
-        <div class="pack-body">
-          <div class="file-tree" id="file-tree"></div>
-          <div class="file-view">
-            <div class="file-head">
-              <span class="file-path" id="file-path">—</span>
-              <span class="exec-badge" id="exec-badge" hidden></span>
-            </div>
-            <div class="code-view" id="code-view"></div>
-          </div>
-        </div>
-        <div class="console" id="console">
-          <div class="console-head">
-            <span class="console-title"><i class="console-dot"></i>run log</span>
-            <span class="console-meta" id="console-meta"></span>
-          </div>
-          <div class="console-lines" id="console-lines">
-            <div class="log-empty">press ▶ Run — one line per tick streams here</div>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <!-- ------------------------------------------------------- timeline -->
-    <section class="timeline" aria-label="timeline">
-      <div class="tl-head">
-        <div class="tl-title">
-          <span class="tl-dot"></span>timeline
-          <span class="tl-sub">scrub to rewind the world</span>
-        </div>
-        <div class="tl-nav">
-          <button id="btn-back" class="btn btn-mini" title="step back one tick">‹</button>
-          <span class="tick-label" id="tick-label"><span class="tl-elapsed">elapsed</span> <span class="tl-cursor">0</span> <span class="tl-sep">/</span> <span class="tl-total">0</span></span>
-          <button id="btn-fwd" class="btn btn-mini" title="step forward one tick">›</button>
+          <div class="world-chip" id="world-chip" data-kind="idle">按「运行」开始观察时间</div>
         </div>
       </div>
-      <canvas id="timeline-canvas"></canvas>
+    </section>
+
+    <!-- 数据包 -->
+    <section class="panel panel-pack" data-panel-id="pack" aria-label="数据包">
+      <header class="panel-head">
+        <div class="head-left">
+          <span class="panel-title">数据包</span>
+          <span class="head-meta" id="pack-meta"></span>
+        </div>
+        <div class="head-right">
+          <button id="btn-copy" class="btn btn-soft btn-sm" title="复制当前文件内容">复制</button>
+          <button id="btn-zip" class="btn btn-soft btn-sm" title="下载整包 · 放进存档的 datapacks/ 里，/reload 即可">下载&nbsp;.zip</button>
+          <span class="panel-actions">
+            <button type="button" class="icon-btn" data-action="collapse" title="折叠">«</button>
+            <button type="button" class="icon-btn" data-action="maximize" title="最大化">□</button>
+            <button type="button" class="icon-btn" data-action="menu" title="更多操作">⋯</button>
+          </span>
+        </div>
+      </header>
+      <div class="panel-body pack-body">
+        <div class="file-tree" id="file-tree"></div>
+        <div class="file-view">
+          <div class="file-head">
+            <span class="file-path" id="file-path">—</span>
+            <span class="exec-badge" id="exec-badge" hidden></span>
+          </div>
+          <div class="code-view" id="code-view"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 计分板 -->
+    <section class="panel panel-scores" data-panel-id="scores" aria-label="计分板">
+      <header class="panel-head">
+        <div class="head-left">
+          <span class="panel-title">计分板</span>
+          <code class="head-code">tp</code>
+          <span class="pen-readout" id="pen-readout"><span class="pen-dot off"></span>没有笔</span>
+        </div>
+        <div class="head-right">
+          <button id="btn-press" class="btn btn-soft btn-sm" title="宿主输入：press（当程序里有 when press 时有效）">触发</button>
+          <span class="panel-actions">
+            <button type="button" class="icon-btn" data-action="collapse" title="折叠">«</button>
+            <button type="button" class="icon-btn" data-action="maximize" title="最大化">□</button>
+            <button type="button" class="icon-btn" data-action="menu" title="更多操作">⋯</button>
+          </span>
+        </div>
+      </header>
+      <div class="panel-body scores-body">
+        <div class="scores-grid" id="scores-grid"></div>
+        <div class="scores-foot" id="scores-foot"><span class="muted">计分板空闲</span></div>
+      </div>
+    </section>
+
+    <!-- 运行日志 -->
+    <section class="panel panel-log" data-panel-id="log" aria-label="运行日志">
+      <header class="panel-head">
+        <div class="head-left">
+          <span class="panel-title">运行日志</span>
+          <span class="head-meta" id="console-meta">空闲</span>
+        </div>
+        <div class="head-right">
+          <span class="panel-actions">
+            <button type="button" class="icon-btn" data-action="collapse" title="折叠">«</button>
+            <button type="button" class="icon-btn" data-action="maximize" title="最大化">□</button>
+            <button type="button" class="icon-btn" data-action="menu" title="更多操作">⋯</button>
+          </span>
+        </div>
+      </header>
+      <div class="panel-body log-body">
+        <div class="console-lines" id="console-lines">
+          <div class="log-empty">按「运行」开始 —— 每个 tick 输出一行</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 时间轴 -->
+    <section class="panel panel-timeline" data-panel-id="timeline" aria-label="时间轴">
+      <header class="panel-head">
+        <div class="head-left">
+          <span class="panel-title">时间轴</span>
+          <span class="tick-label" id="tick-label"><span class="tl-elapsed">已运行</span> <span class="tl-cursor">0</span> <span class="tl-sep">/</span> <span class="tl-total">0</span></span>
+        </div>
+        <div class="head-right">
+          <span class="tl-nav">
+            <button id="btn-back" class="btn btn-soft btn-sm" title="后退一 tick">‹</button>
+            <button id="btn-fwd" class="btn btn-soft btn-sm" title="前进一 tick">›</button>
+          </span>
+          <span class="panel-actions">
+            <button type="button" class="icon-btn" data-action="collapse" title="折叠">«</button>
+            <button type="button" class="icon-btn" data-action="maximize" title="最大化">□</button>
+            <button type="button" class="icon-btn" data-action="menu" title="更多操作">⋯</button>
+          </span>
+        </div>
+      </header>
+      <div class="panel-body timeline-body">
+        <canvas id="timeline-canvas"></canvas>
+      </div>
     </section>
   </div>
 
