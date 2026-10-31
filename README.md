@@ -163,13 +163,16 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 | --- | --- |
 | `docs/WHY.md` | 这个项目的「有趣的那一刻」和关键取舍记录 |
 | `docs/LANG.md` | 语言 + 编译模型 + 模拟器契约 |
-| `src/lang/` | 词法/语法/语义检查/状态机代码生成/数据包组装/标准库 |
-| `src/sim/` | 微型 Minecraft 命令解释器：记分板、execute、实体、方块、trace |
-| `web/` | 浏览器应用（无框架、无构建、无 CDN） |
-| `src/api.js` | UI 唯一允许 import 的集成缝（compile / Simulator / SAMPLES / PRELUDE / packToZip） |
+| `docs/ARCH.md` | **核心/外壳分层**、Host 窄接口、边界守卫（换 Electron/Tauri 时看这个） |
+| `src/lang/` | 核心：词法/语法/语义检查/状态机代码生成/数据包组装/标准库 |
+| `src/sim/` | 核心：微型 Minecraft 命令解释器：记分板、execute、实体、方块、trace |
+| `src/session.js` | 核心：一次运行的语义（编译→模拟→快照→seek→完成判定→trace→源码行→导出包），无 DOM |
+| `src/api.js` | 核心唯一门面（compile / Simulator / TickpackSession / SAMPLES / PRELUDE / packToZip） |
+| `web/` | 外壳：浏览器应用（无框架、无构建、无 CDN） |
+| `web/host-web.js` | 外壳：平台副作用唯一实现（下载 zip、写剪贴板）；桌面端换实现即可 |
 | `dist/` | 预生成的数据包 zip |
-| `test/` | 编译器 67 + 模拟器 33 + 端到端 16 + zip 3 = **119 个测试** |
-| `scripts/pack.mjs` | 生成可安装的数据包 zip |
+| `test/` | 编译器 71 + 模拟器 33 + 端到端 16 + 会话 13 + zip 3 + 分层守卫 3 = **139 个测试** |
+| `scripts/pack.mjs` | 生成可安装的数据包 zip（Node 外壳的导出实现） |
 | `scripts/dump.mjs` | 打印某个示例生成的数据包（调试编译器用） |
 | `scripts/shot.ps1` | Edge headless 截图（QA 用） |
 
@@ -180,6 +183,10 @@ npm test                       # node test/run-all.mjs（不依赖子进程，�
 node --test "test/*.test.js"   # 标准 Node test runner（需要允许 spawn）
 node test/integration.test.js  # 只跑端到端
 ```
+
+分层守卫 `test/purity.test.js` 会扫描 `src/**`：出现 `window`/`document`/`fs`/`process`/
+`isElectron` 这类平台 API 或环境分支就让测试失败——避免外壳的便利渗进核心。
+详细分层与 Host 接口见 [docs/ARCH.md](docs/ARCH.md)。
 
 ## 这一刀里有什么
 
@@ -195,6 +202,8 @@ node test/integration.test.js  # 只跑端到端
       重画、`tp:start_at` 指定坐标（`/execute positioned`）、`tp:brush/*` 游戏内换画笔、
       `tp:status` 自检；pack.mcmeta 兼容 1.21.x（supported_formats）
 - [x] world 视口：自动适配全部内容（画布不再被 33×33 截断）、滚轮缩放、拖动平移、双击/F 适配
+- [x] 分层：核心（编译器/模拟器/会话/zip）零平台依赖 + 外壳（DOM/下载/剪贴板）通过
+      `TickpackSession` / `web/host-web.js` 窄接口连接；`test/purity.test.js` 守卫边界
 - [ ] 分享链接 / 只读分享页
 - [ ] 积木视图（与文本共享 AST，时间线式布局）
 - [ ] 更多事件源（按钮、`/trigger`、玩家动作）、数组、`after N ticks` 语法糖

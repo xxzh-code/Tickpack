@@ -1,0 +1,20 @@
+<svg viewBox="0 0 4096 4096" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="4096.000000" height="4096.000000" fill="none">
+	<defs>
+		<linearGradient id="paint_linear_2" x1="275" x2="3822.23999" y1="2048" y2="2048" gradientUnits="userSpaceOnUse">
+			<stop stop-color="rgb(127,63,178)" offset="0" stop-opacity="1" />
+			<stop stop-color="rgb(105,78,198)" offset="1" stop-opacity="1" />
+		</linearGradient>
+	</defs>
+	<rect id="logo-small" width="4096.000000" height="4096.000000" x="0.000000" y="0.000000" />
+	<path id="矢量 18" d="M3822.24 1024L3822.24 3072L2048.62 4096L2048.62 2048L3822.24 1024Z" fill="rgb(195,170,45)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M2048.62 2048L275 1024L275 3072L2048.62 4096L2048.62 2048Z" fill="rgb(195,170,45)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M2048.62 2048L275 1024L275 3072L2048.62 4096L2048.62 2048Z" fill="rgb(158,28,24)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M2048.62 0L3822.24 1024L2048.62 2048L275 1024L2048.62 0Z" fill="rgb(195,170,45)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M2048.62 0L3822.24 1024L2048.62 2048L275 1024L2048.62 0Z" fill="url(#paint_linear_2)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M718.405 1792L1605.22 2304L1605.22 3328L718.405 2816L718.405 1792Z" fill="rgb(195,170,45)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M718.405 1792L1605.22 2304L1605.22 3328L718.405 2816L718.405 1792Z" fill="rgb(248,4,3)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M2492.03 2304L3378.83 1792L3378.83 2816L2492.03 3328L2492.03 2304Z" fill="rgb(195,170,45)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M2492.03 2304L3378.83 1792L3378.83 2816L2492.03 3328L2492.03 2304Z" fill="rgb(250,242,94)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M1161.81 1024L2048.62 512L2935.43 1024L2048.62 1536L1161.81 1024Z" fill="rgb(195,170,45)" fill-rule="evenodd" />
+	<path id="矢量 18" d="M1161.81 1024L2048.62 512L2935.43 1024L2048.62 1536L1161.81 1024Z" fill="rgb(159,143,209)" fill-rule="evenodd" />
+</svg>

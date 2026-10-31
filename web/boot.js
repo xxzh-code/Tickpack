@@ -1,14 +1,15 @@
 // Entry point for the Tickpack web app.
 //
 // The only module the UI imports from the compiler/simulator side is api.js
-// (see docs/LANG.md §6). Everything else lives in web/**.
+// (see docs/LANG.md §6). Everything else lives in web/**. The app receives the
+// whole api object and drives the core `TickpackSession` from it.
 
-import { compile, Simulator, SAMPLES, PRELUDE } from '../src/api.js';
+import * as api from '../src/api.js';
 
 async function boot() {
   try {
     const { startApp } = await import('./app.js');
-    startApp({ compile, Simulator, SAMPLES, PRELUDE });
+    startApp(api);
   } catch (err) {
     console.error('[tickpack] failed to start app', err);
     document.body.dataset.appError = String((err && err.message) || err);

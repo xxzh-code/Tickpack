@@ -1,7 +1,7 @@
 // Generated datapack browser: a compact, collapsible file tree + read-only line
-// view. During a run it follows the last executed command, highlights its line,
-// auto-scrolls it into view, and reports the matching *user* source line
-// (via the `# source line N` comments emitted by the compiler).
+// view. The shell hands it the session's current `exec`
+// ({file,line,fn,tick,sourceLine}); this module only renders it — trace→source
+// mapping and onboarding rules belong to the core session.
 
 import { esc } from './util.js';
 
@@ -39,43 +39,7 @@ function buildTree(files) {
   return root;
 }
 
-/** Nearest `# source line N` at or above 1-based `line`. */
-function looseSourceLine(files, file, line) {
-  const text = files[file];
-  if (!text || !line) return null;
-  const lines = text.split('\n');
-  const start = Math.min(line, lines.length) - 1;
-  for (let i = start; i >= 0 && i > start - 40; i--) {
-    const m = /#\s*source line\s+(\d+)/.exec(lines[i]);
-    if (m) return Number(m[1]);
-  }
-  return null;
-}
-
-/**
- * A command is "directly mapped" when it sits right below a comment block that
- * contains `# source line N` (the compiler's traceability marker). This is the
- * line that corresponds to the user's statement, not state-machine bookkeeping.
- */
-function directSourceLine(files, file, line) {
-  const text = files[file];
-  if (!text || !line) return null;
-  const lines = text.split('\n');
-  for (let i = line - 2; i >= 0; i--) {
-    const raw = lines[i];
-    if (raw == null) break;
-    const t = raw.trim();
-    if (!t.startsWith('#')) break;
-    const m = /^#\s*source line\s+(\d+)/.exec(t);
-    if (m) return Number(m[1]);
-  }
-  return null;
-}
-
-const isMainState = (f) => /\/main\/s\d+\.mcfunction$/.test(f || '');
-const isSnippet = (f) => /\/snippet\//.test(f || '');
-
-export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, copyBtn, onSourceLine }) {
+export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, copyBtn, copyText, onSourceLine }) {
   let files = {};
   let prelude = '';
   let currentPath = null; // real pack path, or '__prelude__'
@@ -241,53 +205,6 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
     if (onSourceLine) onSourceLine(exec ? exec.sourceLine : null);
   }
 
-  /**
-   * Choose the command that best represents "the line currently executing".
-   * The real trace ends every tick in `tp:tick` bookkeeping and may pass through
-   * `tp:main/dispatch`; prefer the last real state-machine / stdlib command, and
-   * among those prefer one that maps back to a user source line.
-   * Returns { file, line, fn, tick, sourceLine } or null.
-   */
-  function pickExecuting(events) {
-    const isTimeline = (fn) => /^tp:main\/s\d+/.test(fn || '')
-      || /^tp:snippet\//.test(fn || '')
-      || /^tp:fn\//.test(fn || '');
-
-    let lastAny = null;
-    let lastTimeline = null;
-    let lastDirect = null;
-    let lastDirectTimeline = null;
-
-    for (const ev of events || []) {
-      if (!ev || ev.type !== 'command' || !ev.file) continue;
-      lastAny = ev;
-      const direct = directSourceLine(files, ev.file, ev.line);
-      if (direct != null) lastDirect = { ev, direct };
-      if (!isTimeline(ev.fn)) continue;
-      lastTimeline = ev;
-      if (direct != null) lastDirectTimeline = { ev, direct };
-    }
-
-    // Prefer a command that *directly* follows a `# source line` comment:
-    // that is the user statement, not loop bookkeeping at the end of a state.
-    let chosen = null;
-    if (lastDirectTimeline) chosen = { ev: lastDirectTimeline.ev, direct: lastDirectTimeline.direct };
-    else if (lastTimeline) chosen = { ev: lastTimeline, direct: null };
-    else if (lastDirect) chosen = { ev: lastDirect.ev, direct: lastDirect.direct };
-    else if (lastAny) chosen = { ev: lastAny, direct: null };
-    if (!chosen) return null;
-
-    return {
-      file: chosen.ev.file,
-      line: chosen.ev.line,
-      fn: chosen.ev.fn,
-      tick: chosen.ev.tick,
-      sourceLine: chosen.direct
-        ?? directSourceLine(files, chosen.ev.file, chosen.ev.line)
-        ?? looseSourceLine(files, chosen.ev.file, chosen.ev.line),
-    };
-  }
-
   const api = {
     setFiles(nextFiles, meta) {
       files = nextFiles || {};
@@ -312,16 +229,13 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
 
     viewFile,
 
-    pickExecuting,
-
+    /**
+     * Show the session's current executing command. The core already chose it
+     * and computed `sourceLine`; this module trusts that data and only renders.
+     */
     setExecuting(nextExec, { follow = false } = {}) {
       if (nextExec && nextExec.file) {
-        exec = {
-          ...nextExec,
-          sourceLine: nextExec.sourceLine
-            ?? directSourceLine(files, nextExec.file, nextExec.line)
-            ?? looseSourceLine(files, nextExec.file, nextExec.line),
-        };
+        exec = { ...nextExec };
         expandAncestors(nextExec.file);
       } else {
         exec = null;
@@ -372,14 +286,14 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
     copyBtn.addEventListener('click', async () => {
       const text = api.currentText();
       if (!text) return;
+      let delivered = false;
       try {
-        await navigator.clipboard.writeText(text);
-        copyBtn.textContent = 'copied ✓';
-        setTimeout(() => { copyBtn.textContent = 'copy'; }, 1200);
+        delivered = copyText ? await copyText(text) : false;
       } catch {
-        copyBtn.textContent = 'copy failed';
-        setTimeout(() => { copyBtn.textContent = 'copy'; }, 1200);
+        delivered = false;
       }
+      copyBtn.textContent = delivered ? 'copied ✓' : 'copy failed';
+      setTimeout(() => { copyBtn.textContent = 'copy'; }, 1200);
     });
   }
 

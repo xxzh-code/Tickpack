@@ -4,4 +4,6 @@
 import './lang.test.js';
 import './sim.test.js';
 import './integration.test.js';
+import './session.test.js';
+import './purity.test.js';
 import './zip.test.js';

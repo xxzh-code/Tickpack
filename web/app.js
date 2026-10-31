@@ -1,17 +1,22 @@
-// Tickpack app: wires source -> compiled mcfunction -> live world -> timeline.
-// Everything here is driven by the two contracts in docs/LANG.md:
-//   compile(source) -> { ok, files, diagnostics, meta }
-//   new Simulator(files) + step()/reset()/snapshot()/restore()
+// Tickpack browser shell.
+//
+// This module is SHELL LAYER: it owns rendering, playback timing (rAF/speed),
+// DOM events, query params and toasts. The run itself — compile, simulator,
+// snapshots, cursor/seek, completion rules, trace→source mapping, export bytes —
+// lives in the host-agnostic core session (src/session.js), reached here through
+// src/api.js only. Platform side effects (download / clipboard) go through the
+// web host adapter (./host-web.js), never directly from here.
 
 import { createEditor } from './editor.js';
 import { createWorld } from './world.js';
 import { createDatapack } from './datapack.js';
 import { createTimeline } from './timeline.js';
+import { createWebHost } from './host-web.js';
 import { blockColor } from './blocks.js';
 import { clamp, esc, flash, fmtInt, prefersReducedMotion, showToast } from './util.js';
 
-const MAX_SNAPSHOTS = 2000;
 const DEFAULT_SPEED = 10;
+const ZIP_FILENAME = 'tickpack-datapack.zip';
 const PHASE_LABEL = {
   idle: 'idle',
   running: 'running',
@@ -28,22 +33,13 @@ function parseQueryInt(q, key) {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * Minecraft-only onboarding chatter emitted by `tp:start` (help/chat lines).
- * The browser has no `/function` chat, so keep it out of the run log and the
- * scoreboard footer. Covers both the old start.mcfunction and the current
- * start/rewind.mcfunction (anything under .../start/).
- */
-function isOnboardingSay(file) {
-  const f = String(file || '');
-  return f.endsWith('start.mcfunction') || /\/start\//.test(f) || /\/start$/.test(f);
-}
-
 export function startApp(api) {
-  const compile = api.compile;
-  const Simulator = api.Simulator;
+  const TickpackSession = api.TickpackSession;
   const SAMPLES = Array.isArray(api.SAMPLES) ? api.SAMPLES : [];
   const PRELUDE = typeof api.PRELUDE === 'string' ? api.PRELUDE : '';
+  const MAX_SNAPSHOTS = Number.isFinite(api.MAX_SNAPSHOTS) ? api.MAX_SNAPSHOTS : 2000;
+  // Core owns the onboarding-chatter rule; the shell only asks it.
+  const isOnboardingSay = typeof api.isOnboardingSay === 'function' ? api.isOnboardingSay : () => false;
 
   // ------------------------------------------------------------------ DOM
   const byId = (id) => document.getElementById(id);
@@ -93,30 +89,24 @@ export function startApp(api) {
   };
 
   // ---------------------------------------------------------------- state
+  // Shell-only state. Anything about "the run" lives in `session`.
   const state = {
     source: '',
     compiledSource: '',
-    compiled: null,
-    files: {},
-    sim: null,
     playing: false,
     phase: 'idle',
     speed: DEFAULT_SPEED,
     acc: 0,
     lastTs: 0,
-    snapshots: [],
-    cursor: 0,
-    total: 0,
-    finished: false,
     dirty: false,
-    lastCmd: null,
     lastSay: '',
-    runtimeError: null,
     scoreRows: [],
     sampleId: null,
     logCount: 0,
-    hasTickBlocks: false,
   };
+
+  const session = new TickpackSession();
+  const host = createWebHost();
 
   // --------------------------------------------------------------- modules
   const world = createWorld(dom.canvas, { onCamera: updateViewReadout });
@@ -135,6 +125,7 @@ export function startApp(api) {
     execEl: dom.execBadge,
     packMetaEl: dom.packMeta,
     copyBtn: dom.copy,
+    copyText: (text) => host.copyText(text),
     // keep the editor cursor still, but let the author's eye follow the tick
     onSourceLine: (line) => editor.setSourceLine(line, { scroll: state.playing }),
   });
@@ -143,10 +134,6 @@ export function startApp(api) {
     labelEl: dom.tickLabel,
     onSeek: seekTo,
   });
-
-  // ---------------------------------------------------------------- state
-  // (declared above the modules so callbacks wired during construction can
-  // safely read it)
 
   // ------------------------------------------------------------ sample list
   function fillSamples() {
@@ -176,11 +163,12 @@ export function startApp(api) {
   // ------------------------------------------------------------------ run
   function startRun({ autoPlay = true, syncTicks = 0, seekTick = null } = {}) {
     const source = editor.getValue();
-    let result;
+    let loaded;
     try {
-      result = compile(source);
+      loaded = session.load(source);
     } catch (err) {
-      console.error('[tickpack] compile crashed', err);
+      console.error('[tickpack] session.load crashed', err);
+      state.playing = false;
       setPhase('error');
       updateWorldChip();
       showToast(`compile crashed: ${err && err.message ? err.message : err}`, 'error');
@@ -188,13 +176,13 @@ export function startApp(api) {
     }
 
     state.source = source;
-    state.compiled = result;
-    editor.setDiagnostics(result.diagnostics || []);
+    editor.setDiagnostics(loaded.diagnostics || []);
 
-    if (!result.ok) {
+    if (!loaded.ok) {
+      state.playing = false;
       setPhase('error');
       editor.setSourceLine(null);
-      const first = (result.diagnostics || [])[0];
+      const first = (loaded.diagnostics || [])[0];
       consoleLine(
         `<span class="log-t">!</span> <span class="log-err">compile failed${first ? ` · line ${first.line}: ${esc(first.message)}` : ''}</span>`,
         'log-error',
@@ -205,39 +193,35 @@ export function startApp(api) {
     }
 
     state.compiledSource = source;
-    state.files = result.files || {};
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
-    // an ambient program (any `tick { ... }` block) never "finishes" in-game:
-    // the datapack keeps ticking, so the browser must keep running too.
-    state.hasTickBlocks = result.meta && typeof result.meta.hasTickBlocks === 'boolean'
-      ? result.meta.hasTickBlocks
-      : /\btick\s*\{/.test(source);
 
-    datapack.setFiles(result.files || {}, result.meta);
+    datapack.setFiles(loaded.files || {}, loaded.meta);
     if (PRELUDE) datapack.setPrelude(PRELUDE);
-    updatePressHint(result.files || {});
-    buildScorePanel(result.meta);
-    if (dom.editorMeta && result.meta) {
-      const fns = result.meta.functionCount != null ? `${result.meta.functionCount} fns` : '';
-      const states = result.meta.stateCount != null ? `${result.meta.stateCount} states` : '';
+    updatePressHint(loaded.files || {});
+    buildScorePanel(loaded.meta);
+    if (dom.editorMeta && loaded.meta) {
+      const fns = loaded.meta.functionCount != null ? `${loaded.meta.functionCount} fns` : '';
+      const states = loaded.meta.stateCount != null ? `${loaded.meta.stateCount} states` : '';
       dom.editorMeta.textContent = [fns, states].filter(Boolean).join(' · ');
     }
 
-    startSim(result.files || {});
+    beginSessionView();
     // a fresh compile always lands in a clean, paused-at-zero state
     state.playing = false;
     setPhase('paused');
 
     if (syncTicks > 0) {
-      for (let i = 0; i < syncTicks && !state.finished; i++) stepCore({ instant: true });
+      for (let i = 0; i < syncTicks && !session.finished; i++) {
+        if (!stepCore({ instant: true })) break;
+      }
     }
     if (seekTick != null) seekTo(seekTick);
 
     if (autoPlay) {
       play();
     } else if (state.phase !== 'error') {
-      setPhase(state.finished ? 'finished' : 'paused');
+      setPhase(session.finished ? 'finished' : 'paused');
     }
 
     world.render(performance.now());
@@ -245,122 +229,106 @@ export function startApp(api) {
     return true;
   }
 
-  function startSim(files) {
-    state.sim = new Simulator(files);
-    state.sim.reset();
-    state.snapshots = [];
-    state.cursor = 0;
-    state.total = 0;
-    state.finished = false;
-    state.lastCmd = null;
-    state.lastSay = '';
-    state.runtimeError = null;
-    state.playing = false;
+  /** Reset every panel to the session's current (tick 0) view. */
+  function beginSessionView() {
     state.acc = 0;
     timeline.reset();
     world.reset();
     datapack.clearExecuting();
     resetConsole();
-    world.setWorld(state.sim.getWorld(), { instant: true });
-    const scores = state.sim.getScores();
-    updateScores(scores, state.sim.getTick());
-    updatePen();
-    updateStatus(state.sim.getTick());
-    captureSnapshot();
-    timeline.setData(0, 0);
+    const view = session.view();
+    if (view) applyView(view, { instant: true });
+    timeline.setData(session.total, session.cursor);
     updateWorldChip();
   }
 
-  function captureSnapshot() {
-    if (!state.sim) return false;
-    if (state.snapshots.length >= MAX_SNAPSHOTS) return false;
-    state.snapshots.push({
-      snap: state.sim.snapshot(),
-      cmd: state.lastCmd,
-      say: state.lastSay,
-      tick: state.sim.getTick(),
-    });
-    return true;
+  /**
+   * Paint a non-advancing session view (tick 0, seek/restore, replay frame).
+   * `instant` skips pop/particle animation and snaps the fit; `follow` lets the
+   * datapack panel switch files (used while replaying).
+   */
+  function applyView(result, { instant = false, follow = false } = {}) {
+    if (!result) return;
+    world.setWorld(result.world, { instant });
+    world.setTick(result.tick);
+    state.lastSay = result.lastSay || '';
+    updateScores(result.scores, result.tick);
+    updatePen();
+    if (result.exec) datapack.setExecuting(result.exec, { follow });
+    else datapack.clearExecuting();
+    if (session.finished && result.index >= session.snapshotsCount - 1) editor.setSourceLine(null);
+    updateStatus(result.tick);
+    timeline.setData(session.total, result.index);
+    world.requestFit(0, !state.playing);
+    updateWorldChip();
   }
 
   // ------------------------------------------------------------ one tick
   function stepCore({ instant = false } = {}) {
-    if (!state.sim) return false;
+    if (!session.ok) return false;
 
-    let events;
+    let result;
     try {
-      events = state.sim.step() || [];
+      result = session.step();
     } catch (err) {
-      console.error('[tickpack] simulator crashed', err);
+      console.error('[tickpack] session.step crashed', err);
       state.playing = false;
       setPhase('error');
       updateWorldChip();
       showToast(`simulator crashed: ${err && err.message ? err.message : err}`, 'error');
       return false;
     }
-
-    const tick = state.sim.getTick();
-    for (const ev of events) {
-      if (!ev) continue;
-      // tp:start's chat line is Minecraft-only onboarding (/function tp:start);
-      // the browser has no such command, so keep it out of the UI log/ticker.
-      if (ev.type === 'say' && !isOnboardingSay(ev.file)) state.lastSay = ev.text;
-      else if (ev.type === 'error') {
-        showToast(`runtime error: ${ev.message}`, 'error');
-        state.runtimeError = ev.message;
-      }
-    }
-    if (state.runtimeError) {
+    if (!result) {
+      // session.step() returns null when the snapshot cap is reached (or there
+      // is no live run): stop driving playback and keep the existing cap toast.
       state.playing = false;
-      setPhase('error');
-      updateWorldChip();
+      if (session.capped) showToast(`tick cap reached (${MAX_SNAPSHOTS} snapshots)`, 'error');
+      setPhase(session.finished ? 'finished' : 'paused');
+      return false;
     }
 
-    world.applyEvents(events);
-
-    const changes = world.setWorld(state.sim.getWorld(), { instant });
-    state.total = Math.max(state.total, tick);
-    const cmdCount = events.reduce((n, e) => n + (e && e.type === 'command' ? 1 : 0), 0);
-    if (changes.length) {
+    world.applyEvents(result.events);
+    world.setWorld(result.world, { instant });
+    const cmdCount = result.events.reduce((n, e) => n + (e && e.type === 'command' ? 1 : 0), 0);
+    if (result.changes.length) {
       timeline.addMark(
-        tick,
-        changes.slice(0, 4).map((c) => blockColor(c.block)),
-        changes.length,
+        result.tick,
+        result.changes.slice(0, 4).map((c) => blockColor(c.block)),
+        result.changes.length,
         cmdCount,
       );
     }
 
-    const scores = state.sim.getScores();
-    updateScores(scores, tick);
-    world.setTick(tick);
+    state.lastSay = result.lastSay || '';
+    updateScores(result.scores, result.tick);
+    world.setTick(result.tick);
     updatePen();
 
-    const pc = scores && scores.tp ? scores.tp['#__pc'] : undefined;
-    if (pc === -1 && tick > 0 && !state.hasTickBlocks) state.finished = true;
+    if (result.exec) {
+      datapack.setExecuting(result.exec, { follow: state.playing || instant });
+    } else {
+      datapack.clearExecuting();
+    }
 
-    // The trace's last command is always `#__tick += 1` bookkeeping; ask the
-    // datapack panel for the command that actually represents this tick.
-    const execInfo = datapack.pickExecuting(events);
-    if (execInfo) state.lastCmd = execInfo;
+    if (result.errors.length) {
+      for (const ev of result.errors) showToast(`runtime error: ${ev.message}`, 'error');
+      state.playing = false;
+      setPhase('error');
+    }
+    if (session.finished) editor.setSourceLine(null);
 
-    const stored = captureSnapshot();
-    state.cursor = state.snapshots.length - 1;
-
-    if (execInfo) datapack.setExecuting(execInfo, { follow: state.playing || instant });
-    if (state.finished) editor.setSourceLine(null);
-
-    logTick(events, changes, tick);
+    logTick(result.events, result.changes, result.tick);
 
     if (!instant) pulseTickStat();
-    updateStatus(tick);
-    timeline.setData(state.total, state.cursor);
+    updateStatus(result.tick);
+    timeline.setData(session.total, session.cursor);
     updateWorldChip();
 
-    if (!stored) {
+    if (result.capped) {
       state.playing = false;
       showToast(`tick cap reached (${MAX_SNAPSHOTS} snapshots)`, 'error');
       setPhase('paused');
-    } else if (state.finished && state.playing) {
+    } else if (result.finished && state.playing) {
       state.playing = false;
       setPhase('finished');
     }
@@ -369,16 +337,10 @@ export function startApp(api) {
 
   // ------------------------------------------------------------- playback
   function play() {
-    if (!state.sim || state.phase === 'error') return;
-    state.runtimeError = null;
-    if (state.finished && state.cursor >= state.snapshots.length - 1) {
+    if (!session.ok || state.phase === 'error') return;
+    if (session.finished && session.cursor >= session.snapshotsCount - 1) {
       // Replay recorded time from the beginning: the world rewinds, then redraws.
-      restoreAt(0, { follow: false });
-    }
-    if (state.finished && state.snapshots.length > 1) {
-      // stays finished while replaying; the loop stops again at the end
-    } else {
-      state.finished = false;
+      restoreIndex(0, { follow: false });
     }
     state.playing = true;
     state.acc = 0;
@@ -389,7 +351,7 @@ export function startApp(api) {
     state.playing = false;
     state.acc = 0;
     if (state.phase === 'running') {
-      setPhase(state.finished ? 'finished' : 'paused');
+      setPhase(session.finished ? 'finished' : 'paused');
     }
   }
 
@@ -399,18 +361,18 @@ export function startApp(api) {
   }
 
   function advancePlayback() {
-    if (!state.sim) return;
-    if (state.cursor < state.snapshots.length - 1) {
+    if (!session.ok) return;
+    if (session.cursor < session.snapshotsCount - 1) {
       // replaying existing history
-      restoreAt(state.cursor + 1, { follow: true });
-      if (state.finished && state.cursor >= state.snapshots.length - 1) {
+      restoreIndex(session.cursor + 1, { follow: true });
+      if (session.finished && session.cursor >= session.snapshotsCount - 1) {
         state.playing = false;
         editor.setSourceLine(null);
         setPhase('finished');
       }
       return;
     }
-    if (state.finished) {
+    if (session.finished) {
       state.playing = false;
       editor.setSourceLine(null);
       setPhase('finished');
@@ -419,75 +381,49 @@ export function startApp(api) {
     stepCore({ instant: false });
   }
 
-  function restoreAt(index, { follow = false } = {}) {
-    const rec = state.snapshots[index];
-    if (!rec) return;
-    state.cursor = index;
-    state.sim.restore(rec.snap);
-    const tick = state.sim.getTick();
-    world.setWorld(state.sim.getWorld(), { instant: true });
-    world.setTick(tick);
-    const scores = state.sim.getScores();
-    updateScores(scores, tick);
-    updatePen();
-    if (rec.cmd) {
-      datapack.setExecuting(rec.cmd, { follow });
-    } else {
-      datapack.clearExecuting();
-    }
-    if (state.finished && index >= state.snapshots.length - 1) editor.setSourceLine(null);
-    updateStatus(tick);
-    timeline.setData(state.total, index);
-    world.requestFit(0, !state.playing);
-    updateWorldChip();
+  /** Restore snapshot `index` through the session and repaint. */
+  function restoreIndex(index, { follow = false } = {}) {
+    const result = session.seek(index);
+    if (!result) return false;
+    applyView(result, { instant: true, follow });
+    return true;
   }
 
-  function seekTo(tick) {
-    if (!state.sim || !state.snapshots.length) return;
+  function seekTo(index) {
+    if (!session.ok || !session.snapshotsCount) return;
     pause();
-    const t = clamp(Math.round(tick), 0, state.snapshots.length - 1);
-    restoreAt(t, { follow: false });
-    if (state.phase !== 'error') setPhase(state.finished ? 'finished' : 'paused');
+    const t = clamp(Math.round(index), 0, session.snapshotsCount - 1);
+    if (!restoreIndex(t, { follow: false })) return;
+    if (state.phase !== 'error') setPhase(session.finished ? 'finished' : 'paused');
   }
 
   function stepBack() {
-    if (!state.sim) return;
+    if (!session.ok) return;
     pause();
-    if (state.cursor > 0) seekTo(state.cursor - 1);
+    if (session.cursor > 0) seekTo(session.cursor - 1);
   }
 
   function stepForward() {
-    if (!state.sim) return;
+    if (!session.ok) return;
     pause();
-    if (state.cursor < state.snapshots.length - 1) {
-      seekTo(state.cursor + 1);
-    } else if (!state.finished) {
+    if (session.cursor < session.snapshotsCount - 1) {
+      seekTo(session.cursor + 1);
+    } else if (!session.finished) {
       stepCore({ instant: false });
       if (state.phase === 'running') setPhase('paused');
     }
   }
 
   function doReset() {
-    if (!state.sim) return;
+    if (!session.ok) return;
     pause();
-    state.sim.reset();
-    state.snapshots = [];
-    state.cursor = 0;
-    state.total = 0;
-    state.finished = false;
-    state.lastCmd = null;
-    state.lastSay = '';
-    state.runtimeError = null;
+    const view = session.reset();
     timeline.reset();
     world.reset();
     datapack.clearExecuting();
     resetConsole();
-    world.setWorld(state.sim.getWorld(), { instant: true });
-    updateScores(state.sim.getScores(), state.sim.getTick());
-    updatePen();
-    updateStatus(state.sim.getTick());
-    captureSnapshot();
-    timeline.setData(0, 0);
+    if (view) applyView(view, { instant: true });
+    timeline.setData(session.total, session.cursor);
     updateWorldChip();
     setPhase('paused');
   }
@@ -497,7 +433,7 @@ export function startApp(api) {
     const dt = state.lastTs ? Math.min(0.25, (ts - state.lastTs) / 1000) : 0;
     state.lastTs = ts;
 
-    if (state.playing && state.sim) {
+    if (state.playing && session.ok) {
       state.acc += dt * state.speed;
       let guard = 0;
       while (state.acc >= 1 && state.playing && guard < 240) {
@@ -601,10 +537,12 @@ export function startApp(api) {
 
   function updateWorldChip() {
     const chip = dom.worldChip;
-    if (!state.sim) {
+    if (!session.ok) {
       chip.hidden = false;
-      chip.dataset.kind = 'idle';
-      chip.textContent = 'press ▶ Run to trace time';
+      chip.dataset.kind = state.phase === 'error' ? 'error' : 'idle';
+      chip.textContent = state.phase === 'error'
+        ? 'error — see diagnostics'
+        : 'press ▶ Run to trace time';
       return;
     }
     if (state.phase === 'error') {
@@ -616,11 +554,11 @@ export function startApp(api) {
     if (state.phase === 'finished') {
       chip.hidden = false;
       chip.dataset.kind = 'done';
-      const secs = (state.total / 20).toFixed(2);
-      chip.textContent = `done · ${world.blockCount()} blocks · ${state.total} ticks · ${secs} s @20tps`;
+      const secs = (session.total / 20).toFixed(2);
+      chip.textContent = `done · ${world.blockCount()} blocks · ${session.total} ticks · ${secs} s @20tps`;
       return;
     }
-    if (state.phase === 'paused' && state.cursor === 0) {
+    if (state.phase === 'paused' && session.cursor === 0) {
       chip.hidden = false;
       chip.dataset.kind = 'idle';
       chip.textContent = 'ready — press ▶ Run or Step';
@@ -629,7 +567,7 @@ export function startApp(api) {
     if (state.phase === 'paused') {
       chip.hidden = false;
       chip.dataset.kind = 'paused';
-      chip.textContent = `❚❚ paused · elapsed ${state.cursor}`;
+      chip.textContent = `❚❚ paused · elapsed ${session.cursor}`;
       return;
     }
     chip.hidden = true;
@@ -687,7 +625,7 @@ export function startApp(api) {
     for (const ev of events) {
       if (!ev) continue;
       if (ev.type === 'say') {
-        // see isOnboardingSay(): skip the Minecraft-only tp:start onboarding line
+        // core knows which chat lines are Minecraft-only onboarding
         if (isOnboardingSay(ev.file)) continue;
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line');
       } else if (ev.type === 'error') {
@@ -716,17 +654,17 @@ export function startApp(api) {
     dom.statPhase.textContent = PHASE_LABEL[phase] || phase;
     dom.stateLed.dataset.phase = phase;
     dom.pause.textContent = phase === 'running' ? '❚❚ Pause' : (phase === 'finished' ? '↺ Replay' : '▶ Resume');
-    const hasSim = !!state.sim;
-    dom.pause.disabled = !hasSim;
-    dom.step.disabled = !hasSim;
-    dom.reset.disabled = !hasSim;
+    const canRun = session.ok;
+    dom.pause.disabled = !canRun;
+    dom.step.disabled = !canRun;
+    dom.reset.disabled = !canRun;
     // settling frames / scrubbing should end with the whole drawing visible
-    if ((phase === 'paused' || phase === 'finished') && state.sim) world.requestFit(0, true);
+    if ((phase === 'paused' || phase === 'finished') && session.ok) world.requestFit(0, true);
     updateWorldChip();
   }
 
   function onSourceChange() {
-    if (!state.sim) return;
+    if (!session.ok) return;
     if (state.dirty) return;
     state.dirty = true;
     dom.dirtyBadge.hidden = false;
@@ -746,8 +684,8 @@ export function startApp(api) {
     if (!dom.press) return;
     dom.press.classList.toggle('has-press', hasPress);
     dom.press.title = hasPress
-      ? 'host input: sim.press() — this program has a `when press` block'
-      : 'host input: sim.press()';
+      ? 'host input: press — this program has a `when press` block'
+      : 'host input: press';
     clearTimeout(pressHintTimer);
     if (hasPress) {
       // pulse once so people discover the input
@@ -779,8 +717,9 @@ export function startApp(api) {
   dom.back.addEventListener('click', () => stepBack());
   dom.fwd.addEventListener('click', () => stepForward());
   dom.press.addEventListener('click', () => {
-    if (!state.sim) return;
-    state.sim.press();
+    if (!session.ok) return;
+    // Host input belongs to the session; the web shell never touches the simulator.
+    if (session.press() === false) return;
     flash(dom.press, 'press-flash');
     showToast('press sent → #__press + 1', 'ok');
   });
@@ -793,34 +732,23 @@ export function startApp(api) {
   dom.zoomIn.addEventListener('click', () => world.zoomBy(1.25));
   dom.zoomOut.addEventListener('click', () => world.zoomBy(1 / 1.25));
 
-  // "send it to a friend": real .zip of the generated datapack (api-owned helper)
-  dom.zip.addEventListener('click', () => {
-    if (typeof api.packToZip !== 'function') {
-      showToast('packToZip() is not in src/api.js yet — the .zip lands soon', 'error');
-      return;
-    }
-    if (!state.files || !Object.keys(state.files).length) {
+  // "send it to a friend": the core builds files+zip, the web host delivers it.
+  dom.zip.addEventListener('click', async () => {
+    if (!session.ok) {
       showToast('run the program first — nothing to zip yet', 'error');
       return;
     }
     try {
-      const bytes = api.packToZip(state.files);
-      const blob = new Blob([bytes], { type: 'application/zip' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'tickpack-datapack.zip';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-      showToast('tickpack-datapack.zip ↓ — 放进存档的 datapacks/ 里，/reload 即可', 'ok');
+      const bundle = session.exportBundle({ filename: ZIP_FILENAME });
+      const delivered = await host.exportDatapack(bundle);
+      showToast(`${delivered} ↓ — 放进存档的 datapacks/ 里，/reload 即可`, 'ok');
     } catch (err) {
       showToast(`zip failed: ${err && err.message ? err.message : err}`, 'error');
     }
   });
-  if (typeof api.packToZip !== 'function' && dom.zip) {
-    dom.zip.title = '下载整包 (packToZip 即将上线) · 放进存档的 datapacks/ 里，/reload 即可';
+  if (dom.zip && host.canExport === false) {
+    dom.zip.disabled = true;
+    dom.zip.title = 'this host cannot download files';
   }
 
   dom.sampleSelect.addEventListener('change', () => {
@@ -897,7 +825,7 @@ export function startApp(api) {
 
   if (autoTicks != null) {
     startRun({ autoPlay: false, syncTicks: Math.max(0, autoTicks), seekTick });
-    setPhase(state.finished ? 'finished' : 'paused');
+    setPhase(session.finished ? 'finished' : 'paused');
   } else if (seekTick != null) {
     startRun({ autoPlay: false, syncTicks: Math.max(0, seekTick) });
     seekTo(seekTick);
@@ -923,6 +851,8 @@ export function startApp(api) {
   window.__tickpack = {
     api,
     state,
+    session,
+    host,
     startRun,
     play,
     pause,
@@ -933,6 +863,6 @@ export function startApp(api) {
     timeline,
     datapack,
     world,
-    get snapshots() { return state.snapshots; },
+    get snapshotsCount() { return session.snapshotsCount; },
   };
 }
