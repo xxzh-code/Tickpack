@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tickpack · 把 tick 当一等公民的语言</title>
+  <meta name="description" content="Tickpack 是一门把 tick 当一等公民的语言：编译成真正的 Minecraft 数据包，并配一个逐 tick 运行的浏览器模拟器。">
+  <link rel="icon" href="logo/logo-minimal.svg" type="image/svg+xml">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f6f8;
+      --panel: #ffffff;
+      --text: #1c2330;
+      --dim: #5b6676;
+      --line: #d8dde6;
+      --accent: #0f9d78;
+      --accent-ink: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1116;
+        --panel: #151a21;
+        --text: #e6e9ef;
+        --dim: #9aa6b5;
+        --line: #262d38;
+        --accent: #2fd6a8;
+        --accent-ink: #06211a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.7 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 48px 24px 64px; }
+    header { display: flex; align-items: center; gap: 14px; }
+    header img { width: 52px; height: 52px; }
+    h1 { margin: 0; font-size: 30px; letter-spacing: -0.02em; }
+    .sub { color: var(--dim); margin: 2px 0 0; font-size: 14px; }
+    .lede { margin: 30px 0 8px; font-size: 19px; max-width: 720px; }
+    .lede strong { color: var(--accent); }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 26px 0 34px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 11px 20px; border-radius: 8px; border: 1px solid var(--line);
+      color: var(--text); text-decoration: none; font-weight: 600;
+      background: var(--panel);
+    }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+    .shot { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+    .shot img { display: block; width: 100%; height: auto; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 34px; }
+    .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; background: var(--panel); }
+    .card h3 { margin: 0 0 6px; font-size: 15px; }
+    .card p { margin: 0; color: var(--dim); font-size: 14px; }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: 0.92em; background: rgba(127,127,127,0.12); padding: 1px 5px; border-radius: 4px; }
+    footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--dim); font-size: 13px; display: flex; flex-wrap: wrap; gap: 14px; }
+    footer a { color: var(--dim); }
+    footer a:hover { color: var(--accent); }
+    @media (max-width: 560px) { .wrap { padding: 28px 16px 44px; } h1 { font-size: 24px; } .lede { font-size: 17px; } }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <img src="logo/logo-middle.svg" alt="Tickpack 标志" onerror="this.onerror=null;this.src='logo/logo-middle.png'">
+      <div>
+        <h1>Tickpack</h1>
+        <p class="sub">把 tick 当一等公民的语言 · 编译成 Minecraft 数据包 · 逐 tick 浏览器模拟器</p>
+      </div>
+    </header>
+
+    <p class="lede">
+      你写下 <code>over 8 as i { walk; paint }</code>，按下运行，然后看着
+      <strong>循环变成时间</strong>：每个 tick 走一格，源码行、mcfunction 行和方块世界一起前进；
+      拖时间轴，世界会倒带。
+    </p>
+
+    <nav class="actions">
+      <a class="btn primary" href="web/">▶ 在线试玩</a>
+      <a class="btn" href="dist/tickpack.html">下载单文件版</a>
+      <a class="btn" href="https://github.com/xxzh-code/Tickpack">GitHub 仓库</a>
+      <a class="btn" href="https://github.com/xxzh-code/Tickpack/tree/main/dist">下载数据包 zip</a>
+    </nav>
+
+    <div class="shot">
+      <img src="docs/img/tickpack.png" alt="Tickpack 运行截图：源码、世界、数据包、时间轴">
+    </div>
+
+    <section class="grid">
+      <article class="card">
+        <h3>循环就是时钟</h3>
+        <p><code>over</code> 每迭代一次花一个 tick，循环变量就是记分板上的一个分数。</p>
+      </article>
+      <article class="card">
+        <h3>看到的即数据包</h3>
+        <p>模拟器直接执行编译出来的 mcfunction，不是另一套解释器；导出的 zip 能直接进 Minecraft 1.21。</p>
+      </article>
+      <article class="card">
+        <h3>时间可以倒带</h3>
+        <p>每个 tick 存一份世界快照，拖动时间轴就能回放、观察、分享。</p>
+      </article>
+      <article class="card">
+        <h3>游戏里继续画</h3>
+        <p>数据包会等你进世界，把画笔放在你脚下；<code>/function tp:start</code>、<code>tp:brush/*</code>、<code>tp:start_at</code> 都能用。</p>
+      </article>
+    </section>
+
+    <footer>
+      <span>MIT License</span>
+      <a href="web/">在线试玩</a>
+      <a href="docs/WHY.md">为什么做这个</a>
+      <a href="docs/ARCH.md">架构</a>
+      <a href="docs/LANG.md">语言规范</a>
+    </footer>
+  </main>
+</body>
+</html>

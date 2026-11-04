@@ -1,4 +1,4 @@
-// main.tp source editor: transparent textarea over a syntax-highlighted <pre>.
+// main.tpk source editor: transparent textarea over a syntax-highlighted <pre>.
 // Line numbers, error markers, smart Enter indentation, Tab = 2 spaces, Ctrl+Enter run.
 
 import { clamp, esc } from './util.js';

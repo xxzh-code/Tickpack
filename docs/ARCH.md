@@ -55,9 +55,9 @@ export function createWebHost() {
     // bundle = session.exportBundle() -> { filename, files, zip: Uint8Array }
     // 浏览器：Blob + <a download>；桌面端：写目录；CLI：fs.writeFile
     exportDatapack(bundle) {},                  // -> Promise<string>（实际交付的文件名）
-    // 打开 .tp：浏览器 File System Access API / <input type=file>；桌面端：原生打开对话框
+    // 打开 .tpk：浏览器 File System Access API / <input type=file>；桌面端：原生打开对话框
     importTextFile({ accept }) {},              // -> Promise<{name,text}|null>（取消为 null）
-    // 保存 .tp：浏览器 Blob 下载；桌面端：写文件
+    // 保存 .tpk：浏览器 Blob 下载；桌面端：写文件
     exportTextFile({ filename, text, mime }) {},// -> Promise<string>
     // 浏览器：navigator.clipboard（带退化路径）；桌面端：系统剪贴板
     copyText(text) {},                          // -> Promise<boolean>

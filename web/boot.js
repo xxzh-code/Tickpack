@@ -5,10 +5,10 @@
 // whole api object and drives the core `TickpackSession` from it.
 
 import * as api from '../src/api.js';
+import { startApp } from './app.js';
 
-async function boot() {
+function boot() {
   try {
-    const { startApp } = await import('./app.js');
     startApp(api);
   } catch (err) {
     console.error('[tickpack] failed to start app', err);

@@ -20,6 +20,8 @@ import { clamp, esc, flash, fmtInt, showToast } from './util.js';
 
 const DEFAULT_SPEED = 10;
 const ZIP_FILENAME = 'tickpack-datapack.zip';
+const SHARE_VERSION = '1';
+const SHARE_MAX_CHARS = 10000;
 const PHASE_LABEL = {
   idle: '空闲',
   running: '运行中',
@@ -97,6 +99,15 @@ export function startApp(api) {
     newTab: byId('btn-new-tab'),
     resetLayout: byId('btn-reset-layout'),
     panelBank: byId('panel-bank'),
+    share: byId('btn-share'),
+    theaterEdit: byId('btn-theater-edit'),
+    theaterHandle: byId('theater-handle'),
+    theaterBackdrop: byId('theater-backdrop'),
+    sourceCollapse: byId('btn-source-collapse'),
+    shareNotice: byId('share-notice'),
+    shareNoticeText: byId('share-notice-text'),
+    shareNoticeClose: byId('share-notice-close'),
+    editorFile: byId('editor-file'),
   };
 
   // ---------------------------------------------------------------- state
@@ -118,6 +129,10 @@ export function startApp(api) {
   };
 
   const q = new URLSearchParams(location.search);
+  const isTheater = q.get('view') === 'theater';
+  const SHARE_V = q.get('v');
+  document.documentElement.dataset.view = isTheater ? 'theater' : 'app';
+  document.body.dataset.sourceOpen = 'false';
   const session = new TickpackSession();
   const host = createWebHost();
 
@@ -172,6 +187,10 @@ export function startApp(api) {
     onNotify: (message) => showToast(message, 'ok'),
   });
   layout.init(q.get('tab'));
+  if (isTheater) {
+    ensureTheaterTab();
+    syncTheaterClasses();
+  }
 
   // ------------------------------------------------------------ sample list
   function fillSamples() {
@@ -743,6 +762,7 @@ export function startApp(api) {
   /** Called by layout.js after every tab/panel change. */
   function handleLayoutChange(info) {
     if (!info) return;
+    if (isTheater) syncTheaterClasses();
     if (info.visiblePanels.has('world')) {
       // a hidden canvas has zero size; when it reappears, refit + repaint
       world.requestFit(0, true);
@@ -752,7 +772,7 @@ export function startApp(api) {
     timeline.render();
   }
 
-  // ---------------------------------------------------- .tp import / export
+  // ---------------------------------------------------- .tpk import / export
   async function importProgram() {
     if (typeof host.importTextFile !== 'function') {
       showToast('当前宿主不支持导入文件', 'error');
@@ -760,7 +780,7 @@ export function startApp(api) {
     }
     let picked = null;
     try {
-      picked = await host.importTextFile({ accept: '.tp,.txt,text/plain' });
+      picked = await host.importTextFile({ accept: '.tpk,.tp,.txt,text/plain' });
     } catch {
       showToast('导入失败', 'error');
       return;
@@ -784,7 +804,7 @@ export function startApp(api) {
   async function exportProgram() {
     const text = editor.getValue();
     const base = state.sampleId || 'program';
-    const filename = `tickpack-${base}.tp`;
+    const filename = `tickpack-${base}.tpk`;
     if (typeof host.exportTextFile !== 'function') {
       showToast('当前宿主不支持导出文件', 'error');
       return;
@@ -796,6 +816,119 @@ export function startApp(api) {
       showToast(`导出失败：${err && err.message ? err.message : err}`, 'error');
     }
   }
+
+  // ------------------------------------------------------- share / theater
+  function showShareNotice(message) {
+    if (!dom.shareNotice || !dom.shareNoticeText) return;
+    dom.shareNoticeText.textContent = message;
+    dom.shareNotice.hidden = false;
+  }
+
+  function hideShareNotice() {
+    if (dom.shareNotice) dom.shareNotice.hidden = true;
+  }
+
+  function maybeWarnShareVersion() {
+    if (SHARE_V == null) {
+      // A share link without v= predates the version field (old links).
+      if (isTheater && q.has('src')) {
+        const msg = '这是旧版本分享链接（没有版本号），行为可能不同';
+        showToast(msg, 'error');
+        showShareNotice(msg);
+      }
+      return;
+    }
+    if (SHARE_V !== SHARE_VERSION) {
+      const msg = `此链接来自旧版本，行为可能不同（v${SHARE_V}）`;
+      showToast(msg, 'error');
+      showShareNotice(msg);
+    }
+  }
+
+  /** Build a theatre share URL from the current editor text (relative base). */
+  function buildShareUrl(text) {
+    const base = (location.origin && location.origin !== 'null')
+      ? `${location.origin}${location.pathname}`
+      : location.pathname;
+    return `${base}?v=${SHARE_VERSION}&view=theater&src=${encodeURIComponent(text)}`;
+  }
+
+  async function shareProgram() {
+    const text = editor.getValue();
+    if (text.length > SHARE_MAX_CHARS) {
+      showToast('程序太长，请用「导出 .tpk」发文件', 'error');
+      return;
+    }
+    if (typeof host.copyText !== 'function') {
+      showToast('当前宿主不支持复制', 'error');
+      return;
+    }
+    let copied = false;
+    try {
+      copied = await host.copyText(buildShareUrl(text));
+    } catch {
+      copied = false;
+    }
+    if (copied) showToast('分享链接已复制：打开会自动播放，可点编辑修改', 'ok');
+    else showToast('复制失败 — 请用「导出 .tpk」发文件', 'error');
+  }
+
+  function tabHas(tab, panelId) {
+    return !!tab && tab.main.some((col) => col.stack.some((item) => item.panel === panelId));
+  }
+
+  /** Theatre needs one tab that has both 世界 and 源码 (defaults: 工作台). */
+  function ensureTheaterTab() {
+    if (!isTheater || !layout || !layout.document) return;
+    const tabs = layout.document.tabs;
+    const active = tabs.find((t) => t.id === layout.activeTabId);
+    if (tabHas(active, 'source') && tabHas(active, 'world')) return;
+    const best = tabs.find((t) => tabHas(t, 'source') && tabHas(t, 'world'))
+      || tabs.find((t) => tabHas(t, 'source'))
+      || tabs.find((t) => tabHas(t, 'world'));
+    if (best && best.id !== layout.activeTabId) layout.selectTab(best.id);
+  }
+
+  /** Give the column that holds 世界 the full theater width (presentation only). */
+  function syncTheaterClasses() {
+    if (!isTheater) return;
+    let found = false;
+    const cols = dom.workspace.querySelectorAll('.pane-col');
+    for (const col of cols) {
+      const hasWorld = !!col.querySelector('.panel-world');
+      col.classList.toggle('theater-main', hasWorld);
+      if (hasWorld) found = true;
+    }
+    document.documentElement.classList.toggle('theater-no-world', !found);
+  }
+
+  let theaterOpen = false;
+  function setTheaterDrawer(open, { focus = true } = {}) {
+    if (!isTheater) return;
+    theaterOpen = !!open;
+    document.body.dataset.sourceOpen = theaterOpen ? 'true' : 'false';
+    if (dom.theaterHandle) dom.theaterHandle.setAttribute('aria-expanded', String(theaterOpen));
+    if (dom.theaterBackdrop) dom.theaterBackdrop.hidden = !theaterOpen;
+    if (dom.theaterEdit) dom.theaterEdit.textContent = theaterOpen ? '收起源码' : '编辑 / 改编';
+    if (theaterOpen) {
+      // pause for comfortable editing, but keep the session/cursor untouched
+      pause();
+      if (focus) requestAnimationFrame(() => { try { editor.focus(); } catch { /* noop */ } });
+    } else if (dom.source && typeof dom.source.blur === 'function') {
+      dom.source.blur();
+    }
+  }
+
+  function toggleTheaterDrawer() {
+    setTheaterDrawer(!theaterOpen);
+  }
+
+  if (dom.share) dom.share.addEventListener('click', () => shareProgram());
+  if (dom.theaterEdit) dom.theaterEdit.addEventListener('click', () => toggleTheaterDrawer());
+  if (dom.theaterHandle) dom.theaterHandle.addEventListener('click', () => setTheaterDrawer(true));
+  if (dom.theaterBackdrop) dom.theaterBackdrop.addEventListener('click', () => setTheaterDrawer(false));
+  if (dom.sourceCollapse) dom.sourceCollapse.addEventListener('click', () => setTheaterDrawer(false));
+  if (dom.shareNoticeClose) dom.shareNoticeClose.addEventListener('click', () => hideShareNotice());
 
   // ------------------------------------------------------------------ init
   function initSpeed(value) {
@@ -840,7 +973,7 @@ export function startApp(api) {
     });
   }
 
-  // .tp import / export (platform file access only through the host adapter)
+  // .tpk import / export (platform file access only through the host adapter)
   if (dom.importBtn) {
     if (host.canImport === false) {
       dom.importBtn.disabled = true;
@@ -887,6 +1020,11 @@ export function startApp(api) {
   });
 
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isTheater && theaterOpen) {
+      e.preventDefault();
+      setTheaterDrawer(false);
+      return;
+    }
     const active = document.activeElement;
     const tag = active && active.tagName;
     const typing = tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || (active && active.isContentEditable);
@@ -937,9 +1075,10 @@ export function startApp(api) {
   state.sampleId = initial.id;
   dom.sampleSelect.value = initial.id;
   // Debug aid for screenshots: ?src=<url-encoded Tickpack source> runs any program.
-  const srcOverride = q.get('src');
-  if (srcOverride) {
+  const srcOverride = q.has('src') ? q.get('src') : null;
+  if (srcOverride != null) {
     editor.setValue(srcOverride, { silent: true });
+    state.sampleId = null;
     applySampleDescription(null);
   } else {
     editor.setValue(initial.source || '', { silent: true });
@@ -967,6 +1106,9 @@ export function startApp(api) {
     world.render(performance.now());
   }
 
+  if (isTheater) setTheaterDrawer(false, { focus: false });
+  maybeWarnShareVersion();
+
   requestAnimationFrame(frame);
   document.documentElement.dataset.ready = '1';
 
@@ -987,6 +1129,11 @@ export function startApp(api) {
     setTheme,
     importProgram,
     exportProgram,
+    shareProgram,
+    buildShareUrl,
+    setTheaterDrawer,
+    isTheater,
+    editor,
     timeline,
     datapack,
     world,

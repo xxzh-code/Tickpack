@@ -7,9 +7,16 @@
   "description": "A tiny language that compiles to a Minecraft datapack — control flow is temporal, state is scoreboards, and you can watch it tick.",
   "scripts": {
     "start": "node server.mjs",
+    "serve": "node bin/tickpack.mjs serve",
     "test": "node test/run-all.mjs",
     "test:runner": "node --test \"test/*.test.js\"",
-    "pack": "node scripts/pack.mjs"
+    "build": "node scripts/build-html.mjs",
+    "pack": "node scripts/pack.mjs",
+    "cli": "node bin/tickpack.mjs"
+  },
+  "bin": {
+    "tickpack": "bin/tickpack.mjs",
+    "tpk": "bin/tickpack.mjs"
   },
   "engines": {
     "node": ">=20"

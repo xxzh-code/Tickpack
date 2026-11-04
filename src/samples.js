@@ -23,6 +23,21 @@ stamp
 `,
   },
   {
+    id: 'remix',
+    title: '改这里 · Remix',
+    description: '改下面三个数字，看画面怎么变，然后点「分享」把同一幅画发给朋友。',
+    source: `# 改这里：圈的大小（45）、每步转角（8）
+brush(emerald_block)
+
+over 45 as i {
+  walk
+  paint
+  turn(8)
+}
+stamp
+`,
+  },
+  {
     id: 'spiral',
     title: '金色螺旋 · Golden Spiral',
     description: 'state 活在记分板上：count 和 arm 每 tick 变化，边长逐渐增加。',

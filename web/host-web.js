@@ -58,7 +58,7 @@ export function createWebHost({ doc = null, nav = null, win = null } = {}) {
    * Desktop shells would show their native open dialog here.
    * @returns {Promise<{name: string, text: string}|null>} null on cancel
    */
-  async function importTextFile({ accept = '.tp,.txt,text/plain' } = {}) {
+  async function importTextFile({ accept = '.tpk,.tp,.txt,text/plain' } = {}) {
     const w = getWin();
     // Preferred: File System Access API (Chromium, localhost/secure context).
     if (w && typeof w.showOpenFilePicker === 'function') {
@@ -67,7 +67,7 @@ export function createWebHost({ doc = null, nav = null, win = null } = {}) {
           multiple: false,
           types: [{
             description: 'Tickpack 程序',
-            accept: { 'text/plain': ['.tp', '.txt'] },
+            accept: { 'text/plain': ['.tpk', '.tp', '.txt'] },
           }],
         });
         const file = await handles[0].getFile();
@@ -113,8 +113,8 @@ export function createWebHost({ doc = null, nav = null, win = null } = {}) {
     });
   }
 
-  /** Save a text file (e.g. the current .tp program). */
-  async function exportTextFile({ filename = 'tickpack-program.tp', text = '', mime = TEXT_MIME } = {}) {
+  /** Save a text file (e.g. the current .tpk program). */
+  async function exportTextFile({ filename = 'tickpack-program.tpk', text = '', mime = TEXT_MIME } = {}) {
     const blob = new Blob([String(text)], { type: mime });
     return downloadBlob(blob, filename);
   }

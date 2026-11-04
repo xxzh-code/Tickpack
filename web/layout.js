@@ -629,7 +629,7 @@ export function createLayout({
   function emptyState() {
     const box = el('div', 'tab-empty');
     const img = document.createElement('img');
-    img.src = '/logo/logo-middle.svg';
+    img.src = '../logo/logo-middle.svg';
     img.alt = 'Tickpack';
     img.className = 'tab-empty-logo';
     box.append(img);

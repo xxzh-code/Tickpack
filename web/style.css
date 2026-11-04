@@ -270,7 +270,7 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 :root[data-theme="light"] .theme-btn .icon-sun { display: block; }
 :root[data-theme="light"] .theme-btn .icon-moon { display: none; }
 
-/* small separator between the .tp file group and theme/status */
+/* small separator between the .tpk file group and theme/status */
 .topbar-sep { width: 1px; height: 22px; background: var(--line); flex: 0 0 auto; }
 
 .status { display: flex; align-items: center; gap: 14px; padding-left: 12px; border-left: 1px solid var(--line); }
@@ -788,6 +788,129 @@ body.dragging-split { cursor: col-resize; user-select: none; }
   background: var(--panel); border: 1px solid var(--danger); border-radius: var(--radius);
   z-index: 100; white-space: pre-wrap;
 }
+
+/* ====================================================== theater mode ==== */
+.theater-only { display: none !important; }
+html[data-view="theater"] .theater-only { display: inline-flex !important; }
+
+html[data-view="theater"] .app { grid-template-rows: var(--topbar-h) minmax(0, 1fr); }
+html[data-view="theater"] .toolbar,
+html[data-view="theater"] .tab-bar,
+html[data-view="theater"] .status,
+html[data-view="theater"] #btn-import { display: none; }
+html[data-view="theater"] .topbar-right { margin-left: auto; }
+html[data-view="theater"] .workspace { padding: 0; }
+html[data-view="theater"] .pane-root,
+html[data-view="theater"] .pane-main { height: 100%; }
+
+/* only the column that contains 世界 keeps width; the rest collapse to zero */
+html[data-view="theater"] .pane-col { flex: 0 0 0 !important; min-width: 0; min-height: 0; overflow: visible; }
+html[data-view="theater"] .pane-col.theater-main { flex: 1 1 auto !important; }
+html[data-view="theater"] .split,
+html[data-view="theater"] .pane-dock { display: none !important; }
+html[data-view="theater"] .pane-slot { display: none; }
+html[data-view="theater"] .pane-slot[data-panel-id="world"] { display: flex; flex: 1 1 auto; }
+html[data-view="theater"] .pane-slot[data-panel-id="source"] {
+  display: flex; flex: 0 0 0 !important; min-height: 0; overflow: visible;
+}
+html[data-view="theater"] .panel-world { border: 0; border-radius: 0; }
+html[data-view="theater"] .panel-world .panel-head { display: none; }
+html[data-view="theater"] .panel-world.collapsed { height: 100% !important; }
+html[data-view="theater"] .panel-world.collapsed .panel-body { display: flex; }
+html[data-view="theater"] .panel-source { display: none; }
+html[data-view="theater"] .panel-source .panel-actions [data-action] { display: none !important; }
+html[data-view="theater"].theater-no-world .pane-col { flex: 1 1 auto !important; }
+/* a maximized panel saved in the layout must not steal the theater view */
+html[data-view="theater"] .pane-root[data-maximized] .pane-main { display: flex !important; }
+html[data-view="theater"] .pane-root[data-maximized] .pane-main > .pane-col { display: flex !important; }
+html[data-view="theater"] .pane-root[data-maximized] .pane-slot[data-panel-id="world"],
+html[data-view="theater"] .pane-root[data-maximized] .pane-slot[data-panel-id="source"] { display: flex !important; }
+
+/* bottom source drawer (same panel node, fixed over the theater world) */
+html[data-view="theater"] body[data-source-open="true"] .panel-source,
+html[data-view="theater"] body[data-source-open="true"] .panel-source.collapsed {
+  display: flex;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  height: min(55vh, 560px) !important;
+  z-index: 80;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  box-shadow: var(--shadow);
+}
+html[data-view="theater"] body[data-source-open="true"] .panel-source.collapsed .panel-body { display: flex; }
+
+.theater-backdrop {
+  position: fixed;
+  inset: var(--topbar-h) 0 0;
+  background: rgba(0, 0, 0, 0.42);
+  z-index: 70;
+}
+.theater-backdrop[hidden] { display: none; }
+
+.theater-handle {
+  position: fixed;
+  right: 16px;
+  bottom: 0;
+  z-index: 75;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+html[data-view="theater"] .theater-handle { display: inline-flex; }
+html[data-view="theater"] body[data-source-open="true"] .theater-handle { display: none; }
+.theater-handle:hover { color: var(--text); background: var(--panel-2); }
+.theater-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.theater-handle-caret { font-size: 13px; color: var(--accent); }
+.theater-handle-label { font-size: 12px; font-weight: 600; }
+.theater-handle-file { font-family: var(--mono); font-size: 10px; color: var(--dim); }
+
+.share-notice {
+  position: fixed;
+  top: calc(var(--topbar-h) + 10px);
+  right: 14px;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 460px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--warn-weak);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.share-notice[hidden] { display: none; }
+.share-notice-close {
+  flex: 0 0 auto;
+  width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--muted);
+  background: transparent; border: 0; border-radius: 4px;
+  font-size: 15px; line-height: 1; cursor: pointer;
+}
+.share-notice-close:hover { background: var(--hover); color: var(--text); }
+
+/* drawer keeps the editor controls and the 收起 button visible */
+html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-head { flex: 0 0 34px; }
+html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-body { min-height: 0; }
 
 /* ------------------------------------------------------- small screens --- */
 @media (max-width: 1320px) {

@@ -1,7 +1,7 @@
 // Tickpack standard library (docs/LANG.md §4).
 //
 // The compiler prepends this text to every user program, so all of it is in the
-// normal `.tp` language. Zero-parameter functions become real functions in the
+// normal `.tpk` language. Zero-parameter functions become real functions in the
 // pack (`tp:fn/<name>`); parameterised ones are compile-time macros and are
 // inlined at each call site.
 //

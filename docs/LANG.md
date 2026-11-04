@@ -358,7 +358,7 @@ y 层；在 `execute at @e[tag=pen]` 之后执行 `setblock ~ ~ ~`，落点就�
 ## 4. 标准库（prelude）
 
 编译器总是在用户源码之前拼上 `src/lang/prelude.js`（`PRELUDE`，一段
-`.tp` 语法的字符串）。它定义下面的乌龟 API。用户不能重定义 prelude 里
+`.tpk` 语法的字符串）。它定义下面的乌龟 API。用户不能重定义 prelude 里
 的函数名（编译错误），但可以添加自己的 fn。
 如果示例需要更多能力，编译器负责人也可以扩展 `prelude.js`。
 

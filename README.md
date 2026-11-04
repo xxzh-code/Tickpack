@@ -9,6 +9,10 @@
 
 这就是这个项目存在的理由。详细版见 [docs/WHY.md](docs/WHY.md)。
 
+**▶ [在线试玩](https://xxzh-code.github.io/Tickpack/) · [v0.1.0 Release](https://github.com/xxzh-code/Tickpack/releases/tag/v0.1.0) · [单文件 HTML](dist/tickpack.html) · [GitHub](https://github.com/xxzh-code/Tickpack)**
+
+![Tickpack 动图：五角星逐 tick 画出来](docs/img/demo.gif)
+
 ![Tickpack 截图：金色螺旋，60 ticks](docs/img/tickpack.png)
 
 ---
@@ -20,6 +24,13 @@ npm start                  # = node server.mjs，零依赖静态服务器
 # 打开 http://127.0.0.1:8123/
 ```
 
+```powershell
+npx tickpack               # 安装后也可用 CLI（短别名 tpk）
+tpk serve --port 8123
+tpk build my-program.tpk   # 编译成可安装的数据包 zip
+tpk pack star              # 编译内置示例
+```
+
 打开就是一只会画画的笔，正方形示例已经自动跑起来了。界面全中文，默认跟随系统深浅色：
 
 - **源码**：写代码。改一个数字，按「运行」，世界重来。
@@ -27,7 +38,7 @@ npm start                  # = node server.mjs，零依赖静态服务器
 - **数据包**：这份代码**真正生成出来的数据包**，正在执行的那一行会亮起来 —— 源码行和 mcfunction 行同步。
 - **时间轴**：每个 tick 都存了快照，点/拖动就把世界倒带到那一刻。
 - **标签页 + 分栏**：源码/世界/数据包/计分板/运行日志/时间轴都是独立面板；可以调整大小、折叠、最大化、用面板菜单移动到其他标签页，布局自动记住。默认两个工作页：「工作台」和「观察」。
-- **导入 / 导出 `.tp`**：把程序存成单个 `.tp` 文本文件，或从文件载入；右上角 `下载 .zip` 则是可直接进 Minecraft 的整包。
+- **导入 / 导出 `.tpk`**：把程序存成单个 `.tpk` 文本文件，或从文件载入；右上角 `下载 .zip` 则是可直接进 Minecraft 的整包。
 
 `hello` 示例演示最小程序：
 
@@ -90,7 +101,7 @@ over 4 as side {
 ## 它到底怎么工作
 
 ```
-main.tp ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfunction / tags）
+main.tpk ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfunction / tags）
                           │
                           ├──▶ 模拟器直接执行这些 mcfunction（不是另一套解释器）
                           │         │
@@ -119,10 +130,11 @@ main.tp ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfuncti
 仓库里已经带了可直接安装的包（每个示例一个）：
 
 ```
-dist/tickpack-square-datapack.zip    dist/tickpack-star-datapack.zip
-dist/tickpack-spiral-datapack.zip    dist/tickpack-circle-datapack.zip
+dist/tickpack-square-datapack.zip    dist/tickpack-remix-datapack.zip
+dist/tickpack-star-datapack.zip      dist/tickpack-spiral-datapack.zip
+dist/tickpack-circle-datapack.zip    dist/tickpack-rainbow-datapack.zip
 dist/tickpack-metronome-datapack.zip dist/tickpack-hello-datapack.zip
-dist/tickpack-rainbow-datapack.zip   dist/tickpack-endless-datapack.zip
+dist/tickpack-endless-datapack.zip   dist/tickpack.html（单文件版）
 ```
 
 自己生成任意示例的包：
@@ -173,6 +185,12 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 它没有用任何资源包/模组，纯原版数据包；`pack.mcmeta` 带 `supported_formats`（48..9999），
 1.21.x 都能加载。
 
+## 命名与标识
+
+- 正式名 **Tickpack**；CLI `tickpack`（短别名 `tpk`）；程序文件扩展名 **`.tpk`**（导入兼容旧 `.tp`）。
+- 环境变量前缀 `TICKPACK_`；数据包默认命名空间 `tp`；多包命名空间规则见 [docs/NAMING.md](docs/NAMING.md)。
+- 分享链接统一带 `v=1`；版本不匹配时会提示行为可能不同。
+
 ## 目录
 
 | 路径 | 内容 |
@@ -186,8 +204,12 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 | `src/api.js` | 核心唯一门面（compile / Simulator / TickpackSession / SAMPLES / PRELUDE / packToZip） |
 | `web/` | 外壳：浏览器应用（无框架、无构建、无 CDN） |
 | `web/host-web.js` | 外壳：平台副作用唯一实现（下载 zip、写剪贴板）；桌面端换实现即可 |
-| `dist/` | 预生成的数据包 zip |
-| `test/` | 编译器 77 + 模拟器 33 + 端到端 16 + 会话 13 + zip 3 + 分层守卫 3 = **145 个测试** |
+| `bin/tickpack.mjs` | CLI 外壳：`tickpack` / `tpk`（serve / build / pack / list） |
+| `.github/workflows/pages.yml` | GitHub Pages 部署 + 每次 push 跑全量测试 |
+| `docs/NAMING.md` | 命名与标识、`.tpk`、CLI、数据包命名空间规则（设计） |
+| `scripts/build-html.mjs` | 零依赖单文件 HTML 构建 |
+| `dist/` | 预生成的数据包 zip + 单文件 HTML |
+| `test/` | 编译器 77 + 模拟器 33 + 端到端 16 + 会话 13 + zip 3 + 分层守卫 3 + 单文件构建 4 = **149 个测试** |
 | `scripts/pack.mjs` | 生成可安装的数据包 zip（Node 外壳的导出实现） |
 | `scripts/dump.mjs` | 打印某个示例生成的数据包（调试编译器用） |
 | `scripts/shot.ps1` | Edge headless 截图（QA 用） |
@@ -219,10 +241,12 @@ node test/integration.test.js  # 只跑端到端
       `tp:status` 自检；pack.mcmeta 兼容 1.21.x（supported_formats）
 - [x] world 视口：自动适配全部内容（画布不再被 33×33 截断）、滚轮缩放、拖动平移、双击/F 适配
 - [x] 界面：全中文、日间/夜间模式、扁平化；标签页 + 可调整/折叠/最大化/移动的分栏面板，布局持久化；
-      `logo/` 品牌；导入/导出 `.tp`
+      `logo/` 品牌；导入/导出 `.tpk`
 - [x] 分层：核心（编译器/模拟器/会话/zip）零平台依赖 + 外壳（DOM/下载/剪贴板/文件/持久化）通过
       `TickpackSession` / `web/host-web.js` 窄接口连接；`test/purity.test.js` 守卫边界
-- [ ] 分享链接 / 只读分享页
+- [x] P0 传播基建：GitHub Pages 在线试玩、分享链接（`v=1` + 剧场模式）、单文件 HTML、README 动图
+- [x] 命名统一：文件扩展名 `.tpk`；CLI `tickpack` / `tpk`；环境变量 `TICKPACK_*`；数据包默认命名空间 `tp`（多包规则见 docs/NAMING.md）
+- [ ] 多包命名空间实现（`pack "name"` → `tp_<name>`，P0 只定设计）
 - [ ] 积木视图（与文本共享 AST，时间线式布局）
 - [ ] 更多事件源（按钮、`/trigger`、玩家动作）、数组、`after N ticks` 语法糖
 - [ ] 红石 / schematic 输出
