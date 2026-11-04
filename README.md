@@ -25,10 +25,10 @@ npm start                  # = node server.mjs，零依赖静态服务器
 ```
 
 ```powershell
-npx tickpack               # 安装后也可用 CLI（短别名 tpk）
-tpk serve --port 8123
-tpk build my-program.tpk   # 编译成可安装的数据包 zip
-tpk pack star              # 编译内置示例
+npm link                   # 之后可用 CLI：tickpack / tpk
+tickpack serve --port 8123
+tickpack build my-program.tpk   # 编译成可安装的数据包 zip
+tickpack pack star              # 编译内置示例
 ```
 
 打开就是一只会画画的笔，正方形示例已经自动跑起来了。界面全中文，默认跟随系统深浅色：
@@ -58,6 +58,10 @@ tpk pack star              # 编译内置示例
 「观察」标签页（世界 / 计分板 / 运行日志 / 时间轴）：
 
 ![观察标签页](docs/img/observe.png)
+
+分享链接默认进入轻剧场模式（源码折叠为底部抽屉）：
+
+![轻剧场模式](docs/img/theater.png)
 
 ## 语言长什么样
 
