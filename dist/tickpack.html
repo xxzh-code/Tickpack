@@ -356,17 +356,49 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .pane-root { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .pane-main { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; width: 100%; }
 .pane-col { display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; min-height: 0; }
-.pane-col.col-collapsed { flex: 0 0 auto; }
-.pane-col.col-collapsed .panel { min-width: 196px; }
+/* single-panel column collapsed: narrow vertical edge rail (not a blank 196px block) */
+.pane-col.col-collapsed { flex: 0 0 36px !important; width: 36px; min-width: 36px; max-width: 36px; }
+.pane-col.col-collapsed .pane-slot { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; }
+.pane-col.col-collapsed .panel { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.pane-col.col-collapsed .panel .panel-head {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  height: 100%;
+  padding: 8px 0;
+}
+.pane-col.col-collapsed .panel .head-left { flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+.pane-col.col-collapsed .panel .head-right { flex-direction: column; align-items: center; gap: 6px; margin-top: auto; width: 100%; }
+.pane-col.col-collapsed .panel .head-left > :not(.panel-title) { display: none; }
+.pane-col.col-collapsed .panel .head-right > :not(.panel-actions) { display: none; }
+.pane-col.col-collapsed .panel .panel-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 1px;
+  line-height: 1.1;
+}
+.pane-col.col-collapsed .panel .panel-actions { flex-direction: column; gap: 2px; }
+.pane-col.col-collapsed .panel .panel-actions::before { display: none; }
+.pane-col.col-collapsed .panel .panel-actions [data-action="maximize"],
+.pane-col.col-collapsed .panel .panel-actions [data-action="menu"] { display: none; }
+.pane-col.col-collapsed .panel .icon-btn { width: 28px; height: 28px; }
 .pane-slot { display: flex; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; min-height: 0; }
 /* panels must stretch inside their slot in both axes (fills the tab) */
 .pane-slot > .panel { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; }
 .pane-slot[data-panel-id="scores"] { min-height: 140px; }
 .pane-slot[data-panel-id="log"] { min-height: 120px; }
-.pane-slot.is-collapsed { flex: 0 0 auto; min-height: 0; }
+.pane-slot.is-collapsed { flex: 0 0 auto; min-width: 0; min-height: 0; }
+.pane-slot.is-collapsed > .panel { width: 100%; height: auto; min-height: 0; min-width: 0; }
+/* the single-column rail is full height even though its panel is collapsed */
+.pane-col.col-collapsed .pane-slot > .panel { height: 100%; }
 .pane-dock { display: flex; min-height: 0; min-width: 0; width: 100%; flex: 0 0 150px; }
 .pane-dock .pane-slot { flex: 1 1 auto; }
-.pane-dock.dock-collapsed { flex: 0 0 auto; }
+.pane-dock.dock-collapsed { width: 100%; flex: 0 0 auto; }
+.pane-dock.dock-collapsed .pane-slot,
+.pane-dock.dock-collapsed .pane-slot.is-collapsed { flex: 1 1 auto; width: 100%; min-height: 0; }
+.pane-dock.dock-collapsed .pane-slot > .panel { width: 100%; height: auto; }
 
 /* splitters */
 .split { flex: 0 0 6px; position: relative; background: transparent; touch-action: none; z-index: 2; }
@@ -455,8 +487,8 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 .panel-body { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 .panel.collapsed .panel-body { display: none; }
-.panel.collapsed { height: auto; }
-.panel.collapsed .panel-head { border-bottom: none; }
+.panel.collapsed { height: auto; min-width: 0; min-height: 0; }
+.panel.collapsed .panel-head { flex: 0 0 32px; height: 32px; border-bottom: none; }
 
 /* floating panel menu (fixed position so it escapes panel overflow) */
 .panel-menu {
@@ -595,7 +627,7 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 
 /* --------------------------------------------------------------- world --- */
 .canvas-wrap { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-#world { position: absolute; inset: 0; display: block; cursor: grab; touch-action: none; }
+#world { position: absolute; inset: 0; display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 #world.panning { cursor: grabbing; }
 
 .view-readout {
@@ -6502,6 +6534,7 @@ function formatZoom(zoom) {
   let w = 0;
   let h = 0;
   let dpr = 1;
+  let dprQuery = null;
   let side = 0; 
   let cell = 12;
   let pad = 18;
@@ -6534,21 +6567,55 @@ function formatZoom(zoom) {
   }
 
   function resize() {
+    
+    
     const rect = wrap.getBoundingClientRect();
-    w = Math.max(160, Math.floor(rect.width));
-    h = Math.max(160, Math.floor(rect.height));
-    dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    w = Math.max(1, rect.width);
+    h = Math.max(1, rect.height);
+    dpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+    const bw = Math.max(1, Math.round(rect.width * dpr));
+    const bh = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== bw) canvas.width = bw;
+    if (canvas.height !== bh) canvas.height = bh;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     pad = Math.max(8, Math.min(24, Math.min(w, h) * 0.05));
     applyLayout();
     if (autoFit && !fitLocked) applyTarget(computeFit());
   }
 
+  function watchDpr() {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const ratio = window.devicePixelRatio || 1;
+    try {
+      dprQuery = window.matchMedia(`(resolution: ${ratio}dppx)`);
+    } catch {
+      dprQuery = null;
+      return;
+    }
+    if (!dprQuery) return;
+    if (typeof dprQuery.addEventListener === 'function') dprQuery.addEventListener('change', onDprChange);
+    else if (typeof dprQuery.addListener === 'function') dprQuery.addListener(onDprChange);
+  }
+
+  function onDprChange() {
+    if (dprQuery) {
+      if (typeof dprQuery.removeEventListener === 'function') dprQuery.removeEventListener('change', onDprChange);
+      else if (typeof dprQuery.removeListener === 'function') dprQuery.removeListener(onDprChange);
+    }
+    watchDpr();
+    resize();
+  }
+
   const ro = new ResizeObserver(resize);
   ro.observe(wrap);
   resize();
+  watchDpr();
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('resize', resize);
+  }
+  
+  
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resize());
 
   function applyLayout() {
     side = Math.min(w, h) - pad * 2;
@@ -7759,6 +7826,32 @@ function niceStep(pxPerTick) {
     }
 
     
+    const x = xOf(cursor);
+    ctx.strokeStyle = palette.playhead;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, topY + 6);
+    ctx.lineTo(x, baseY + 3);
+    ctx.stroke();
+
+    
+    ctx.fillStyle = palette.playhead;
+    roundRect(x - 4, topY - 4, 8, 15, 3);
+    ctx.fill();
+    ctx.fillStyle = palette.tipBg;
+    roundRect(x - 1.5, topY - 1, 3, 9, 1.5);
+    ctx.fill();
+
+    
+    ctx.fillStyle = palette.playhead;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, baseY + 4);
+    ctx.lineTo(x + 4, baseY + 4);
+    ctx.lineTo(x, baseY + 9);
+    ctx.closePath();
+    ctx.fill();
+
+    
     if (hover != null && !dragging) {
       const xh = Math.round(xOf(hover)) + 0.5;
       ctx.strokeStyle = palette.hover;
@@ -7788,32 +7881,6 @@ function niceStep(pxPerTick) {
       ctx.textBaseline = 'middle';
       ctx.fillText(label, bx + 5, 8);
     }
-
-    
-    const x = xOf(cursor);
-    ctx.strokeStyle = palette.playhead;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(x, topY + 6);
-    ctx.lineTo(x, baseY + 3);
-    ctx.stroke();
-
-    
-    ctx.fillStyle = palette.playhead;
-    roundRect(x - 4, topY - 4, 8, 15, 3);
-    ctx.fill();
-    ctx.fillStyle = palette.tipBg;
-    roundRect(x - 1.5, topY - 1, 3, 9, 1.5);
-    ctx.fill();
-
-    
-    ctx.fillStyle = palette.playhead;
-    ctx.beginPath();
-    ctx.moveTo(x - 4, baseY + 4);
-    ctx.lineTo(x + 4, baseY + 4);
-    ctx.lineTo(x, baseY + 9);
-    ctx.closePath();
-    ctx.fill();
   }
 
   function seekFromEvent(ev) {
@@ -8438,26 +8505,57 @@ function el(tag, className, text) {
     let startBefore;
     let startAfter;
     let startDock = 0;
+    let pixelsPerGrow = 0;
+    let sumGrow = 0;
     if (kind === 'v') {
       before = tab.main[ci - 1];
       after = tab.main[ci];
       startBefore = before.grow;
       startAfter = after.grow;
+      sumGrow = startBefore + startAfter;
+      const cols = mainEl ? mainEl.querySelectorAll(':scope > .pane-col') : [];
+      const a = cols[ci - 1];
+      const b = cols[ci];
+      if (a && b) {
+        const pa = a.getBoundingClientRect();
+        const pb = b.getBoundingClientRect();
+        const span = pa.width + pb.width;
+        if (span > 0 && sumGrow > 0) pixelsPerGrow = span / sumGrow;
+      }
+      if (!(pixelsPerGrow > 0)) {
+        const total = mainEl ? Math.max(1, mainEl.clientWidth) : 1;
+        pixelsPerGrow = total / Math.max(1, tab.main.reduce((n, col) => n + col.grow, 0));
+      }
     } else if (kind === 'h') {
       const col = tab.main[ci];
       before = col.stack[si - 1];
       after = col.stack[si];
       startBefore = before.grow;
       startAfter = after.grow;
+      sumGrow = startBefore + startAfter;
+      const colEl = splitter.parentElement;
+      const slots = colEl ? colEl.querySelectorAll(':scope > .pane-slot') : [];
+      const a = slots[si - 1];
+      const b = slots[si];
+      if (a && b) {
+        const pa = a.getBoundingClientRect();
+        const pb = b.getBoundingClientRect();
+        const span = pa.height + pb.height;
+        if (span > 0 && sumGrow > 0) pixelsPerGrow = span / sumGrow;
+      }
+      if (!(pixelsPerGrow > 0)) {
+        const total = colEl ? Math.max(1, colEl.clientHeight) : 1;
+        pixelsPerGrow = total / Math.max(1, col.stack.reduce((n, item) => n + item.grow, 0));
+      }
     } else {
       startDock = tab.dock.size;
     }
 
     const onMove = (mv) => {
       if (kind === 'v') {
-        const total = mainEl ? Math.max(1, mainEl.clientWidth) : 1;
-        const sum = startBefore + startAfter;
-        const delta = ((mv.clientX - startX) / total) * sum;
+        const dx = mv.clientX - startX;
+        const delta = dx / pixelsPerGrow;
+        const sum = sumGrow;
         const nextBefore = Math.max(MIN_GROW, Math.min(sum - MIN_GROW, startBefore + delta));
         before.grow = nextBefore;
         after.grow = sum - nextBefore;
@@ -8465,13 +8563,13 @@ function el(tag, className, text) {
         if (cols[ci - 1]) cols[ci - 1].style.flexGrow = String(before.grow);
         if (cols[ci]) cols[ci].style.flexGrow = String(after.grow);
       } else if (kind === 'h') {
-        const colEl = splitter.parentElement;
-        const total = colEl ? Math.max(1, colEl.clientHeight) : 1;
-        const sum = startBefore + startAfter;
-        const delta = ((mv.clientY - startY) / total) * sum;
+        const dy = mv.clientY - startY;
+        const delta = dy / pixelsPerGrow;
+        const sum = sumGrow;
         const nextBefore = Math.max(MIN_GROW, Math.min(sum - MIN_GROW, startBefore + delta));
         before.grow = nextBefore;
         after.grow = sum - nextBefore;
+        const colEl = splitter.parentElement;
         const slots = colEl.querySelectorAll(':scope > .pane-slot');
         if (slots[si - 1]) slots[si - 1].style.flexGrow = String(before.grow);
         if (slots[si]) slots[si].style.flexGrow = String(after.grow);
@@ -8504,12 +8602,24 @@ function el(tag, className, text) {
     const slot = el('div', 'pane-slot');
     slot.dataset.panelId = panelId;
     slot.dataset.slot = pos.dock ? 'dock' : `${pos.ci}:${pos.si}`;
+    const collapsed = !!tab.collapsed[panelId];
     if (!pos.dock) {
       const stack = tab.main[pos.ci] && tab.main[pos.ci].stack;
       const item = stack && stack[pos.si];
-      if (item) slot.style.flexGrow = String(item.grow);
+      if (item) {
+        
+        
+        
+        if (collapsed) slot.style.flexGrow = '';
+        else slot.style.flexGrow = String(item.grow);
+      }
     }
-    if (tab.collapsed[panelId]) slot.classList.add('is-collapsed');
+    if (collapsed) {
+      slot.classList.add('is-collapsed');
+      slot.style.minHeight = '0';
+    } else {
+      slot.style.minHeight = '';
+    }
     if (tab.maximized === panelId) slot.classList.add('is-maximized');
     const panel = panelNodes[panelId];
     if (!panel) {
@@ -8517,11 +8627,10 @@ function el(tag, className, text) {
       return slot;
     }
     panel.dataset.panelId = panelId;
-    panel.classList.toggle('collapsed', !!tab.collapsed[panelId]);
+    panel.classList.toggle('collapsed', collapsed);
     panel.classList.toggle('maximized', tab.maximized === panelId);
     const collapseBtn = panel.querySelector && panel.querySelector('[data-action="collapse"]');
     if (collapseBtn) {
-      const collapsed = !!tab.collapsed[panelId];
       collapseBtn.textContent = collapsed ? '»' : '«';
       collapseBtn.title = collapsed ? '展开' : '折叠';
     }

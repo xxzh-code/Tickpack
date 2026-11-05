@@ -9,7 +9,7 @@
 
 这就是这个项目存在的理由。详细版见 [docs/WHY.md](docs/WHY.md)。
 
-**▶ [在线试玩](https://xxzh-code.github.io/Tickpack/) · [v0.1.0 Release](https://github.com/xxzh-code/Tickpack/releases/tag/v0.1.0) · [单文件 HTML](dist/tickpack.html) · [GitHub](https://github.com/xxzh-code/Tickpack)**
+**▶ [在线试玩](https://xxzh-code.github.io/Tickpack/) · [Releases](https://github.com/xxzh-code/Tickpack/releases) · [单文件 HTML](dist/tickpack.html) · [GitHub](https://github.com/xxzh-code/Tickpack)**
 
 ![Tickpack 动图：五角星逐 tick 画出来](docs/img/demo.gif)
 

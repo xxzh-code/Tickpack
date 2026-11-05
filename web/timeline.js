@@ -170,7 +170,33 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       ctx.restore();
     }
 
-    // ---- hover guide
+    // ---- playhead line + handle (drawn before hover so the tooltip stays on top)
+    const x = xOf(cursor);
+    ctx.strokeStyle = palette.playhead;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, topY + 6);
+    ctx.lineTo(x, baseY + 3);
+    ctx.stroke();
+
+    // top handle (flat)
+    ctx.fillStyle = palette.playhead;
+    roundRect(x - 4, topY - 4, 8, 15, 3);
+    ctx.fill();
+    ctx.fillStyle = palette.tipBg;
+    roundRect(x - 1.5, topY - 1, 3, 9, 1.5);
+    ctx.fill();
+
+    // bottom pointer
+    ctx.fillStyle = palette.playhead;
+    ctx.beginPath();
+    ctx.moveTo(x - 4, baseY + 4);
+    ctx.lineTo(x + 4, baseY + 4);
+    ctx.lineTo(x, baseY + 9);
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- hover guide + label LAST: neither the needle nor its handle may cover it
     if (hover != null && !dragging) {
       const xh = Math.round(xOf(hover)) + 0.5;
       ctx.strokeStyle = palette.hover;
@@ -200,32 +226,6 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       ctx.textBaseline = 'middle';
       ctx.fillText(label, bx + 5, 8);
     }
-
-    // ---- playhead line + handle
-    const x = xOf(cursor);
-    ctx.strokeStyle = palette.playhead;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(x, topY + 6);
-    ctx.lineTo(x, baseY + 3);
-    ctx.stroke();
-
-    // top handle (flat)
-    ctx.fillStyle = palette.playhead;
-    roundRect(x - 4, topY - 4, 8, 15, 3);
-    ctx.fill();
-    ctx.fillStyle = palette.tipBg;
-    roundRect(x - 1.5, topY - 1, 3, 9, 1.5);
-    ctx.fill();
-
-    // bottom pointer
-    ctx.fillStyle = palette.playhead;
-    ctx.beginPath();
-    ctx.moveTo(x - 4, baseY + 4);
-    ctx.lineTo(x + 4, baseY + 4);
-    ctx.lineTo(x, baseY + 9);
-    ctx.closePath();
-    ctx.fill();
   }
 
   function seekFromEvent(ev) {

@@ -46,6 +46,7 @@ export function createWorld(canvas, options = {}) {
   let w = 0;
   let h = 0;
   let dpr = 1;
+  let dprQuery = null;
   let side = 0; // square viewport size in px
   let cell = 12;
   let pad = 18;
@@ -78,21 +79,55 @@ export function createWorld(canvas, options = {}) {
   }
 
   function resize() {
+    // CSS size comes from the wrap (the canvas is styled width/height:100%);
+    // backing store is CSS px * devicePixelRatio so 1 CSS px = 1 logical unit.
     const rect = wrap.getBoundingClientRect();
-    w = Math.max(160, Math.floor(rect.width));
-    h = Math.max(160, Math.floor(rect.height));
-    dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+    w = Math.max(1, rect.width);
+    h = Math.max(1, rect.height);
+    dpr = Math.max(1, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+    const bw = Math.max(1, Math.round(rect.width * dpr));
+    const bh = Math.max(1, Math.round(rect.height * dpr));
+    if (canvas.width !== bw) canvas.width = bw;
+    if (canvas.height !== bh) canvas.height = bh;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     pad = Math.max(8, Math.min(24, Math.min(w, h) * 0.05));
     applyLayout();
     if (autoFit && !fitLocked) applyTarget(computeFit());
   }
 
+  function watchDpr() {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const ratio = window.devicePixelRatio || 1;
+    try {
+      dprQuery = window.matchMedia(`(resolution: ${ratio}dppx)`);
+    } catch {
+      dprQuery = null;
+      return;
+    }
+    if (!dprQuery) return;
+    if (typeof dprQuery.addEventListener === 'function') dprQuery.addEventListener('change', onDprChange);
+    else if (typeof dprQuery.addListener === 'function') dprQuery.addListener(onDprChange);
+  }
+
+  function onDprChange() {
+    if (dprQuery) {
+      if (typeof dprQuery.removeEventListener === 'function') dprQuery.removeEventListener('change', onDprChange);
+      else if (typeof dprQuery.removeListener === 'function') dprQuery.removeListener(onDprChange);
+    }
+    watchDpr();
+    resize();
+  }
+
   const ro = new ResizeObserver(resize);
   ro.observe(wrap);
   resize();
+  watchDpr();
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('resize', resize);
+  }
+  // One more pass after the initial layout settles (panels are moved into the
+  // active tab after this module is created).
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resize());
 
   function applyLayout() {
     side = Math.min(w, h) - pad * 2;

@@ -526,26 +526,57 @@ export function createLayout({
     let startBefore;
     let startAfter;
     let startDock = 0;
+    let pixelsPerGrow = 0;
+    let sumGrow = 0;
     if (kind === 'v') {
       before = tab.main[ci - 1];
       after = tab.main[ci];
       startBefore = before.grow;
       startAfter = after.grow;
+      sumGrow = startBefore + startAfter;
+      const cols = mainEl ? mainEl.querySelectorAll(':scope > .pane-col') : [];
+      const a = cols[ci - 1];
+      const b = cols[ci];
+      if (a && b) {
+        const pa = a.getBoundingClientRect();
+        const pb = b.getBoundingClientRect();
+        const span = pa.width + pb.width;
+        if (span > 0 && sumGrow > 0) pixelsPerGrow = span / sumGrow;
+      }
+      if (!(pixelsPerGrow > 0)) {
+        const total = mainEl ? Math.max(1, mainEl.clientWidth) : 1;
+        pixelsPerGrow = total / Math.max(1, tab.main.reduce((n, col) => n + col.grow, 0));
+      }
     } else if (kind === 'h') {
       const col = tab.main[ci];
       before = col.stack[si - 1];
       after = col.stack[si];
       startBefore = before.grow;
       startAfter = after.grow;
+      sumGrow = startBefore + startAfter;
+      const colEl = splitter.parentElement;
+      const slots = colEl ? colEl.querySelectorAll(':scope > .pane-slot') : [];
+      const a = slots[si - 1];
+      const b = slots[si];
+      if (a && b) {
+        const pa = a.getBoundingClientRect();
+        const pb = b.getBoundingClientRect();
+        const span = pa.height + pb.height;
+        if (span > 0 && sumGrow > 0) pixelsPerGrow = span / sumGrow;
+      }
+      if (!(pixelsPerGrow > 0)) {
+        const total = colEl ? Math.max(1, colEl.clientHeight) : 1;
+        pixelsPerGrow = total / Math.max(1, col.stack.reduce((n, item) => n + item.grow, 0));
+      }
     } else {
       startDock = tab.dock.size;
     }
 
     const onMove = (mv) => {
       if (kind === 'v') {
-        const total = mainEl ? Math.max(1, mainEl.clientWidth) : 1;
-        const sum = startBefore + startAfter;
-        const delta = ((mv.clientX - startX) / total) * sum;
+        const dx = mv.clientX - startX;
+        const delta = dx / pixelsPerGrow;
+        const sum = sumGrow;
         const nextBefore = Math.max(MIN_GROW, Math.min(sum - MIN_GROW, startBefore + delta));
         before.grow = nextBefore;
         after.grow = sum - nextBefore;
@@ -553,13 +584,13 @@ export function createLayout({
         if (cols[ci - 1]) cols[ci - 1].style.flexGrow = String(before.grow);
         if (cols[ci]) cols[ci].style.flexGrow = String(after.grow);
       } else if (kind === 'h') {
-        const colEl = splitter.parentElement;
-        const total = colEl ? Math.max(1, colEl.clientHeight) : 1;
-        const sum = startBefore + startAfter;
-        const delta = ((mv.clientY - startY) / total) * sum;
+        const dy = mv.clientY - startY;
+        const delta = dy / pixelsPerGrow;
+        const sum = sumGrow;
         const nextBefore = Math.max(MIN_GROW, Math.min(sum - MIN_GROW, startBefore + delta));
         before.grow = nextBefore;
         after.grow = sum - nextBefore;
+        const colEl = splitter.parentElement;
         const slots = colEl.querySelectorAll(':scope > .pane-slot');
         if (slots[si - 1]) slots[si - 1].style.flexGrow = String(before.grow);
         if (slots[si]) slots[si].style.flexGrow = String(after.grow);
@@ -592,12 +623,24 @@ export function createLayout({
     const slot = el('div', 'pane-slot');
     slot.dataset.panelId = panelId;
     slot.dataset.slot = pos.dock ? 'dock' : `${pos.ci}:${pos.si}`;
+    const collapsed = !!tab.collapsed[panelId];
     if (!pos.dock) {
       const stack = tab.main[pos.ci] && tab.main[pos.ci].stack;
       const item = stack && stack[pos.si];
-      if (item) slot.style.flexGrow = String(item.grow);
+      if (item) {
+        // Never leave an inline flex-grow on a collapsed slot: inline styles
+        // beat the stylesheet's `.is-collapsed { flex: 0 0 auto }` and the slot
+        // would keep growing (the old collapse bug).
+        if (collapsed) slot.style.flexGrow = '';
+        else slot.style.flexGrow = String(item.grow);
+      }
     }
-    if (tab.collapsed[panelId]) slot.classList.add('is-collapsed');
+    if (collapsed) {
+      slot.classList.add('is-collapsed');
+      slot.style.minHeight = '0';
+    } else {
+      slot.style.minHeight = '';
+    }
     if (tab.maximized === panelId) slot.classList.add('is-maximized');
     const panel = panelNodes[panelId];
     if (!panel) {
@@ -605,11 +648,10 @@ export function createLayout({
       return slot;
     }
     panel.dataset.panelId = panelId;
-    panel.classList.toggle('collapsed', !!tab.collapsed[panelId]);
+    panel.classList.toggle('collapsed', collapsed);
     panel.classList.toggle('maximized', tab.maximized === panelId);
     const collapseBtn = panel.querySelector && panel.querySelector('[data-action="collapse"]');
     if (collapseBtn) {
-      const collapsed = !!tab.collapsed[panelId];
       collapseBtn.textContent = collapsed ? '»' : '«';
       collapseBtn.title = collapsed ? '展开' : '折叠';
     }

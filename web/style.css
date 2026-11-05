@@ -346,17 +346,49 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .pane-root { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .pane-main { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; width: 100%; }
 .pane-col { display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; min-height: 0; }
-.pane-col.col-collapsed { flex: 0 0 auto; }
-.pane-col.col-collapsed .panel { min-width: 196px; }
+/* single-panel column collapsed: narrow vertical edge rail (not a blank 196px block) */
+.pane-col.col-collapsed { flex: 0 0 36px !important; width: 36px; min-width: 36px; max-width: 36px; }
+.pane-col.col-collapsed .pane-slot { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; }
+.pane-col.col-collapsed .panel { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.pane-col.col-collapsed .panel .panel-head {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  height: 100%;
+  padding: 8px 0;
+}
+.pane-col.col-collapsed .panel .head-left { flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+.pane-col.col-collapsed .panel .head-right { flex-direction: column; align-items: center; gap: 6px; margin-top: auto; width: 100%; }
+.pane-col.col-collapsed .panel .head-left > :not(.panel-title) { display: none; }
+.pane-col.col-collapsed .panel .head-right > :not(.panel-actions) { display: none; }
+.pane-col.col-collapsed .panel .panel-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 1px;
+  line-height: 1.1;
+}
+.pane-col.col-collapsed .panel .panel-actions { flex-direction: column; gap: 2px; }
+.pane-col.col-collapsed .panel .panel-actions::before { display: none; }
+.pane-col.col-collapsed .panel .panel-actions [data-action="maximize"],
+.pane-col.col-collapsed .panel .panel-actions [data-action="menu"] { display: none; }
+.pane-col.col-collapsed .panel .icon-btn { width: 28px; height: 28px; }
 .pane-slot { display: flex; flex-grow: 1; flex-shrink: 1; flex-basis: 0; min-width: 0; min-height: 0; }
 /* panels must stretch inside their slot in both axes (fills the tab) */
 .pane-slot > .panel { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; }
 .pane-slot[data-panel-id="scores"] { min-height: 140px; }
 .pane-slot[data-panel-id="log"] { min-height: 120px; }
-.pane-slot.is-collapsed { flex: 0 0 auto; min-height: 0; }
+.pane-slot.is-collapsed { flex: 0 0 auto; min-width: 0; min-height: 0; }
+.pane-slot.is-collapsed > .panel { width: 100%; height: auto; min-height: 0; min-width: 0; }
+/* the single-column rail is full height even though its panel is collapsed */
+.pane-col.col-collapsed .pane-slot > .panel { height: 100%; }
 .pane-dock { display: flex; min-height: 0; min-width: 0; width: 100%; flex: 0 0 150px; }
 .pane-dock .pane-slot { flex: 1 1 auto; }
-.pane-dock.dock-collapsed { flex: 0 0 auto; }
+.pane-dock.dock-collapsed { width: 100%; flex: 0 0 auto; }
+.pane-dock.dock-collapsed .pane-slot,
+.pane-dock.dock-collapsed .pane-slot.is-collapsed { flex: 1 1 auto; width: 100%; min-height: 0; }
+.pane-dock.dock-collapsed .pane-slot > .panel { width: 100%; height: auto; }
 
 /* splitters */
 .split { flex: 0 0 6px; position: relative; background: transparent; touch-action: none; z-index: 2; }
@@ -445,8 +477,8 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 .panel-body { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 .panel.collapsed .panel-body { display: none; }
-.panel.collapsed { height: auto; }
-.panel.collapsed .panel-head { border-bottom: none; }
+.panel.collapsed { height: auto; min-width: 0; min-height: 0; }
+.panel.collapsed .panel-head { flex: 0 0 32px; height: 32px; border-bottom: none; }
 
 /* floating panel menu (fixed position so it escapes panel overflow) */
 .panel-menu {
@@ -585,7 +617,7 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 
 /* --------------------------------------------------------------- world --- */
 .canvas-wrap { position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-#world { position: absolute; inset: 0; display: block; cursor: grab; touch-action: none; }
+#world { position: absolute; inset: 0; display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 #world.panning { cursor: grabbing; }
 
 .view-readout {
