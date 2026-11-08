@@ -16,12 +16,14 @@ import { createLayout, PANEL_DEFS } from './layout.js';
 import { createWebHost } from './host-web.js';
 import { resolveInitialTheme, applyTheme, persistTheme } from './theme.js';
 import { blockColor } from './blocks.js';
-import { clamp, esc, flash, fmtInt, showToast } from './util.js';
+import { clamp, esc, fmtInt, icon, prefersReducedMotion, showToast } from './util.js';
 
 const DEFAULT_SPEED = 10;
 const ZIP_FILENAME = 'tickpack-datapack.zip';
 const SHARE_VERSION = '1';
 const SHARE_MAX_CHARS = 10000;
+const DRAFT_KEY = 'tickpack.draft.v1';
+const DRAFT_DEBOUNCE_MS = 500;
 const PHASE_LABEL = {
   idle: '空闲',
   running: '运行中',
@@ -108,6 +110,9 @@ export function startApp(api) {
     shareNoticeText: byId('share-notice-text'),
     shareNoticeClose: byId('share-notice-close'),
     editorFile: byId('editor-file'),
+    actionToast: byId('action-toast'),
+    actionToastText: byId('action-toast-text'),
+    actionToastActions: byId('action-toast-actions'),
   };
 
   // ---------------------------------------------------------------- state
@@ -185,6 +190,19 @@ export function startApp(api) {
     panelNodes,
     onLayoutChange: handleLayoutChange,
     onNotify: (message) => showToast(message, 'ok'),
+    onReset: (previous) => {
+      showActionToast('layout', '已重置为默认布局', [
+        {
+          label: '撤销',
+          action: () => {
+            layout.restoreLayout(previous);
+            // The toast button disappears with the toast; keep keyboard focus
+            // on a stable, visible control instead of dropping it to <body>.
+            if (dom.resetLayout && typeof dom.resetLayout.focus === 'function') dom.resetLayout.focus();
+          },
+        },
+      ], 5000);
+    },
   });
   layout.init(q.get('tab'));
   if (isTheater) {
@@ -217,7 +235,150 @@ export function startApp(api) {
       || SAMPLES[0];
   }
 
+  // ------------------------------------------------- kind toast (non-blocking)
+  let actionToastTimer = 0;
+  let actionToastKind = '';
+  function hideActionToast() {
+    actionToastKind = '';
+    clearTimeout(actionToastTimer);
+    actionToastTimer = 0;
+    if (dom.actionToast) dom.actionToast.hidden = true;
+  }
+
+  function showActionToast(kind, message, actions = [], timeout = 0) {
+    if (!dom.actionToast || !dom.actionToastText || !dom.actionToastActions) return;
+    clearTimeout(actionToastTimer);
+    actionToastKind = kind;
+    dom.actionToastText.textContent = message;
+    dom.actionToastActions.innerHTML = '';
+    for (const item of actions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-soft btn-sm';
+      button.textContent = item.label;
+      button.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        hideActionToast();
+        if (typeof item.action === 'function') item.action();
+      });
+      dom.actionToastActions.appendChild(button);
+    }
+    dom.actionToast.hidden = false;
+    if (timeout > 0) actionToastTimer = setTimeout(hideActionToast, timeout);
+  }
+
+  // -------------------------------------------------------- source drafts
+  let draftTimer = 0;
+  let draftPending = false;
+  let lastSampleValue = '';
+
+  function draftPayload() {
+    return {
+      version: 1,
+      source: editor.getValue(),
+      sampleId: state.sampleId,
+      cursor: session.ok ? session.cursor : 0,
+      savedAt: Date.now(),
+    };
+  }
+
+  function saveDraftNow() {
+    clearTimeout(draftTimer);
+    draftTimer = 0;
+    draftPending = false;
+    if (!host || typeof host.storageSet !== 'function') return;
+    try { host.storageSet(DRAFT_KEY, JSON.stringify(draftPayload())); } catch { /* best effort */ }
+  }
+
+  function scheduleDraftSave() {
+    draftPending = true;
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraftNow, DRAFT_DEBOUNCE_MS);
+  }
+
+  function clearDraft() {
+    clearTimeout(draftTimer);
+    draftTimer = 0;
+    draftPending = false;
+    if (!host || typeof host.storageRemove !== 'function') return;
+    try { host.storageRemove(DRAFT_KEY); } catch { /* best effort */ }
+  }
+
+  function readDraft() {
+    if (!host || typeof host.storageGet !== 'function') return null;
+    try {
+      const raw = host.storageGet(DRAFT_KEY);
+      if (!raw) return null;
+      const draft = JSON.parse(raw);
+      if (!draft || typeof draft.source !== 'string' || draft.source.length > 500000) return null;
+      return draft;
+    } catch {
+      return null;
+    }
+  }
+
+  function restoreDraft(draft) {
+    if (!draft || typeof draft.source !== 'string') return;
+    hideActionToast();
+    clearDraft();
+    const sample = draft.sampleId ? SAMPLES.find((s) => s.id === draft.sampleId) : null;
+    state.sampleId = sample ? sample.id : null;
+    if (sample) {
+      lastSampleValue = sample.id;
+      dom.sampleSelect.value = sample.id;
+      applySampleDescription(sample);
+    } else {
+      applySampleDescription(null);
+    }
+    editor.setValue(draft.source, { silent: true });
+    scheduleDraftSave();
+    const ok = startRun({ autoPlay: false });
+    if (ok && Number.isFinite(draft.cursor) && draft.cursor > 0) {
+      const index = clamp(Math.round(draft.cursor), 0, session.snapshotsCount - 1);
+      if (index > 0) seekTo(index);
+    }
+    saveDraftNow();
+    showToast('已恢复上次编辑', 'ok');
+  }
+
+  function offerDraftRestore(draft) {
+    showActionToast('draft', '发现上次未保存的编辑', [
+      { label: '恢复上次编辑', action: () => restoreDraft(draft) },
+      { label: '丢弃', action: () => { clearDraft(); showToast('已丢弃草稿'); } },
+    ], 12000);
+  }
+
   // ------------------------------------------------------------------ run
+  /** Compile failed: make every run-related panel unmistakably empty. */
+  function clearRunForCompileError(source, errorHtml) {
+    state.source = source;
+    state.playing = false;
+    state.lastSay = '';
+    state.scoreRows = [];
+    state.dirty = true;
+    dom.dirtyBadge.hidden = false;
+    dom.editorMeta.textContent = '';
+    dom.scoresGrid.innerHTML = '<div class="scores-empty">编译失败 — 没有可显示的结果</div>';
+    dom.scoresFoot.innerHTML = '<span class="muted">修复源码后重新运行</span>';
+    world.reset();
+    world.setTick(0);
+    updatePen();
+    updateStatus(0);
+    datapack.reset();
+    timeline.reset();
+    timeline.setData(0, 0);
+    resetConsole();
+    if (dom.consoleMeta) dom.consoleMeta.textContent = '错误';
+    editor.setSourceLine(null);
+    updatePressHint({});
+    setPhase('error');
+    updateWorldChip();
+    if (errorHtml) consoleLine(errorHtml, 'log-error');
+    world.render(performance.now());
+    timeline.render();
+    if (draftPending) saveDraftNow();
+  }
+
   function startRun({ autoPlay = true, syncTicks = 0, seekTick = null } = {}) {
     const source = editor.getValue();
     let loaded;
@@ -225,9 +386,8 @@ export function startApp(api) {
       loaded = session.load(source);
     } catch (err) {
       console.error('[tickpack] session.load crashed', err);
-      state.playing = false;
-      setPhase('error');
-      updateWorldChip();
+      editor.setDiagnostics([{ severity: 'error', line: 1, message: String((err && err.message) || err) }]);
+      clearRunForCompileError(source, `<span class="log-t">!</span> <span class="log-err">编译崩溃：${esc(err && err.message ? err.message : err)}</span>`);
       showToast(`编译崩溃：${err && err.message ? err.message : err}`, 'error');
       return false;
     }
@@ -236,13 +396,10 @@ export function startApp(api) {
     editor.setDiagnostics(loaded.diagnostics || []);
 
     if (!loaded.ok) {
-      state.playing = false;
-      setPhase('error');
-      editor.setSourceLine(null);
       const first = (loaded.diagnostics || [])[0];
-      consoleLine(
+      clearRunForCompileError(
+        source,
         `<span class="log-t">!</span> <span class="log-err">编译失败${first ? ` · 第 ${first.line} 行：${esc(first.message)}` : ''}</span>`,
-        'log-error',
       );
       updateWorldChip();
       showToast('编译失败 — 请查看诊断', 'error');
@@ -283,6 +440,7 @@ export function startApp(api) {
 
     world.render(performance.now());
     timeline.render();
+    if (draftPending) saveDraftNow();
     return true;
   }
 
@@ -404,11 +562,13 @@ export function startApp(api) {
   }
 
   function pause() {
+    const wasRunning = state.playing;
     state.playing = false;
     state.acc = 0;
     if (state.phase === 'running') {
       setPhase(session.finished ? 'finished' : 'paused');
     }
+    if (wasRunning) pulseScoreValues();
   }
 
   function togglePlay() {
@@ -446,7 +606,7 @@ export function startApp(api) {
   }
 
   function seekTo(index) {
-    if (!session.ok || !session.snapshotsCount) return;
+    if (state.phase === 'error' || !session.ok || !session.snapshotsCount) return;
     pause();
     const t = clamp(Math.round(index), 0, session.snapshotsCount - 1);
     if (!restoreIndex(t, { follow: false })) return;
@@ -454,13 +614,14 @@ export function startApp(api) {
   }
 
   function stepBack() {
-    if (!session.ok) return;
+    if (state.phase === 'error' || !session.ok) return;
     pause();
     if (session.cursor > 0) seekTo(session.cursor - 1);
+    pulseScoreValues();
   }
 
   function stepForward() {
-    if (!session.ok) return;
+    if (state.phase === 'error' || !session.ok) return;
     pause();
     if (session.cursor < session.snapshotsCount - 1) {
       seekTo(session.cursor + 1);
@@ -468,10 +629,11 @@ export function startApp(api) {
       stepCore({ instant: false });
       if (state.phase === 'running') setPhase('paused');
     }
+    pulseScoreValues();
   }
 
   function doReset() {
-    if (!session.ok) return;
+    if (state.phase === 'error' || !session.ok) return;
     pause();
     const view = session.reset();
     timeline.reset();
@@ -548,7 +710,6 @@ export function startApp(api) {
       if (row.val.textContent !== text) {
         row.val.textContent = text;
         row.when.textContent = `t ${tick}`;
-        flash(row.chip, 'chip-flash');
       }
     }
     const parts = [];
@@ -558,6 +719,20 @@ export function startApp(api) {
     let html = parts.join(' <span class="dot">·</span> ');
     if (state.lastSay) html += ` <span class="say">say “${esc(state.lastSay)}”</span>`;
     dom.scoresFoot.innerHTML = html || '<span class="muted">计分板空闲</span>';
+  }
+
+  /** Pause / single-step only: <=140ms text-color feedback, >=150ms per chip. */
+  function pulseScoreValues() {
+    if (prefersReducedMotion()) return;
+    const now = performance.now();
+    for (const row of state.scoreRows) {
+      if (!row.chip || !row.val) continue;
+      if (now - (row._pulseAt || 0) < 150) continue;
+      row._pulseAt = now;
+      row.chip.classList.add('score-pulse');
+      clearTimeout(row._pulseTimer);
+      row._pulseTimer = setTimeout(() => row.chip.classList.remove('score-pulse'), 140);
+    }
   }
 
   function updatePen() {
@@ -623,7 +798,7 @@ export function startApp(api) {
     if (state.phase === 'paused') {
       chip.hidden = false;
       chip.dataset.kind = 'paused';
-      chip.textContent = `❚❚ 已暂停 · 已运行 ${session.cursor}`;
+      chip.textContent = `已暂停 · 已运行 ${session.cursor}`;
       return;
     }
     chip.hidden = true;
@@ -675,7 +850,7 @@ export function startApp(api) {
       `<span class="log-tags">${tags.join(' + ') || '空闲'}</span>`,
     ];
     if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
-    if (particles) bits.push(`<span class="log-fx">✦${particles}</span>`);
+    if (particles) bits.push(`<span class="log-fx">${icon('sparkle', 'log-fx-icon')}${particles}</span>`);
     consoleLine(bits.join(' '), 'log-summary');
 
     for (const ev of events) {
@@ -696,8 +871,11 @@ export function startApp(api) {
     state.phase = phase;
     dom.statPhase.textContent = PHASE_LABEL[phase] || phase;
     dom.stateLed.dataset.phase = phase;
-    dom.pause.textContent = phase === 'running' ? '❚❚ 暂停' : (phase === 'finished' ? '↺ 重播' : '▶ 继续');
-    const canRun = session.ok;
+    const pauseIcon = phase === 'running' ? 'pause' : (phase === 'finished' ? 'replay' : 'play');
+    const pauseLabel = phase === 'running' ? '暂停' : (phase === 'finished' ? '重播' : '继续');
+    dom.pause.innerHTML = `${icon(pauseIcon)}<span class="btn-label">${pauseLabel}</span>`;
+    dom.pause.setAttribute('aria-label', pauseLabel);
+    const canRun = session.ok && phase !== 'error';
     dom.pause.disabled = !canRun;
     dom.step.disabled = !canRun;
     dom.reset.disabled = !canRun;
@@ -707,10 +885,10 @@ export function startApp(api) {
   }
 
   function onSourceChange() {
-    if (!session.ok) return;
-    if (state.dirty) return;
     state.dirty = true;
     dom.dirtyBadge.hidden = false;
+    scheduleDraftSave();
+    if (actionToastKind === 'draft') hideActionToast();
   }
 
   function applySampleDescription(sample) {
@@ -722,21 +900,34 @@ export function startApp(api) {
   }
 
   let pressHintTimer = 0;
+  let pressFlashTimer = 0;
+  function pulsePress() {
+    if (prefersReducedMotion() || !dom.press) return;
+    dom.press.classList.remove('press-flash');
+    void dom.press.offsetWidth;
+    dom.press.classList.add('press-flash');
+    clearTimeout(pressFlashTimer);
+    pressFlashTimer = setTimeout(() => dom.press.classList.remove('press-flash'), 600);
+  }
+
   function updatePressHint(files) {
     const hasPress = !!(files && files['data/tp/function/event/press.mcfunction']);
     if (!dom.press) return;
-    dom.press.classList.toggle('has-press', hasPress);
-    dom.press.title = hasPress
-      ? '宿主输入：press — 该程序包含 `when press` 代码块'
-      : '宿主输入：press';
     clearTimeout(pressHintTimer);
-    if (hasPress) {
-      dom.press.classList.remove('press-hint');
+    clearTimeout(pressFlashTimer);
+    dom.press.classList.remove('press-hint');
+    dom.press.classList.remove('press-flash');
+    dom.press.classList.toggle('has-press', hasPress);
+    dom.press.disabled = !hasPress;
+    dom.press.setAttribute('aria-disabled', hasPress ? 'false' : 'true');
+    dom.press.title = hasPress
+      ? '宿主输入：press — 该程序包含 when press 代码块'
+      : '触发不可用：当前程序没有 when press 事件';
+    dom.press.setAttribute('aria-label', hasPress ? '触发（press）' : '触发（不可用：当前程序没有 when press 事件）');
+    if (hasPress && !prefersReducedMotion()) {
       void dom.press.offsetWidth;
       dom.press.classList.add('press-hint');
-      pressHintTimer = setTimeout(() => dom.press.classList.remove('press-hint'), 3400);
-    } else {
-      dom.press.classList.remove('press-hint');
+      pressHintTimer = setTimeout(() => dom.press.classList.remove('press-hint'), 600);
     }
   }
 
@@ -797,6 +988,7 @@ export function startApp(api) {
     dom.dirtyBadge.hidden = true;
     applySampleDescription(null);
     editor.setValue(picked.text, { silent: true });
+    scheduleDraftSave();
     startRun({ autoPlay: false });
     showToast(`已导入 ${picked.name || '程序'}`, 'ok');
   }
@@ -952,7 +1144,7 @@ export function startApp(api) {
     if (!session.ok) return;
     // Host input belongs to the session; the web shell never touches the simulator.
     if (session.press() === false) return;
-    flash(dom.press, 'press-flash');
+    pulsePress();
     showToast('已发送触发 → #__press + 1', 'ok');
   });
 
@@ -1011,7 +1203,19 @@ export function startApp(api) {
   dom.sampleSelect.addEventListener('change', () => {
     const s = pickSample(dom.sampleSelect.value);
     if (!s) return;
+    if (state.dirty) {
+      const proceed = typeof window.confirm === 'function'
+        ? window.confirm('当前源码有未运行的修改，切换样例会覆盖它。继续吗？')
+        : true;
+      if (!proceed) {
+        dom.sampleSelect.value = state.sampleId || lastSampleValue;
+        return;
+      }
+    }
+    hideActionToast();
+    clearDraft();
     state.sampleId = s.id;
+    lastSampleValue = s.id;
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
     editor.setValue(s.source || '', { silent: true });
@@ -1019,11 +1223,27 @@ export function startApp(api) {
     startRun({ autoPlay: true });
   });
 
+  window.addEventListener('beforeunload', (e) => {
+    if (!state.dirty) return undefined;
+    saveDraftNow();
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  });
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && isTheater && theaterOpen) {
       e.preventDefault();
       setTheaterDrawer(false);
       return;
+    }
+    if (e.key === 'Escape' && layout && layout.document) {
+      const activeTab = layout.document.tabs.find((t) => t.id === layout.activeTabId);
+      if (activeTab && activeTab.maximized) {
+        e.preventDefault();
+        layout.toggleMaximize(activeTab.maximized);
+        return;
+      }
     }
     const active = document.activeElement;
     const tag = active && active.tagName;
@@ -1073,6 +1293,7 @@ export function startApp(api) {
 
   const initial = pickSample(wanted);
   state.sampleId = initial.id;
+  lastSampleValue = initial.id;
   dom.sampleSelect.value = initial.id;
   // Debug aid for screenshots: ?src=<url-encoded Tickpack source> runs any program.
   const srcOverride = q.has('src') ? q.get('src') : null;
@@ -1085,6 +1306,9 @@ export function startApp(api) {
     applySampleDescription(initial);
   }
 
+  // Drafts are offered, never forced; explicit ?src (share/debug) wins.
+  const bootDraft = srcOverride == null ? readDraft() : null;
+
   if (autoTicks != null) {
     startRun({ autoPlay: false, syncTicks: Math.max(0, autoTicks), seekTick });
     setPhase(session.finished ? 'finished' : 'paused');
@@ -1093,6 +1317,11 @@ export function startApp(api) {
     seekTo(seekTick);
   } else {
     startRun({ autoPlay: true });
+  }
+
+  if (bootDraft) {
+    if (bootDraft.source === editor.getValue()) clearDraft();
+    else offerDraftRestore(bootDraft);
   }
 
   // QA/screenshot helper: `?snap=1` shows the *final* auto-fit framing in the
@@ -1134,6 +1363,12 @@ export function startApp(api) {
     setTheaterDrawer,
     isTheater,
     editor,
+    readDraft,
+    saveDraftNow,
+    clearDraft,
+    scheduleDraftSave,
+    restoreDraft,
+    offerDraftRestore,
     timeline,
     datapack,
     world,

@@ -8,7 +8,7 @@
 // the 33x33 board is only drawn as a subtle reference frame.
 
 import { blockColor, isGlass } from './blocks.js';
-import { clamp } from './util.js';
+import { clamp, prefersReducedMotion } from './util.js';
 import { CANVAS_THEMES } from './theme.js';
 
 const BOARD_LO = -16; // reference board: block coordinates -16 .. 16 inclusive
@@ -73,6 +73,20 @@ export function createWorld(canvas, options = {}) {
 
   const pops = new Map(); // key -> start time
   const particles = [];
+  let reduceMotion = !!prefersReducedMotion();
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onMotionChange = () => {
+      reduceMotion = !!motionQuery.matches;
+      if (reduceMotion) {
+        pops.clear();
+        particles.length = 0;
+        snapCamera();
+      }
+    };
+    if (typeof motionQuery.addEventListener === 'function') motionQuery.addEventListener('change', onMotionChange);
+    else if (typeof motionQuery.addListener === 'function') motionQuery.addListener(onMotionChange);
+  }
 
   function key(x, y, z) {
     return `${x},${y},${z}`;
@@ -202,7 +216,7 @@ export function createWorld(canvas, options = {}) {
       cz: target.cz,
       span: clamp(target.span, MIN_SPAN, MAX_SPAN),
     };
-    if (instant) snapCamera();
+    if (instant || reduceMotion) snapCamera();
   }
 
   function snapCamera() {
@@ -220,8 +234,8 @@ export function createWorld(canvas, options = {}) {
   function requestFit(delay = 160, instant = false) {
     if (!autoFit || fitLocked) return;
     fitPending = true;
-    fitAt = performance.now() + Math.max(0, delay);
-    fitInstant = !!instant;
+    fitAt = performance.now() + (reduceMotion ? 0 : Math.max(0, delay));
+    fitInstant = !!instant || reduceMotion;
   }
 
   /** Explicit fit (button / F / double-click): also re-enables auto-fit. */
@@ -513,7 +527,7 @@ export function createWorld(canvas, options = {}) {
     const glass = isGlass(block);
 
     let scale = 1;
-    if (popStart != null) {
+    if (!reduceMotion && popStart != null) {
       const p = clamp((now - popStart) / POP_MS, 0, 1);
       scale = 0.4 + 0.6 * easeOutBack(p);
     }
@@ -561,6 +575,10 @@ export function createWorld(canvas, options = {}) {
   }
 
   function drawParticles(now) {
+    if (reduceMotion) {
+      particles.length = 0;
+      return;
+    }
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       const age = now - p.born;
@@ -669,10 +687,10 @@ export function createWorld(canvas, options = {}) {
         const prev = blocks.get(k);
         if (!prev || prev.block !== b.block) {
           changes.push(b);
-          if (!instant) pops.set(k, now);
+          if (!instant && !reduceMotion) pops.set(k, now);
         }
       }
-      if (instant) pops.clear();
+      if (instant || reduceMotion) pops.clear();
 
       blocks = next;
       blockCount = next.size;
@@ -691,6 +709,7 @@ export function createWorld(canvas, options = {}) {
     },
 
     applyEvents(events) {
+      if (reduceMotion) return;
       const now = performance.now();
       for (const ev of events || []) {
         if (ev && ev.type === 'particle') {
@@ -753,12 +772,18 @@ export function createWorld(canvas, options = {}) {
       }
 
       const k = 1 - Math.exp(-dt * CAM_EASE);
-      cam.span += (camTarget.span - cam.span) * k;
-      cam.cx += (camTarget.cx - cam.cx) * k;
-      cam.cz += (camTarget.cz - cam.cz) * k;
-      if (Math.abs(cam.span - camTarget.span) < 0.003) cam.span = camTarget.span;
-      if (Math.abs(cam.cx - camTarget.cx) < 0.003) cam.cx = camTarget.cx;
-      if (Math.abs(cam.cz - camTarget.cz) < 0.003) cam.cz = camTarget.cz;
+      if (reduceMotion) {
+        cam.span = camTarget.span;
+        cam.cx = camTarget.cx;
+        cam.cz = camTarget.cz;
+      } else {
+        cam.span += (camTarget.span - cam.span) * k;
+        cam.cx += (camTarget.cx - cam.cx) * k;
+        cam.cz += (camTarget.cz - cam.cz) * k;
+        if (Math.abs(cam.span - camTarget.span) < 0.003) cam.span = camTarget.span;
+        if (Math.abs(cam.cx - camTarget.cx) < 0.003) cam.cx = camTarget.cx;
+        if (Math.abs(cam.cz - camTarget.cz) < 0.003) cam.cz = camTarget.cz;
+      }
       applyLayout();
 
       ctx.clearRect(0, 0, w, h);

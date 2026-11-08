@@ -8,4 +8,5 @@ import './session.test.js';
 import './purity.test.js';
 import './zip.test.js';
 import './build.test.js';
+import './ui-assets.test.js';
 

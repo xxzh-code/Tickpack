@@ -18,13 +18,9 @@ export function el(tag, className, text) {
   return node;
 }
 
-/** Replay a CSS "flash" animation on a node (used for value changes). */
-export function flash(node, className = 'flash') {
-  if (!node) return;
-  node.classList.remove(className);
-  // force style flush so the animation restarts
-  void node.offsetWidth;
-  node.classList.add(className);
+/** Inline SVG sprite reference: `<svg class="icon"><use href="#i-name">`. */
+export function icon(name, extra = '') {
+  return `<svg class="icon${extra ? ` ${extra}` : ''}" aria-hidden="true" focusable="false"><use href="#i-${name}"></use></svg>`;
 }
 
 let toastEl = null;
@@ -55,5 +51,5 @@ export function fmtInt(n) {
 }
 
 export function prefersReducedMotion() {
-  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }

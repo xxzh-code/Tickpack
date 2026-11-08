@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5.8 3.6 12.2 8l-6.4 4.4V3.6Z" fill="currentColor" stroke="none"/>
+    </g>
+  </symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="4.1" y="3.4" width="2.7" height="9.2" rx="1.1" fill="currentColor" stroke="none"/><rect x="9.2" y="3.4" width="2.7" height="9.2" rx="1.1" fill="currentColor" stroke="none"/>
+    </g>
+  </symbol>
+  <symbol id="i-step-back" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11.6 3.5 5.6 8l6 4.5V3.5Z"/><path d="M4.2 3.5v9"/>
+    </g>
+  </symbol>
+  <symbol id="i-step-forward" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.4 3.5 10.4 8l-6 4.5V3.5Z"/><path d="M11.8 3.5v9"/>
+    </g>
+  </symbol>
+  <symbol id="i-rotate-ccw" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <g transform="translate(16 0) scale(-1 1)"><path d="M13.29 8.69a5.33 5.33 0 1 1-6.62-5.86c2.6-.67 5.29.67 6.29 3.16"/><path d="M13.33 2.67v3.33H10"/></g>
+    </g>
+  </symbol>
+  <symbol id="i-replay" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M13.29 8.69a5.33 5.33 0 1 1-6.62-5.86c2.6-.67 5.29.67 6.29 3.16"/><path d="M13.33 2.67v3.33H10"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevron-left" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9.8 3.8 5.8 8l4 4.2"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6.2 3.8 10.2 8l-4 4.2"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevron-up" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.8 9.8 8 5.8l4.2 4"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.8 6.2 8 10.2l4.2-4"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevrons-left" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7.8 4.2 4.2 8l3.6 3.8"/><path d="M12 4.2 8.4 8l3.6 3.8"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevrons-right" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8.2 4.2 11.8 8l-3.6 3.8"/><path d="M4 4.2 7.6 8 4 11.8"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevrons-up" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.2 7.8 8 4.2l3.8 3.6"/><path d="M4.2 12 8 8.4l3.8 3.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-chevrons-down" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.2 8.2 8 11.8l3.8-3.6"/><path d="M4.2 4 8 7.6 11.8 4"/>
+    </g>
+  </symbol>
+  <symbol id="i-maximize" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M6 3H3v3M10 3h3v3M6 13H3v-3M13 10v3h-3"/>
+    </g>
+  </symbol>
+  <symbol id="i-minimize" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h3V3M13 6h-3V3M3 10h3v3M13 10h-3v3"/>
+    </g>
+  </symbol>
+  <symbol id="i-more-horizontal" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="3.4" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none"/><circle cx="12.6" cy="8" r="1.15" fill="currentColor" stroke="none"/>
+    </g>
+  </symbol>
+  <symbol id="i-x" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3.2v9.6M3.2 8h9.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-minus" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.2 8h9.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-zoom-in" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="7" cy="7" r="4.1"/><path d="M10 10l3.1 3.1"/><path d="M7 5.2v3.6M5.2 7h3.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-zoom-out" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="7" cy="7" r="4.1"/><path d="M10 10l3.1 3.1"/><path d="M5.2 7h3.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-sun" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="8" cy="8" r="2.8"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1"/>
+    </g>
+  </symbol>
+  <symbol id="i-moon" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M10.1 2.1a5.9 5.9 0 1 0 3.8 8.2A5.6 5.6 0 0 1 10.1 2.1Z"/>
+    </g>
+  </symbol>
+  <symbol id="i-upload" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 10.6V2.7"/><path d="M4.8 5.9 8 2.7l3.2 3.2"/><path d="M3 13.4h10"/>
+    </g>
+  </symbol>
+  <symbol id="i-download" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 2.7v7.9"/><path d="M4.8 7.4 8 10.6l3.2-3.2"/><path d="M3 13.4h10"/>
+    </g>
+  </symbol>
+  <symbol id="i-share" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12.1" cy="3.2" r="1.8"/><circle cx="3.9" cy="8" r="1.8"/><circle cx="12.1" cy="12.8" r="1.8"/><path d="M5.5 7.2 10.5 4.1M5.5 8.8l5 3.1"/>
+    </g>
+  </symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="6" y="6" width="7.5" height="7.5" rx="1.5"/><path d="M4.2 10.5H3.5A1.5 1.5 0 0 1 2 9V3.5A1.5 1.5 0 0 1 3.5 2H9A1.5 1.5 0 0 1 10.5 3.5v.7"/>
+    </g>
+  </symbol>
+  <symbol id="i-archive" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2.4" y="3" width="11.2" height="3" rx="1"/><path d="M3.5 6v6.4A1.6 1.6 0 0 0 5.1 14h5.8a1.6 1.6 0 0 0 1.6-1.6V6"/><path d="M6.5 8.4h3"/>
+    </g>
+  </symbol>
+  <symbol id="i-file" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9.1 2.5H4.6A1.6 1.6 0 0 0 3 4.1v7.8a1.6 1.6 0 0 0 1.6 1.6h6.8a1.6 1.6 0 0 0 1.6-1.6V6.5L9.1 2.5Z"/><path d="M9.1 2.7V6a.5.5 0 0 0 .5.5h3.3"/>
+    </g>
+  </symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.5 5.1A1.6 1.6 0 0 1 4.1 3.5h3l1.5 2h3.3a1.6 1.6 0 0 1 1.6 1.6v4.8a1.6 1.6 0 0 1-1.6 1.6H4.1a1.6 1.6 0 0 1-1.6-1.6V5.1Z"/>
+    </g>
+  </symbol>
+  <symbol id="i-fit" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="5.5" y="5.5" width="5" height="5" rx="1"/><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/>
+    </g>
+  </symbol>
+  <symbol id="i-pointer" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.2 2.8 12.1 8.4l-3.4.4 1.9 3.7-1.6.8-1.9-3.7L4.2 12.3V2.8Z"/>
+    </g>
+  </symbol>
+  <symbol id="i-sparkle" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 2.4c.45 2.55 1.45 3.55 4 4-2.55.45-3.55 1.45-4 4-.45-2.55-1.45-3.55-4-4 2.55-.45 3.55-1.45 4-4Z" fill="currentColor" stroke="none"/>
+    </g>
+  </symbol>
+</svg>

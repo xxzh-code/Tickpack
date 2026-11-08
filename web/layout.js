@@ -20,6 +20,8 @@
 // Panels are the real DOM nodes (owned by app.js); the layout only reparents
 // them, so hidden panels keep their canvas/editor/text state.
 
+import { icon } from './util.js';
+
 export const LAYOUT_KEY = 'tickpack.layout.v2';
 export const LAYOUT_VERSION = 3;
 
@@ -161,6 +163,33 @@ function el(tag, className, text) {
   return node;
 }
 
+const PANEL_TITLES = new Map(PANEL_DEFS.map((p) => [p.id, p.title]));
+
+/** Point an existing icon button at another sprite symbol. */
+function setIcon(button, name) {
+  if (!button) return;
+  const use = typeof button.querySelector === 'function' ? button.querySelector('use') : null;
+  if (use) use.setAttribute('href', `#i-${name}`);
+  else button.innerHTML = icon(name);
+}
+
+/** Collapse direction follows the panel's position, never a fixed glyph. */
+function collapseDirection(tab, panelId, pos, collapsed) {
+  if (pos.dock) return collapsed ? 'chevrons-up' : 'chevrons-down';
+  const col = tab.main[pos.ci];
+  const stackLen = col ? col.stack.length : 1;
+  if (stackLen > 1) {
+    const top = pos.si === 0;
+    // stacked: collapse toward the nearest stack edge, expand back inward
+    return collapsed ? (top ? 'chevrons-down' : 'chevrons-up') : (top ? 'chevrons-up' : 'chevrons-down');
+  }
+  const count = tab.main.length;
+  const onLeft = pos.ci <= count - 1 - pos.ci; // middle column picks its nearer edge
+  return collapsed
+    ? (onLeft ? 'chevrons-right' : 'chevrons-left')
+    : (onLeft ? 'chevrons-left' : 'chevrons-right');
+}
+
 export function createLayout({
   host,
   workspaceEl,
@@ -170,6 +199,7 @@ export function createLayout({
   panelNodes,
   onLayoutChange,
   onNotify,
+  onReset,
 }) {
   let doc = null;
   let menus = [];
@@ -252,6 +282,7 @@ export function createLayout({
       node.dataset.tabId = tab.id;
       node.setAttribute('role', 'tab');
       node.setAttribute('aria-selected', tab.id === doc.activeId ? 'true' : 'false');
+      node.setAttribute('aria-current', tab.id === doc.activeId ? 'page' : 'false');
       node.title = tab.name;
 
       const label = el('span', 'tab-label', tab.name);
@@ -262,9 +293,11 @@ export function createLayout({
       node.append(label);
 
       if (doc.tabs.length > 1) {
-        const close = el('button', 'tab-close', '×');
+        const close = el('button', 'tab-close');
         close.type = 'button';
+        close.innerHTML = icon('x');
         close.title = '关闭标签页';
+        close.setAttribute('aria-label', '关闭标签页');
         close.addEventListener('click', (ev) => {
           ev.stopPropagation();
           closeTab(tab.id);
@@ -650,10 +683,28 @@ export function createLayout({
     panel.dataset.panelId = panelId;
     panel.classList.toggle('collapsed', collapsed);
     panel.classList.toggle('maximized', tab.maximized === panelId);
+    const title = PANEL_TITLES.get(panelId) || panelId;
     const collapseBtn = panel.querySelector && panel.querySelector('[data-action="collapse"]');
     if (collapseBtn) {
-      collapseBtn.textContent = collapsed ? '»' : '«';
-      collapseBtn.title = collapsed ? '展开' : '折叠';
+      setIcon(collapseBtn, collapseDirection(tab, panelId, pos, collapsed));
+      collapseBtn.title = `${collapsed ? '展开' : '折叠'} ${title}`;
+      collapseBtn.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'} ${title}`);
+      collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
+    const maximizeBtn = panel.querySelector && panel.querySelector('[data-action="maximize"]');
+    if (maximizeBtn) {
+      const maximized = tab.maximized === panelId;
+      setIcon(maximizeBtn, maximized ? 'minimize' : 'maximize');
+      maximizeBtn.title = maximized ? '还原' : '最大化';
+      maximizeBtn.setAttribute('aria-label', maximized ? '还原' : '最大化');
+      maximizeBtn.setAttribute('aria-pressed', maximized ? 'true' : 'false');
+    }
+    const menuBtn = panel.querySelector && panel.querySelector('[data-action="menu"]');
+    if (menuBtn) {
+      setIcon(menuBtn, 'more-horizontal');
+      menuBtn.title = '更多操作';
+      menuBtn.setAttribute('aria-label', '更多操作');
+      menuBtn.setAttribute('aria-haspopup', 'menu');
     }
     slot.append(panel);
     return slot;
@@ -676,7 +727,7 @@ export function createLayout({
     img.className = 'tab-empty-logo';
     box.append(img);
     box.append(el('p', 'tab-empty-title', '这个标签页还是空的'));
-    box.append(el('span', 'tab-empty-hint', '在任意分栏标题的「⋯」菜单里选择「移动到标签页」，把分栏移动到这里。'));
+    box.append(el('span', 'tab-empty-hint', '在任意分栏标题的「更多」菜单里选择「移动到标签页」，把分栏移动到这里。'));
     const reset = el('button', 'btn btn-soft btn-sm', '重置布局');
     reset.type = 'button';
     reset.addEventListener('click', (ev) => {
@@ -688,13 +739,15 @@ export function createLayout({
   }
 
   function resetToDefaults() {
+    const previous = clone(doc);
     doc = defaultLayout();
     if (typeof host.storageRemove === 'function') {
       try { host.storageRemove(LAYOUT_KEY); } catch { /* ignore */ }
     }
     save();
     renderAll();
-    notify('已重置为默认布局');
+    if (typeof onReset === 'function') onReset(previous);
+    else notify('已重置为默认布局');
   }
 
   function renderWorkspace() {
@@ -804,13 +857,17 @@ export function createLayout({
     movePanel,
     toggleCollapse,
     toggleMaximize,
-    resetLayout() {
-      doc = defaultLayout();
-      if (typeof host.storageRemove === 'function') {
-        try { host.storageRemove(LAYOUT_KEY); } catch { /* ignore */ }
-      }
+    /** Restore a previously snapshotted layout (undo for 重置布局). */
+    restoreLayout(raw) {
+      const next = sanitizeLayout(raw);
+      if (!next) return false;
+      doc = next;
       save();
       renderAll();
+      return true;
+    },
+    resetLayout() {
+      resetToDefaults();
       return doc;
     },
     visiblePanels() { return visiblePanels(activeTab()); },

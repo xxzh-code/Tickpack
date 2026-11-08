@@ -3,7 +3,7 @@
 // ({file,line,fn,tick,sourceLine}); this module only renders it — trace→source
 // mapping and onboarding rules belong to the core session.
 
-import { esc } from './util.js';
+import { esc, icon } from './util.js';
 
 /** Shorten pack paths for the tree: data/tp/function/main/s0 -> tp/main/s0 */
 function treePath(path) {
@@ -72,8 +72,9 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
         row.type = 'button';
         row.className = 'tree-row tree-dir' + (isOpen ? '' : ' collapsed');
         row.style.setProperty('--depth', depth);
-        row.innerHTML = `<span class="tw">${isOpen ? '▾' : '▸'}</span><span class="tname">${esc(child.name)}</span>`;
-        row.title = isOpen ? `collapse ${child.short}/` : `expand ${child.short}/`;
+        row.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        row.innerHTML = `<span class="tw">${icon(isOpen ? 'chevron-down' : 'chevron-right', 'tree-caret')}</span><span class="tname">${esc(child.name)}</span>`;
+        row.title = isOpen ? `收起 ${child.short}/` : `展开 ${child.short}/`;
         row.addEventListener('click', () => {
           if (expanded.has(child.short)) expanded.delete(child.short);
           else expanded.add(child.short);
@@ -91,7 +92,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
         row.dataset.path = f.path;
         row.title = f.path;
         const ext = f.name.endsWith('.json') ? 'json' : f.name.endsWith('.mcfunction') ? 'mc' : 'txt';
-        row.innerHTML = `<span class="ext ext-${ext}">${ext === 'mc' ? 'ƒ' : ext === 'json' ? '{ }' : '·'}</span><span class="tname">${esc(f.name)}</span>`;
+        row.innerHTML = `<span class="ext ext-${ext}">${icon('file', 'tree-file-icon')}</span><span class="tname">${esc(f.name)}</span>`;
         row.addEventListener('click', () => viewFile(f.path));
         frag.appendChild(row);
         treeRows.push(row);
@@ -106,7 +107,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       row.className = 'tree-row tree-file prelude-row' + (currentPath === '__prelude__' ? ' active' : '');
       row.dataset.path = '__prelude__';
       row.title = '标准库 —— 只读，编译时会自动拼在程序前面';
-      row.innerHTML = '<span class="ext ext-txt">✦</span><span class="tname">prelude.tpk</span><span class="ro">标准库</span>';
+      row.innerHTML = `<span class="ext ext-txt">${icon('sparkle', 'tree-file-icon')}</span><span class="tname">prelude.tpk</span><span class="ro">标准库</span>`;
       row.addEventListener('click', () => viewFile('__prelude__'));
       frag.append(row);
       treeRows.push(row);
@@ -292,8 +293,8 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       } catch {
         delivered = false;
       }
-      copyBtn.textContent = delivered ? '已复制 ✓' : '复制失败';
-      setTimeout(() => { copyBtn.textContent = 'copy'; }, 1200);
+      copyBtn.innerHTML = `${icon('copy')}<span class="btn-label">${delivered ? '已复制' : '复制失败'}</span>`;
+      setTimeout(() => { copyBtn.innerHTML = `${icon('copy')}<span class="btn-label">复制</span>`; }, 1200);
     });
   }
 
