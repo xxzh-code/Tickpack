@@ -373,6 +373,8 @@ fn turn(deg)              # yaw 旋转 deg 度（宏，例如 turn(90)、turn(-4
 fn plot(block)            # 在笔所在方块位置 setblock 成 `block`（宏，字面量）
 fn plot_under(block)      # 同上，但放在笔下方一格（宏，字面量）
 fn stamp()                # 在笔的位置放粒子（视觉上的小闪光）
+fn particle(type)         # 在笔的位置放指定粒子（宏；type 是原版粒子 id）
+fn sound(name, pitch)     # 在笔的位置播放声音（宏；name 是原版声音 id，pitch 是音高）
 fn clear_ground()         # 把玩家周围 33x33 的地面层填回 air
 fn home()                 # 把笔送回玩家脚下的方块，yaw 归 0
 ```
@@ -388,6 +390,8 @@ fn home()                 # 把笔送回玩家脚下的方块，yaw 归 0
   （同方块替换没有问题；模拟器会在 trace 里忽略没有变化的 setblock，
   这样时间线仍然有意义）
 - `stamp`：`execute at @e[tag=pen] run particle happy_villager ~ ~ ~ 0 0 0 0 1`
+- `particle(type)`：`execute at @e[tag=pen] run particle $type ~ ~ ~ 0 0 0 0 1`
+- `sound(name, pitch)`：`execute at @e[tag=pen] run playsound $name master @a ~ ~ ~ 0.8 $pitch`
 - `clear_ground`：`run execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air`
 - `home`：`run execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0`
 
@@ -419,11 +423,12 @@ sim.restore(snapshot);              // 恢复状态（不重新加载 tag）
   fn:'tp:main/s0', text:'scoreboard players ...' }
 { type:'say', tick, text:'hello' }
 { type:'particle', tick, x,y,z, particle:'happy_villager' }
+{ type:'sound', tick, sound:'block.note_block.hat', pitch:1.0, volume:0.8, x,y,z }
 { type:'error', tick, message, file?, line? }
 ```
 
 `file` 是数据包内的相对路径；`line` 是该文件中从 1 开始的行号。
-`say` / `particle` 事件也可能附带 `file`/`line`/`fn` 这些定位字段。
+`say` / `particle` / `sound` 事件也可能附带 `file`/`line`/`fn` 这些定位字段。
 `getWorld()` 里的方块只包含非空气方块；坐标是整数。
 `snapshot()` 必须能通过 `structuredClone`（纯对象/数组/字符串/数字）。
 
@@ -454,6 +459,7 @@ v0.1 支持的命令子集（未知命令产生 `error` 事件，绝不崩溃）
 - `summon <type> <x> <y> <z> [<nbt>]`（只读取 `Tags:[...]`，其他 NBT 忽略）
 - `kill <targets>`、`tag <targets> add|remove <tag>`
 - `say <text>`、`function <ns:path>`、`particle <name> <x> <y> <z> ...`
+- `playsound <sound> <source> <targets> [x y z] [volume] [pitch] [minVolume]`
 - 注释（`#...`）和空行
 
 语义注记：

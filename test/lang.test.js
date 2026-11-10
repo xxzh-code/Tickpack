@@ -135,7 +135,7 @@ function matchesRange(value, range) {
   return value === Number(range);
 }
 
-const WORLD_COMMAND = /^(tp|setblock|fill|summon|kill|tag|particle)\b/;
+const WORLD_COMMAND = /^(tp|setblock|fill|summon|kill|tag|particle|playsound)\b/;
 
 const PLAYER_TYPE = 'player';
 
@@ -631,6 +631,68 @@ test('the prelude is prepended and provides the turtle stdlib', () => {
   // ... and the user cannot redefine the stdlib.
   const diagnostic = compileError('fn plot(b) {\n  run setblock ~ ~ ~ $b\n}\n');
   assert.match(diagnostic.message, /cannot redefine standard-library function/);
+});
+
+test('the prelude particle(type) and sound(name, pitch) macros inline at the call site', () => {
+  const out = compileOk(
+    ['over 1 as i {', '  particle(flame)', '  sound(block.note_block.bell, 1.4)', '}', ''].join('\n'),
+  );
+  const bodyPath = stateContaining(out, '# inlined fn particle(flame)');
+  assertOrder(contentLines(out, bodyPath), [
+    '# inlined fn particle(flame)',
+    'execute at @e[tag=pen] run particle flame ~ ~ ~ 0 0 0 0 1',
+    '# inlined fn sound(block.note_block.bell, 1.4)',
+    'execute at @e[tag=pen] run playsound block.note_block.bell master @a ~ ~ ~ 0.8 1.4',
+  ]);
+
+  // Parameterised stdlib functions are macros: they have no standalone fn file.
+  assert.equal(out.files['data/tp/function/fn/particle.mcfunction'], undefined);
+  assert.equal(out.files['data/tp/function/fn/sound.mcfunction'], undefined);
+
+  // The raw argument text is preserved verbatim: dotted sound ids, namespaced
+  // ids and decimal pitches all survive into the emitted command.
+  const tickOut = compileOk(
+    ['tick {', '  particle(end_rod)', '  sound(minecraft:block.note_block.bell, 1.0)', '}', ''].join('\n'),
+  );
+  const tick = commands(tickOut, 'data/tp/function/tick/body.mcfunction');
+  assert.ok(tick.includes('execute at @e[tag=pen] run particle end_rod ~ ~ ~ 0 0 0 0 1'), JSON.stringify(tick));
+  assert.ok(
+    tick.includes('execute at @e[tag=pen] run playsound minecraft:block.note_block.bell master @a ~ ~ ~ 0.8 1.0'),
+    JSON.stringify(tick),
+  );
+});
+
+test('particle/sound are prelude-protected and enforce their arity', () => {
+  for (const [source, name] of [
+    ['fn particle(t) {\n  run say hi\n}\n', 'particle'],
+    ['fn sound(n, p) {\n  run say hi\n}\n', 'sound'],
+  ]) {
+    const diagnostic = compileError(source);
+    assert.match(diagnostic.message, new RegExp(`cannot redefine standard-library function '${name}'`));
+  }
+
+  const noArgs = compileError('particle()\n');
+  assert.match(noArgs.message, /fn 'particle' expects 1 argument/);
+  const extraArg = compileError('particle(flame, end_rod)\n');
+  assert.match(extraArg.message, /fn 'particle' expects 1 argument/);
+  const oneArg = compileError('sound(block.note_block.bell)\n');
+  assert.match(oneArg.message, /fn 'sound' expects 2 argument/);
+});
+
+test('decimal macro arguments stay macro text and never become expression literals', () => {
+  const diagnostic = compileError('state x = 0\nx = 1.4\n');
+  assert.match(diagnostic.message, /expected an expression/);
+
+  // A parameter used in an expression still needs an integer argument: decimal
+  // macro text must not leak into scoreboard math.
+  const decimalToIntParam = compileError(
+    'state x = 0\nfn scale(n) {\n  x = $n * 2\n}\nscale(1.5)\n',
+  );
+  assert.match(decimalToIntParam.message, /needs an integer argument \(got '1\.5'\)/);
+
+  // Existing integer macro arguments are untouched.
+  const out = compileOk('state x = 0\nfn scale(n) {\n  x = $n * 2\n}\nscale(21)\n');
+  assert.ok(mainStatePaths(out).length > 0);
 });
 
 test('meta reports user state, state count and generated function count', () => {

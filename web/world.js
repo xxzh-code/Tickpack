@@ -24,6 +24,11 @@ const FIT_GROW = 1.25; // refit while running after the content grows this much
 const FEW_BLOCKS = 8; // below this a run keeps the default 33x33 framing
 const POP_MS = 140;
 const PARTICLE_MS = 760;
+const PARTICLE_COLORS = {
+  flame: '#f59e0b',
+  end_rod: '#67e8f9',
+  happy_villager: '#86efac',
+};
 const CAM_EASE = 6.5;
 
 function easeOutBack(t) {
@@ -592,7 +597,7 @@ export function createWorld(canvas, options = {}) {
       const py = wz2py(p.z) + Math.cos(p.seed * 5.3) * cell * 0.5 * t - t * cell * 1.1;
       const size = Math.max(1.5, cell * 0.2 * (1 - t * 0.5));
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = palette.particle;
+      ctx.fillStyle = PARTICLE_COLORS[p.particle] || palette.particle;
       ctx.fillRect(px - size / 2, py - size / 2, size, size);
     }
     ctx.globalAlpha = 1;
@@ -716,6 +721,7 @@ export function createWorld(canvas, options = {}) {
           particles.push({
             x: Number(ev.x) || 0,
             z: Number(ev.z) || 0,
+            particle: String(ev.particle || ev.name || '').replace(/^minecraft:/, ''),
             born: now,
             seed: Math.random(),
           });

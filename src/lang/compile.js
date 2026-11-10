@@ -346,12 +346,15 @@ class Semantics {
         }
       } else if (arg.kind === 'int') {
         this.checkIntRange(arg.value, arg.line);
+      } else if (arg.kind === 'number') {
+        // Decimal macro text (e.g. a sound pitch). Only valid as macro text:
+        // a parameter used in an expression still requires an integer.
       }
       const param = fn.params[i];
-      if (param && param.usedInExpr && arg.kind === 'ident') {
+      if (param && param.usedInExpr && (arg.kind === 'ident' || arg.kind === 'number')) {
         this.report(
           arg.line,
-          `parameter '${param.name}' of fn '${fn.name}' is used in an expression, so it needs an integer argument (got '${arg.name}')`,
+          `parameter '${param.name}' of fn '${fn.name}' is used in an expression, so it needs an integer argument (got '${arg.raw}')`,
         );
       }
     }

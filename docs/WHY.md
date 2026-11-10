@@ -62,3 +62,5 @@
 | 2026-11-04 | 单文件 HTML（自包含、file:// 可玩） | 只依赖 Pages 在线版 | 离线/双击就能玩、可直接发文件；这也是分层架构的验收：核心 + 外壳 + host 能被无服务器打包 |
 | 2026-11-04 | GitHub Pages + Actions（每次 push 跑 149 测试再部署） | 手动上传/别家托管 | 部署和测试一条流水线，P0 的「一键可达」才真的成立；不装记分牌，不把进游戏时间当指标 |
 | 2026-11-04 | 命名统一：文件扩展名 `.tpk`、CLI `tickpack`/`tpk`、环境变量 `TICKPACK_*`；数据包命名空间默认 `tp`，多包规则先只设计 | 继续用 `.tp` / 无 CLI / 立即实现多包 | `.tp` 与 Minecraft `/tp` 冲突；CLI 和扩展名是传播与工具链的最低门槛。多包实现等真实需求（P2 库机制前） |
+| 2026-11-10 | P0.5 加入 `particle(type)` / `sound(name, pitch)`：prelude 宏直接生成原版 `particle` / `playsound`，不引入新语法；模拟器同步发 `particle` / `sound` 事件，UI 用 canvas 粒子和 Web Audio 回放 | 在语言层新增特效 AST / 单独给浏览器做一套动画 | 保持“源码 = mcfunction = 世界”的同步原则；Minecraft 和浏览器执行同一行命令。声音是 opt-out（默认开、可静音），不是新玩具的一等公民 |
+| 2026-11-10 | 3D（x,y,z + 正交投影）排在 P0.5 之后、UI P1/P2 之前 | 先做 UI P1 的键盘/对比度 | 3D 会改语言坐标、模拟器和 World 渲染；先做 UI 会在 3D 视图上返工。排期与验收见 docs/3D-PLAN.md |

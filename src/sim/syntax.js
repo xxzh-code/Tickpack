@@ -423,6 +423,8 @@ function parseTokens(tokens, rawText) {
       return parseFunction(tokens);
     case 'particle':
       return parseParticle(tokens);
+    case 'playsound':
+      return parsePlaysound(tokens);
     case 'return':
       return parseReturn(tokens);
     default:
@@ -697,7 +699,7 @@ function parseTag(tokens) {
   return { kind: 'tag', selector, action, tag };
 }
 
-// --- say / function / particle --------------------------------------------
+// --- say / function / particle / playsound --------------------------------
 
 function parseSay(tokens, rawText) {
   let text;
@@ -725,6 +727,73 @@ function parseParticle(tokens) {
   const coords = parseCoordList(tokens, 2, 3);
   if (!coords) return err('invalid coordinates in particle');
   return { kind: 'particle', particle, coords };
+}
+
+/**
+ * Vanilla-ish subset:
+ *   playsound <sound> <source> <targets> [x y z] [volume] [pitch] [minVolume]
+ *
+ * The compiler emits `execute at @e[tag=pen] run playsound <sound> master @a
+ * ~ ~ ~ 0.8 <pitch>`, so relative coordinates are the common shape. Positions
+ * may be omitted (volume then follows the targets); numeric absolute positions
+ * are recognised when enough arguments are present (>= 3 coords + 1 number).
+ * volume/pitch default to 1, minVolume to 0 (vanilla defaults).
+ */
+function parsePlaysound(tokens) {
+  const sound = tokens[1];
+  const source = tokens[2];
+  if (!sound) return err('playsound is missing a sound id');
+  if (!source) return err('playsound is missing a sound source (e.g. master)');
+  const targets = parseSelector(tokens[3]);
+  if (!targets) return err(`invalid target selector '${tokens[3]}' in playsound`);
+
+  let coords = null;
+  let index = 4;
+  const first = tokens[index];
+
+  if (first !== undefined) {
+    const firstIsRelative = first.startsWith('~') || first.startsWith('^');
+    // Vanilla parses the optional position as a Vec3: if three coordinate-looking
+    // tokens follow the targets, they are the position (then volume/pitch follow).
+    const threeCoordsFollow =
+      parseCoord(tokens[4]) !== null &&
+      parseCoord(tokens[5]) !== null &&
+      parseCoord(tokens[6]) !== null;
+    if (firstIsRelative || threeCoordsFollow) {
+      coords = parseCoordList(tokens, 4, 3);
+      if (!coords) return err('playsound position needs 3 coordinates (x y z)');
+      index = 7;
+    }
+  }
+
+  const readNumber = (position, fallback, label) => {
+    const token = tokens[position];
+    if (token === undefined) return { value: fallback };
+    const value = Number(token);
+    if (token.trim() === '' || !Number.isFinite(value)) {
+      return { error: `invalid playsound ${label} '${token}'` };
+    }
+    return { value };
+  };
+
+  const volume = readNumber(index, 1, 'volume');
+  if (volume.error) return err(volume.error);
+  const pitch = readNumber(index + 1, 1, 'pitch');
+  if (pitch.error) return err(pitch.error);
+  const minVolume = readNumber(index + 2, 0, 'minVolume');
+  if (minVolume.error) return err(minVolume.error);
+  if (tokens.length > index + 3) return err('too many arguments in playsound');
+
+  return {
+    kind: 'playsound',
+    sound,
+    source,
+    targets,
+    coords,
+    volume: volume.value,
+    pitch: pitch.value,
+    minVolume: minVolume.value,
+  };
 }
 
 // Real 1.21 `/return` (not in the §5 list, but generated packs may emit it to end

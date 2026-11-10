@@ -12,8 +12,9 @@
 //   importTextFile({ accept })               -> Promise<{name,text}|null>
 //   exportTextFile({ filename, text, mime }) -> Promise<string>
 //   copyText(text)                           -> Promise<boolean>
+//   playSound({ name, pitch, volume })       -> boolean
 //   storageGet(key) / storageSet(key, value) / storageRemove(key)
-//   canExport / canImport / canPersist       (capability flags)
+//   canExport / canImport / canPersist / sound (capability flags)
 //
 // Everything is created lazily inside the methods so importing this module in a
 // non-browser context (e.g. a Node smoke test) does not touch the DOM.
@@ -24,6 +25,93 @@ export function createWebHost({ doc = null, nav = null, win = null } = {}) {
   const getDoc = () => doc || (typeof document !== 'undefined' ? document : null);
   const getNav = () => nav || (typeof navigator !== 'undefined' ? navigator : null);
   const getWin = () => win || (typeof window !== 'undefined' ? window : null);
+
+  let audioCtx = null;
+  let audioGestureBound = false;
+
+  function bindAudioGesture() {
+    const w = getWin();
+    if (!w || audioGestureBound || typeof w.addEventListener !== 'function') return;
+    audioGestureBound = true;
+    const resume = () => {
+      const ctx = ensureAudio();
+      if (ctx && ctx.state === 'suspended') {
+        try {
+          const p = ctx.resume();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        } catch { /* ignore */ }
+      }
+    };
+    w.addEventListener('pointerdown', resume, { once: true, passive: true });
+    w.addEventListener('keydown', resume, { once: true });
+  }
+
+  function ensureAudio() {
+    const w = getWin();
+    if (!w) return null;
+    const Ctor = w.AudioContext || w.webkitAudioContext;
+    if (typeof Ctor !== 'function') return null;
+    if (!audioCtx) {
+      try { audioCtx = new Ctor(); } catch { return null; }
+      bindAudioGesture();
+    }
+    if (audioCtx.state === 'suspended') {
+      try {
+        const p = audioCtx.resume();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch { /* ignore */ }
+    }
+    return audioCtx;
+  }
+
+  /**
+   * Short Web Audio blip for a simulator `sound` event. No files/network.
+   * Returns false when muted, unsupported, or the context cannot be created.
+   */
+  function playSound({ name = '', pitch = 1, volume = 1 } = {}) {
+    if (storageGet('tickpack.sound') === '0') return false;
+    const ctx = ensureAudio();
+    if (!ctx) return false;
+    // Autoplay policy: don't queue a burst of sealed oscillators while the
+    // context is still locked; a later pointer/key gesture resumes it.
+    if (ctx.state !== 'running') return false;
+    const key = String(name || '').toLowerCase();
+    const p = Number(pitch);
+    const v = Number(volume);
+    const pitchValue = Math.min(2, Math.max(0.5, Number.isFinite(p) ? p : 1));
+    const volumeValue = Math.min(1, Math.max(0, Number.isFinite(v) ? v : 1));
+
+    let base = 440;
+    let type = 'triangle';
+    let duration = 0.09;
+    if (/hat|click|tap|snare|drum|wood|stone/.test(key)) {
+      base = 620;
+      type = 'square';
+      duration = 0.045;
+    } else if (/bell|chime|note|harp|pling|glass/.test(key)) {
+      base = 880;
+      type = 'sine';
+      duration = 0.09;
+    } else if (/bass|boom|explode|thunder/.test(key)) {
+      base = 120;
+      type = 'sawtooth';
+      duration = 0.12;
+    }
+    duration = Math.max(0.03, Math.min(0.12, duration));
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(base * pitchValue, t0);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.14 * volumeValue), t0 + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.02);
+    return true;
+  }
 
   function downloadBlob(blob, filename) {
     const d = getDoc();
@@ -181,11 +269,14 @@ export function createWebHost({ doc = null, nav = null, win = null } = {}) {
     }
   }
 
+  bindAudioGesture();
+
   return {
     exportDatapack,
     importTextFile,
     exportTextFile,
     copyText,
+    playSound,
     storageGet,
     storageSet,
     storageRemove,
@@ -193,5 +284,6 @@ export function createWebHost({ doc = null, nav = null, win = null } = {}) {
       && typeof URL.createObjectURL === 'function',
     canImport: typeof FileReader !== 'undefined' || typeof Blob !== 'undefined' || !!getWin(),
     canPersist: !!getWin(),
+    sound: true,
   };
 }

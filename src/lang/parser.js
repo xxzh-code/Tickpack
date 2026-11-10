@@ -62,7 +62,7 @@ class Parser {
     if (token.type === 'newline') return 'end of line';
     if (token.type === 'string') return `string "${token.value}"`;
     if (token.type === 'raw') return 'raw command text';
-    if (token.raw !== undefined && (token.type === 'int' || token.type === 'op')) {
+    if (token.raw !== undefined && (token.type === 'int' || token.type === 'number' || token.type === 'op')) {
       return `'${token.raw}'`;
     }
     return `'${token.value}'`;
@@ -238,7 +238,7 @@ class Parser {
         if (this.eat('punct', ',')) continue;
         if (this.at('punct', ')')) break;
         this.fail(
-          'macro arguments must be an integer literal, a bare identifier, or a macro parameter',
+          'macro arguments must be an integer/numeric literal, a bare identifier, or a macro parameter',
           this.peek(),
         );
       }
@@ -247,7 +247,7 @@ class Parser {
     return { kind: 'call', name: name.value, args, bare: false, line: name.line };
   }
 
-  /** Macro arguments are compile-time constants: integer literal, bare id, or `$param`. */
+  /** Macro arguments are compile-time constants: numeric literal, bare id, or `$param`. */
   parseArg() {
     const token = this.peek();
     if (token.type === 'param') {
@@ -256,21 +256,23 @@ class Parser {
     }
     let sign = 1;
     if (this.eat('op', '-')) sign = -1;
-    if (this.at('int')) {
+    if (this.at('int') || this.at('number')) {
       const value = this.next();
+      // Decimal literals are only meaningful as macro argument text (e.g. a
+      // sound pitch of `1.4`); they are never accepted in expressions.
       return {
-        kind: 'int',
+        kind: value.type === 'int' ? 'int' : 'number',
         value: sign * value.value,
         raw: `${sign < 0 ? '-' : ''}${value.raw}`,
         line: token.line,
       };
     }
-    if (sign < 0) this.fail("expected an integer literal after '-' in a macro argument", token);
+    if (sign < 0) this.fail("expected a numeric literal after '-' in a macro argument", token);
     if (token.type === 'ident') {
       this.next();
       return { kind: 'ident', name: token.value, raw: token.value, line: token.line };
     }
-    this.fail('macro arguments must be an integer literal, a bare identifier, or a macro parameter', token);
+    this.fail('macro arguments must be an integer/numeric literal, a bare identifier, or a macro parameter', token);
   }
 
   parseIf() {

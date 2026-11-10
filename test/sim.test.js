@@ -233,6 +233,119 @@ test('say and particle events carry resolved coordinates', () => {
 });
 
 // ---------------------------------------------------------------------------
+// playsound -> sound trace events (P0.5 particle/sound primitives)
+// ---------------------------------------------------------------------------
+
+test('playsound in execute-at-pen emits a sound event with volume/pitch/position/trace', () => {
+  const load = `${BASE_LOAD}\n${PEN_SUMMON}`;
+  const sim = makeSim({
+    load,
+    tick: 'execute at @e[tag=pen] run playsound block.note_block.bell master @a ~ ~ ~ 0.8 1.25',
+  });
+  const events = sim.step();
+
+  const sounds = byType(events, 'sound');
+  assert.equal(sounds.length, 1);
+  assert.deepEqual(sounds[0], {
+    type: 'sound',
+    tick: 0,
+    sound: 'block.note_block.bell',
+    volume: 0.8,
+    pitch: 1.25,
+    x: 0.5,
+    y: 0,
+    z: 0.5,
+    file: P('tick'),
+    line: 1,
+    fn: 'tp:tick',
+  });
+  // Like particle/say, a sound line is not also a generic command event.
+  assert.ok(
+    !byType(events, 'command').some((event) => event.text.includes('playsound')),
+    'playsound must not double-emit a command event',
+  );
+});
+
+test('playsound: absolute coordinates, namespace sound ids, defaults, line trace', () => {
+  const sim = makeSim({
+    tick: [
+      'playsound minecraft:block.note_block.pling master @a 0.5 0 0.5',
+      'playsound ui.button.click master @a 2 3 4 0.5',
+    ].join('\n'),
+  });
+  const events = sim.step();
+  const sounds = byType(events, 'sound');
+  assert.equal(sounds.length, 2);
+
+  assert.equal(sounds[0].sound, 'minecraft:block.note_block.pling');
+  assert.equal(sounds[0].volume, 1); // default
+  assert.equal(sounds[0].pitch, 1); // default
+  assert.deepEqual(
+    [sounds[0].x, sounds[0].y, sounds[0].z],
+    [0.5, 0, 0.5],
+  );
+  assert.equal(sounds[0].file, P('tick'));
+  assert.equal(sounds[0].line, 1);
+  assert.equal(sounds[0].fn, 'tp:tick');
+
+  assert.equal(sounds[1].sound, 'ui.button.click');
+  assert.equal(sounds[1].volume, 0.5);
+  assert.equal(sounds[1].pitch, 1); // default
+  assert.deepEqual([sounds[1].x, sounds[1].y, sounds[1].z], [2, 3, 4]);
+  assert.equal(sounds[1].line, 2);
+});
+
+test('playsound without coordinates uses the execution position', () => {
+  const load = `${BASE_LOAD}\n${PEN_SUMMON}`;
+  const sim = makeSim({
+    load,
+    tick: 'execute at @e[tag=pen] run playsound block.note_block.bell master @a',
+  });
+  const events = sim.step();
+  const sounds = byType(events, 'sound');
+  assert.equal(sounds.length, 1);
+  assert.deepEqual([sounds[0].x, sounds[0].y, sounds[0].z], [0.5, 0, 0.5]);
+  assert.equal(sounds[0].volume, 1);
+  assert.equal(sounds[0].pitch, 1);
+});
+
+test('playsound with no matching recipients emits no sound event', () => {
+  const load = `${BASE_LOAD}\n${PEN_SUMMON}`;
+  const sim = makeSim({
+    load,
+    tick: 'execute at @e[tag=pen] run playsound block.note_block.bell master @e[tag=nobody] ~ ~ ~ 0.8 1',
+  });
+  const events = sim.step();
+  assert.equal(byType(events, 'sound').length, 0);
+  assert.equal(byType(events, 'error').length, 0);
+  assert.equal(sim.getTick(), 1);
+});
+
+test('malformed playsound commands become error events and execution continues', () => {
+  const sim = makeSim({
+    tick: [
+      'playsound block.note_block.bell master @a ~ ~', // incomplete position
+      'playsound block.note_block.bell master nope ~ ~ ~', // invalid selector
+      'playsound', // missing everything
+      'playsound block.note_block.bell master @a ~ ~ ~ loud 1', // bad volume
+      'say after',
+    ].join('\n'),
+  });
+  const events = sim.step();
+  const errors = byType(events, 'error');
+  assert.equal(errors.length, 4);
+  for (const [index, error] of errors.entries()) {
+    assert.equal(error.file, P('tick'));
+    assert.equal(error.line, index + 1);
+    assert.equal(error.fn, 'tp:tick');
+    assert.match(error.message, /playsound|selector|volume/);
+  }
+  assert.equal(byType(events, 'sound').length, 0);
+  assert.equal(byType(events, 'say').length, 1); // the tick keeps running
+  assert.equal(sim.getTick(), 1);
+});
+
+// ---------------------------------------------------------------------------
 // scoreboard semantics
 // ---------------------------------------------------------------------------
 

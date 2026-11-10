@@ -525,6 +525,27 @@ export class Simulator {
         return false;
       }
 
+      case 'playsound': {
+        // Recipients are selected with vanilla selector rules; no players (or no
+        // matching @e) means the command is a no-op, so no sound event.
+        if (!this._select(cmd.targets, ctx).length) return false;
+        const p = cmd.coords
+          ? resolvePosition(cmd.coords, ctx)
+          : { x: ctx.pos.x, y: ctx.pos.y, z: ctx.pos.z };
+        this._emit({
+          type: 'sound',
+          tick: this.state.tick,
+          sound: cmd.sound,
+          volume: cmd.volume,
+          pitch: cmd.pitch,
+          x: p.x,
+          y: p.y,
+          z: p.z,
+          ...locFields(loc),
+        });
+        return false;
+      }
+
       case 'execute':
         return this._execExecute(cmd, ctx, loc);
 

@@ -11,7 +11,7 @@ const exists = async (rel) => {
 test('UI assets: every sprite symbol has a standalone SVG and an inline copy', async () => {
   const sprite = await read('web/icons/tickpack-icons.svg');
   const ids = [...sprite.matchAll(/<symbol id="i-([a-z0-9-]+)"/g)].map((m) => m[1]);
-  assert.equal(ids.length, 34, '34 symbols expected');
+  assert.equal(ids.length, 36, '36 symbols expected');
   assert.equal(new Set(ids).size, ids.length, 'symbol ids are unique');
 
   for (const id of ids) {
@@ -20,7 +20,7 @@ test('UI assets: every sprite symbol has a standalone SVG and an inline copy', a
 
   const html = await read('web/index.html');
   const inline = [...html.matchAll(/<symbol id="i-([a-z0-9-]+)"/g)].map((m) => m[1]);
-  assert.equal(inline.length, 34, 'sprite must be inlined once (34 symbols)');
+  assert.equal(inline.length, 36, 'sprite must be inlined once (36 symbols)');
   for (const id of ids) assert.ok(inline.includes(id), `inline sprite missing ${id}`);
 
   const refs = [...html.matchAll(/#i-([a-z0-9-]+)/g)].map((m) => m[1]);

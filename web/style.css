@@ -1022,9 +1022,10 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
   select#sample-select { min-width: 142px; max-width: 172px; }
   #speed { width: 72px; }
   #speed-out { min-width: 58px; font-size: 10px; }
-  .status { gap: 10px; padding-left: 10px; }
-  .topbar { gap: 9px; }
-  .topbar-right { gap: 8px; }
+  .status { gap: 8px; padding-left: 8px; }
+  .topbar { gap: 8px; }
+  .topbar-right { gap: 6px; }
+  .file-btn-group .btn { padding: 0 9px; }
 }
 
 /* ≤1180: compact topbar — icon-only file actions, no labels, compact status.

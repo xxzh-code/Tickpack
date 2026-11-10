@@ -10,7 +10,8 @@
 //
 // Output tokens: { type, value, line }
 //   int      integer literal          value = Number, raw = source digits
-//   ident    identifier / keyword     value = name
+//   number   decimal literal          value = Number, raw = source digits (macro args only)
+//   ident    identifier / keyword     value = name (may contain `.` / `:` as macro text)
 //   string   "..." literal            value = decoded text
 //   param    $name                    value = name
 //   op       = == != <= >= < > + - * / %
@@ -102,6 +103,16 @@ export function tokenize(source) {
     if (isDigit(ch)) {
       const start = i;
       while (i < n && isDigit(text[i])) i += 1;
+      // A decimal point only starts a number literal when digits follow it, so
+      // `1.4` is one token while `1.` stays `1` + an unexpected '.'. Decimal
+      // literals are only meaningful as macro argument text (e.g. sound pitch).
+      if (text[i] === '.' && isDigit(text[i + 1])) {
+        i += 1;
+        while (i < n && isDigit(text[i])) i += 1;
+        const raw = text.slice(start, i);
+        push('number', Number(raw), { raw });
+        continue;
+      }
       const raw = text.slice(start, i);
       push('int', Number(raw), { raw });
       continue;
@@ -109,7 +120,21 @@ export function tokenize(source) {
 
     if (isIdentStart(ch)) {
       const start = i;
-      while (i < n && isIdentPart(text[i])) i += 1;
+      while (i < n) {
+        if (isIdentPart(text[i])) {
+          i += 1;
+          continue;
+        }
+        // Dotted / namespaced ids are macro-argument text by default
+        // (`block.note_block.bell`, `minecraft:stone`): allow `.` and `:` only
+        // when directly followed by an identifier character.
+        const separator = text[i];
+        if ((separator === '.' || separator === ':') && i + 1 < n && isIdentPart(text[i + 1])) {
+          i += 1;
+          continue;
+        }
+        break;
+      }
       const value = text.slice(start, i);
       push('ident', value);
       if (value === 'run') {

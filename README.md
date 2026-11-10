@@ -97,7 +97,8 @@ over 4 as side {
 | 圆 | 每 tick 转 8°，45 个 tick 走出半径 7 格的大圆 |
 | 彩虹圆 | `brush` 每三步换色：运行时画笔 |
 | 无尽螺旋 | `tick {}` + `state`：不结束的方形螺旋；游戏里随时换笔 / `tp:stop` 暂停 |
-| 节拍器 | `tick {}` 每 tick 都跑 + `now % 20` + press |
+| 魔法螺旋 | 每 tick 留一颗粒子；方形螺旋越走越大，浏览器和 Minecraft 同步冒光 |
+| 节拍器 | `tick {}` + `now % 20` + press；每 20 tick 响一声、闪一次 |
 | 你好 | 最小程序：`say` + `wait 5`，看 run log 里的时间 |
 
 完整语法与编译模型：[docs/LANG.md](docs/LANG.md)。
@@ -138,7 +139,8 @@ dist/tickpack-square-datapack.zip    dist/tickpack-remix-datapack.zip
 dist/tickpack-star-datapack.zip      dist/tickpack-spiral-datapack.zip
 dist/tickpack-circle-datapack.zip    dist/tickpack-rainbow-datapack.zip
 dist/tickpack-metronome-datapack.zip dist/tickpack-hello-datapack.zip
-dist/tickpack-endless-datapack.zip   dist/tickpack.html（单文件版）
+dist/tickpack-endless-datapack.zip   dist/tickpack-magic-datapack.zip
+dist/tickpack.html（单文件版）
 ```
 
 自己生成任意示例的包：

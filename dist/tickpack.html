@@ -1032,9 +1032,10 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
   select#sample-select { min-width: 142px; max-width: 172px; }
   #speed { width: 72px; }
   #speed-out { min-width: 58px; font-size: 10px; }
-  .status { gap: 10px; padding-left: 10px; }
-  .topbar { gap: 9px; }
-  .topbar-right { gap: 8px; }
+  .status { gap: 8px; padding-left: 8px; }
+  .topbar { gap: 8px; }
+  .topbar-right { gap: 6px; }
+  .file-btn-group .btn { padding: 0 9px; }
 }
 
 /* ≤1180: compact topbar — icon-only file actions, no labels, compact status.
@@ -1266,6 +1267,19 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
       <path d="M8 2.4c.45 2.55 1.45 3.55 4 4-2.55.45-3.55 1.45-4 4-.45-2.55-1.45-3.55-4-4 2.55-.45 3.55-1.45 4-4Z" fill="currentColor" stroke="none"/>
     </g>
   </symbol>
+  <symbol id="i-volume-2" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.6 6.2h2.1L7.9 3.5v9L4.7 9.8H2.6V6.2Z"/>
+      <path d="M10.1 5.5a3.5 3.5 0 0 1 0 5M12.1 3.7a6 6 0 0 1 0 8.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-volume-x" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.6 6.2h2.1L7.9 3.5v9L4.7 9.8H2.6V6.2Z"/>
+      <path d="M10.4 6.1 13.8 9.5M13.8 6.1l-3.4 3.4"/>
+    </g>
+  </symbol>
+
 </svg>
   <div class="app">
     <!-- --------------------------------------------------------- 顶栏 -->
@@ -1331,6 +1345,9 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
         </div>
         <button id="btn-theater-edit" class="btn btn-run theater-only" title="展开源码，编辑或改编">编辑&nbsp;/&nbsp;改编</button>
         <div class="topbar-sep" aria-hidden="true"></div>
+        <button id="btn-sound" class="icon-btn sound-btn" title="静音" aria-label="静音" aria-pressed="true">
+          <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-volume-2"></use></svg>
+        </button>
         <button id="btn-theme" class="icon-btn theme-btn" title="切换到深色模式" aria-label="切换明亮 / 深色模式">
           <svg class="icon theme-sun" aria-hidden="true" focusable="false"><use href="#i-sun"></use></svg>
           <svg class="icon theme-moon" aria-hidden="true" focusable="false"><use href="#i-moon"></use></svg>
@@ -1615,6 +1632,16 @@ fn stamp() {
   run execute at @e[tag=pen] run particle happy_villager ~ ~ ~ 0 0 0 0 1
 }
 
+fn particle(type) {
+  # spawn a particle at the pen; type is raw macro text (e.g. flame, end_rod)
+  run execute at @e[tag=pen] run particle $type ~ ~ ~ 0 0 0 0 1
+}
+
+fn sound(name, pitch) {
+  # play a sound at the pen; name/pitch are raw macro text (e.g. block.note_block.bell, 1.4)
+  run execute at @e[tag=pen] run playsound $name master @a ~ ~ ~ 0.8 $pitch
+}
+
 fn clear_ground() {
   # wipe a 33x33 ground layer around the player back to air
   run execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air
@@ -1646,6 +1673,7 @@ exports.TpError = TpError;
 
   // ---- src/lang/tokenize.js ----
   __tpb_modules["src/lang/tokenize.js"] = function (exports) {
+
 
 
 
@@ -1750,6 +1778,16 @@ function isIdentPart(ch) {
     if (isDigit(ch)) {
       const start = i;
       while (i < n && isDigit(text[i])) i += 1;
+      
+      
+      
+      if (text[i] === '.' && isDigit(text[i + 1])) {
+        i += 1;
+        while (i < n && isDigit(text[i])) i += 1;
+        const raw = text.slice(start, i);
+        push('number', Number(raw), { raw });
+        continue;
+      }
       const raw = text.slice(start, i);
       push('int', Number(raw), { raw });
       continue;
@@ -1757,7 +1795,21 @@ function isIdentPart(ch) {
 
     if (isIdentStart(ch)) {
       const start = i;
-      while (i < n && isIdentPart(text[i])) i += 1;
+      while (i < n) {
+        if (isIdentPart(text[i])) {
+          i += 1;
+          continue;
+        }
+        
+        
+        
+        const separator = text[i];
+        if ((separator === '.' || separator === ':') && i + 1 < n && isIdentPart(text[i + 1])) {
+          i += 1;
+          continue;
+        }
+        break;
+      }
       const value = text.slice(start, i);
       push('ident', value);
       if (value === 'run') {
@@ -1879,7 +1931,7 @@ class Parser {
     if (token.type === 'newline') return 'end of line';
     if (token.type === 'string') return `string "${token.value}"`;
     if (token.type === 'raw') return 'raw command text';
-    if (token.raw !== undefined && (token.type === 'int' || token.type === 'op')) {
+    if (token.raw !== undefined && (token.type === 'int' || token.type === 'number' || token.type === 'op')) {
       return `'${token.raw}'`;
     }
     return `'${token.value}'`;
@@ -2055,7 +2107,7 @@ class Parser {
         if (this.eat('punct', ',')) continue;
         if (this.at('punct', ')')) break;
         this.fail(
-          'macro arguments must be an integer literal, a bare identifier, or a macro parameter',
+          'macro arguments must be an integer/numeric literal, a bare identifier, or a macro parameter',
           this.peek(),
         );
       }
@@ -2073,21 +2125,23 @@ class Parser {
     }
     let sign = 1;
     if (this.eat('op', '-')) sign = -1;
-    if (this.at('int')) {
+    if (this.at('int') || this.at('number')) {
       const value = this.next();
+      
+      
       return {
-        kind: 'int',
+        kind: value.type === 'int' ? 'int' : 'number',
         value: sign * value.value,
         raw: `${sign < 0 ? '-' : ''}${value.raw}`,
         line: token.line,
       };
     }
-    if (sign < 0) this.fail("expected an integer literal after '-' in a macro argument", token);
+    if (sign < 0) this.fail("expected a numeric literal after '-' in a macro argument", token);
     if (token.type === 'ident') {
       this.next();
       return { kind: 'ident', name: token.value, raw: token.value, line: token.line };
     }
-    this.fail('macro arguments must be an integer literal, a bare identifier, or a macro parameter', token);
+    this.fail('macro arguments must be an integer/numeric literal, a bare identifier, or a macro parameter', token);
   }
 
   parseIf() {
@@ -3578,12 +3632,15 @@ class Semantics {
         }
       } else if (arg.kind === 'int') {
         this.checkIntRange(arg.value, arg.line);
+      } else if (arg.kind === 'number') {
+        
+        
       }
       const param = fn.params[i];
-      if (param && param.usedInExpr && arg.kind === 'ident') {
+      if (param && param.usedInExpr && (arg.kind === 'ident' || arg.kind === 'number')) {
         this.report(
           arg.line,
-          `parameter '${param.name}' of fn '${fn.name}' is used in an expression, so it needs an integer argument (got '${arg.name}')`,
+          `parameter '${param.name}' of fn '${fn.name}' is used in an expression, so it needs an integer argument (got '${arg.raw}')`,
         );
       }
     }
@@ -4210,6 +4267,8 @@ function parseTokens(tokens, rawText) {
       return parseFunction(tokens);
     case 'particle':
       return parseParticle(tokens);
+    case 'playsound':
+      return parsePlaysound(tokens);
     case 'return':
       return parseReturn(tokens);
     default:
@@ -4512,6 +4571,64 @@ function parseParticle(tokens) {
   const coords = parseCoordList(tokens, 2, 3);
   if (!coords) return err('invalid coordinates in particle');
   return { kind: 'particle', particle, coords };
+}
+
+ 
+function parsePlaysound(tokens) {
+  const sound = tokens[1];
+  const source = tokens[2];
+  if (!sound) return err('playsound is missing a sound id');
+  if (!source) return err('playsound is missing a sound source (e.g. master)');
+  const targets = parseSelector(tokens[3]);
+  if (!targets) return err(`invalid target selector '${tokens[3]}' in playsound`);
+
+  let coords = null;
+  let index = 4;
+  const first = tokens[index];
+
+  if (first !== undefined) {
+    const firstIsRelative = first.startsWith('~') || first.startsWith('^');
+    
+    
+    const threeCoordsFollow =
+      parseCoord(tokens[4]) !== null &&
+      parseCoord(tokens[5]) !== null &&
+      parseCoord(tokens[6]) !== null;
+    if (firstIsRelative || threeCoordsFollow) {
+      coords = parseCoordList(tokens, 4, 3);
+      if (!coords) return err('playsound position needs 3 coordinates (x y z)');
+      index = 7;
+    }
+  }
+
+  const readNumber = (position, fallback, label) => {
+    const token = tokens[position];
+    if (token === undefined) return { value: fallback };
+    const value = Number(token);
+    if (token.trim() === '' || !Number.isFinite(value)) {
+      return { error: `invalid playsound ${label} '${token}'` };
+    }
+    return { value };
+  };
+
+  const volume = readNumber(index, 1, 'volume');
+  if (volume.error) return err(volume.error);
+  const pitch = readNumber(index + 1, 1, 'pitch');
+  if (pitch.error) return err(pitch.error);
+  const minVolume = readNumber(index + 2, 0, 'minVolume');
+  if (minVolume.error) return err(minVolume.error);
+  if (tokens.length > index + 3) return err('too many arguments in playsound');
+
+  return {
+    kind: 'playsound',
+    sound,
+    source,
+    targets,
+    coords,
+    volume: volume.value,
+    pitch: pitch.value,
+    minVolume: minVolume.value,
+  };
 }
 
 
@@ -5052,6 +5169,27 @@ function resolveFunctionName(name) {
           y: p.y,
           z: p.z,
           particle: cmd.particle,
+          ...locFields(loc),
+        });
+        return false;
+      }
+
+      case 'playsound': {
+        
+        
+        if (!this._select(cmd.targets, ctx).length) return false;
+        const p = cmd.coords
+          ? resolvePosition(cmd.coords, ctx)
+          : { x: ctx.pos.x, y: ctx.pos.y, z: ctx.pos.z };
+        this._emit({
+          type: 'sound',
+          tick: this.state.tick,
+          sound: cmd.sound,
+          volume: cmd.volume,
+          pitch: cmd.pitch,
+          x: p.x,
+          y: p.y,
+          z: p.z,
           ...locFields(loc),
         });
         return false;
@@ -5616,9 +5754,32 @@ tick {
 `,
   },
   {
+    id: 'magic',
+    title: '魔法螺旋 · Magic Spiral',
+    description: '每一 tick 都留下粒子；方形螺旋越走越大，导出的数据包在 Minecraft 里也会一路冒光。',
+    source: `# 每一 tick 都留下一颗 end_rod 粒子
+state arm = 1
+state count = 0
+brush(purple_wool)
+
+over 120 as i {
+  walk
+  paint
+  particle(end_rod)
+  count = count + 1
+  if count >= arm {
+    count = 0
+    arm = arm + 1
+    turn(90)
+  }
+}
+stamp
+`,
+  },
+  {
     id: 'metronome',
     title: '节拍器 · Metronome',
-    description: 'tick 块每 tick 都跑，now 是已经过的 tick 数；按 press 让笔掉头。',
+    description: '每 20 tick 响一声、闪一次；按 press 让笔掉头。浏览器里会听到短促的节拍。',
     source: `# tick 块每 tick 都执行，不消耗时间
 state n = 0
 brush(emerald_block)
@@ -5627,6 +5788,7 @@ tick {
   n = n + 1
   if now % 20 == 0 {
     stamp
+    sound(block.note_block.hat, 1.0)
   }
 }
 
@@ -6809,6 +6971,11 @@ const FIT_GROW = 1.25;
 const FEW_BLOCKS = 8; 
 const POP_MS = 140;
 const PARTICLE_MS = 760;
+const PARTICLE_COLORS = {
+  flame: '#f59e0b',
+  end_rod: '#67e8f9',
+  happy_villager: '#86efac',
+};
 const CAM_EASE = 6.5;
 
 function easeOutBack(t) {
@@ -7372,7 +7539,7 @@ function formatZoom(zoom) {
       const py = wz2py(p.z) + Math.cos(p.seed * 5.3) * cell * 0.5 * t - t * cell * 1.1;
       const size = Math.max(1.5, cell * 0.2 * (1 - t * 0.5));
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = palette.particle;
+      ctx.fillStyle = PARTICLE_COLORS[p.particle] || palette.particle;
       ctx.fillRect(px - size / 2, py - size / 2, size, size);
     }
     ctx.globalAlpha = 1;
@@ -7493,6 +7660,7 @@ function formatZoom(zoom) {
           particles.push({
             x: Number(ev.x) || 0,
             z: Number(ev.z) || 0,
+            particle: String(ev.particle || ev.name || '').replace(/^minecraft:/, ''),
             born: now,
             seed: Math.random(),
           });
@@ -9212,12 +9380,97 @@ exports.createLayout = createLayout;
 
 
 
+
 const TEXT_MIME = 'text/plain;charset=utf-8';
 
  function createWebHost({ doc = null, nav = null, win = null } = {}) {
   const getDoc = () => doc || (typeof document !== 'undefined' ? document : null);
   const getNav = () => nav || (typeof navigator !== 'undefined' ? navigator : null);
   const getWin = () => win || (typeof window !== 'undefined' ? window : null);
+
+  let audioCtx = null;
+  let audioGestureBound = false;
+
+  function bindAudioGesture() {
+    const w = getWin();
+    if (!w || audioGestureBound || typeof w.addEventListener !== 'function') return;
+    audioGestureBound = true;
+    const resume = () => {
+      const ctx = ensureAudio();
+      if (ctx && ctx.state === 'suspended') {
+        try {
+          const p = ctx.resume();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        } catch {   }
+      }
+    };
+    w.addEventListener('pointerdown', resume, { once: true, passive: true });
+    w.addEventListener('keydown', resume, { once: true });
+  }
+
+  function ensureAudio() {
+    const w = getWin();
+    if (!w) return null;
+    const Ctor = w.AudioContext || w.webkitAudioContext;
+    if (typeof Ctor !== 'function') return null;
+    if (!audioCtx) {
+      try { audioCtx = new Ctor(); } catch { return null; }
+      bindAudioGesture();
+    }
+    if (audioCtx.state === 'suspended') {
+      try {
+        const p = audioCtx.resume();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      } catch {   }
+    }
+    return audioCtx;
+  }
+
+   
+  function playSound({ name = '', pitch = 1, volume = 1 } = {}) {
+    if (storageGet('tickpack.sound') === '0') return false;
+    const ctx = ensureAudio();
+    if (!ctx) return false;
+    
+    
+    if (ctx.state !== 'running') return false;
+    const key = String(name || '').toLowerCase();
+    const p = Number(pitch);
+    const v = Number(volume);
+    const pitchValue = Math.min(2, Math.max(0.5, Number.isFinite(p) ? p : 1));
+    const volumeValue = Math.min(1, Math.max(0, Number.isFinite(v) ? v : 1));
+
+    let base = 440;
+    let type = 'triangle';
+    let duration = 0.09;
+    if (/hat|click|tap|snare|drum|wood|stone/.test(key)) {
+      base = 620;
+      type = 'square';
+      duration = 0.045;
+    } else if (/bell|chime|note|harp|pling|glass/.test(key)) {
+      base = 880;
+      type = 'sine';
+      duration = 0.09;
+    } else if (/bass|boom|explode|thunder/.test(key)) {
+      base = 120;
+      type = 'sawtooth';
+      duration = 0.12;
+    }
+    duration = Math.max(0.03, Math.min(0.12, duration));
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(base * pitchValue, t0);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.14 * volumeValue), t0 + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.02);
+    return true;
+  }
 
   function downloadBlob(blob, filename) {
     const d = getDoc();
@@ -9371,11 +9624,14 @@ const TEXT_MIME = 'text/plain;charset=utf-8';
     }
   }
 
+  bindAudioGesture();
+
   return {
     exportDatapack,
     importTextFile,
     exportTextFile,
     copyText,
+    playSound,
     storageGet,
     storageSet,
     storageRemove,
@@ -9383,6 +9639,7 @@ const TEXT_MIME = 'text/plain;charset=utf-8';
       && typeof URL.createObjectURL === 'function',
     canImport: typeof FileReader !== 'undefined' || typeof Blob !== 'undefined' || !!getWin(),
     canPersist: !!getWin(),
+    sound: true,
   };
 }
 
@@ -9487,6 +9744,7 @@ function parseQueryInt(q, key) {
     back: byId('btn-back'),
     fwd: byId('btn-fwd'),
     theme: byId('btn-theme'),
+    sound: byId('btn-sound'),
     importBtn: byId('btn-import'),
     exportBtn: byId('btn-export'),
     workspace: byId('workspace'),
@@ -9524,6 +9782,8 @@ function parseQueryInt(q, key) {
     sampleId: null,
     logCount: 0,
     theme: 'dark',
+    sound: true,
+    lastSoundTick: -1,
   };
 
   const q = new URLSearchParams(location.search);
@@ -9533,6 +9793,8 @@ function parseQueryInt(q, key) {
   document.body.dataset.sourceOpen = 'false';
   const session = new TickpackSession();
   const host = createWebHost();
+  try { state.sound = host.storageGet('tickpack.sound') !== '0'; } catch { state.sound = true; }
+  if (host.sound !== true) state.sound = false;
 
   
   
@@ -9840,6 +10102,7 @@ function parseQueryInt(q, key) {
    
   function beginSessionView() {
     state.acc = 0;
+    state.lastSoundTick = -1;
     timeline.reset();
     world.reset();
     datapack.clearExecuting();
@@ -9868,7 +10131,7 @@ function parseQueryInt(q, key) {
   }
 
   
-  function stepCore({ instant = false } = {}) {
+  function stepCore({ instant = false, playSounds = false } = {}) {
     if (!session.ok) return false;
 
     let result;
@@ -9922,6 +10185,7 @@ function parseQueryInt(q, key) {
     if (session.finished) editor.setSourceLine(null);
 
     logTick(result.events, result.changes, result.tick);
+    if (playSounds) playSoundEvents(result.events, result.tick);
 
     updateStatus(result.tick);
     timeline.setData(session.total, session.cursor);
@@ -9983,7 +10247,7 @@ function parseQueryInt(q, key) {
       setPhase('finished');
       return;
     }
-    stepCore({ instant: false });
+    stepCore({ instant: false, playSounds: true });
   }
 
    
@@ -10015,7 +10279,7 @@ function parseQueryInt(q, key) {
     if (session.cursor < session.snapshotsCount - 1) {
       seekTo(session.cursor + 1);
     } else if (!session.finished) {
-      stepCore({ instant: false });
+      stepCore({ instant: false, playSounds: true });
       if (state.phase === 'running') setPhase('paused');
     }
     pulseScoreValues();
@@ -10025,6 +10289,7 @@ function parseQueryInt(q, key) {
     if (state.phase === 'error' || !session.ok) return;
     pause();
     const view = session.reset();
+    state.lastSoundTick = -1;
     timeline.reset();
     world.reset();
     datapack.clearExecuting();
@@ -10232,6 +10497,7 @@ function parseQueryInt(q, key) {
     if (has((f) => /^tp:main\/s\d+/.test(f) || f.startsWith('tp:snippet'))) tags.push('时间轴');
     if (has((f) => f.startsWith('tp:fn'))) tags.push('函数');
     const particles = events.filter((e) => e && e.type === 'particle').length;
+    const sounds = events.filter((e) => e && e.type === 'sound').length;
     const adds = changes ? changes.length : 0;
     const bits = [
       `<span class="log-t">t${tNo}</span>`,
@@ -10240,6 +10506,7 @@ function parseQueryInt(q, key) {
     ];
     if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
     if (particles) bits.push(`<span class="log-fx">${icon('sparkle', 'log-fx-icon')}${particles}</span>`);
+    if (sounds) bits.push(`<span class="log-fx" title="声音 ${sounds}">${icon('volume-2', 'log-fx-icon')}${sounds}</span>`);
     consoleLine(bits.join(' '), 'log-summary');
 
     for (const ev of events) {
@@ -10327,6 +10594,37 @@ function parseQueryInt(q, key) {
     
     dom.theme.title = light ? '切换到深色模式' : '切换到明亮模式';
     dom.theme.setAttribute('aria-label', dom.theme.title);
+  }
+
+  function updateSoundButton() {
+    if (!dom.sound) return;
+    const supported = host.sound === true;
+    const enabled = supported && state.sound;
+    const use = dom.sound.querySelector('use');
+    if (use) use.setAttribute('href', enabled ? '#i-volume-2' : '#i-volume-x');
+    dom.sound.disabled = !supported;
+    dom.sound.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    const label = !supported ? '当前浏览器不支持声音' : (enabled ? '静音' : '开启声音');
+    dom.sound.title = label;
+    dom.sound.setAttribute('aria-label', label);
+  }
+
+   
+  function playSoundEvents(events, tick) {
+    if (!state.sound || host.sound !== true || typeof host.playSound !== 'function') return;
+    const sounds = (events || []).filter((ev) => ev && ev.type === 'sound');
+    if (!sounds.length) return;
+    if (state.lastSoundTick === tick) return;
+    state.lastSoundTick = tick;
+    for (const ev of sounds) {
+      try {
+        host.playSound({
+          name: ev.sound || ev.name || '',
+          pitch: ev.pitch,
+          volume: ev.volume,
+        });
+      } catch {   }
+    }
   }
 
   function setTheme(theme, { persist = false } = {}) {
@@ -10551,6 +10849,20 @@ function parseQueryInt(q, key) {
     dom.theme.addEventListener('click', () => {
       const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
       setTheme(next, { persist: true });
+    });
+  }
+
+  if (dom.sound) {
+    updateSoundButton();
+    dom.sound.addEventListener('click', () => {
+      if (host.sound !== true) return;
+      state.sound = !state.sound;
+      try { host.storageSet('tickpack.sound', state.sound ? '1' : '0'); } catch {   }
+      updateSoundButton();
+      if (state.sound) {
+        try { host.playSound({ name: 'block.note_block.pling', pitch: 1, volume: 0.3 }); } catch {   }
+      }
+      showToast(state.sound ? '声音已开启' : '已静音', 'ok');
     });
   }
 

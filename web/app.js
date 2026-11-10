@@ -94,6 +94,7 @@ export function startApp(api) {
     back: byId('btn-back'),
     fwd: byId('btn-fwd'),
     theme: byId('btn-theme'),
+    sound: byId('btn-sound'),
     importBtn: byId('btn-import'),
     exportBtn: byId('btn-export'),
     workspace: byId('workspace'),
@@ -131,6 +132,8 @@ export function startApp(api) {
     sampleId: null,
     logCount: 0,
     theme: 'dark',
+    sound: true,
+    lastSoundTick: -1,
   };
 
   const q = new URLSearchParams(location.search);
@@ -140,6 +143,8 @@ export function startApp(api) {
   document.body.dataset.sourceOpen = 'false';
   const session = new TickpackSession();
   const host = createWebHost();
+  try { state.sound = host.storageGet('tickpack.sound') !== '0'; } catch { state.sound = true; }
+  if (host.sound !== true) state.sound = false;
 
   // Theme first (before any panel paints): URL override wins, then persisted
   // preference, then prefers-color-scheme. Only user toggles persist.
@@ -447,6 +452,7 @@ export function startApp(api) {
   /** Reset every panel to the session's current (tick 0) view. */
   function beginSessionView() {
     state.acc = 0;
+    state.lastSoundTick = -1;
     timeline.reset();
     world.reset();
     datapack.clearExecuting();
@@ -479,7 +485,7 @@ export function startApp(api) {
   }
 
   // ------------------------------------------------------------ one tick
-  function stepCore({ instant = false } = {}) {
+  function stepCore({ instant = false, playSounds = false } = {}) {
     if (!session.ok) return false;
 
     let result;
@@ -533,6 +539,7 @@ export function startApp(api) {
     if (session.finished) editor.setSourceLine(null);
 
     logTick(result.events, result.changes, result.tick);
+    if (playSounds) playSoundEvents(result.events, result.tick);
 
     updateStatus(result.tick);
     timeline.setData(session.total, session.cursor);
@@ -594,7 +601,7 @@ export function startApp(api) {
       setPhase('finished');
       return;
     }
-    stepCore({ instant: false });
+    stepCore({ instant: false, playSounds: true });
   }
 
   /** Restore snapshot `index` through the session and repaint. */
@@ -626,7 +633,7 @@ export function startApp(api) {
     if (session.cursor < session.snapshotsCount - 1) {
       seekTo(session.cursor + 1);
     } else if (!session.finished) {
-      stepCore({ instant: false });
+      stepCore({ instant: false, playSounds: true });
       if (state.phase === 'running') setPhase('paused');
     }
     pulseScoreValues();
@@ -636,6 +643,7 @@ export function startApp(api) {
     if (state.phase === 'error' || !session.ok) return;
     pause();
     const view = session.reset();
+    state.lastSoundTick = -1;
     timeline.reset();
     world.reset();
     datapack.clearExecuting();
@@ -843,6 +851,7 @@ export function startApp(api) {
     if (has((f) => /^tp:main\/s\d+/.test(f) || f.startsWith('tp:snippet'))) tags.push('时间轴');
     if (has((f) => f.startsWith('tp:fn'))) tags.push('函数');
     const particles = events.filter((e) => e && e.type === 'particle').length;
+    const sounds = events.filter((e) => e && e.type === 'sound').length;
     const adds = changes ? changes.length : 0;
     const bits = [
       `<span class="log-t">t${tNo}</span>`,
@@ -851,6 +860,7 @@ export function startApp(api) {
     ];
     if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
     if (particles) bits.push(`<span class="log-fx">${icon('sparkle', 'log-fx-icon')}${particles}</span>`);
+    if (sounds) bits.push(`<span class="log-fx" title="声音 ${sounds}">${icon('volume-2', 'log-fx-icon')}${sounds}</span>`);
     consoleLine(bits.join(' '), 'log-summary');
 
     for (const ev of events) {
@@ -938,6 +948,37 @@ export function startApp(api) {
     // the sun/moon SVGs are toggled by CSS on :root[data-theme]
     dom.theme.title = light ? '切换到深色模式' : '切换到明亮模式';
     dom.theme.setAttribute('aria-label', dom.theme.title);
+  }
+
+  function updateSoundButton() {
+    if (!dom.sound) return;
+    const supported = host.sound === true;
+    const enabled = supported && state.sound;
+    const use = dom.sound.querySelector('use');
+    if (use) use.setAttribute('href', enabled ? '#i-volume-2' : '#i-volume-x');
+    dom.sound.disabled = !supported;
+    dom.sound.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    const label = !supported ? '当前浏览器不支持声音' : (enabled ? '静音' : '开启声音');
+    dom.sound.title = label;
+    dom.sound.setAttribute('aria-label', label);
+  }
+
+  /** Live forward ticks and manual single-step only; seeks/scrubs never call this. */
+  function playSoundEvents(events, tick) {
+    if (!state.sound || host.sound !== true || typeof host.playSound !== 'function') return;
+    const sounds = (events || []).filter((ev) => ev && ev.type === 'sound');
+    if (!sounds.length) return;
+    if (state.lastSoundTick === tick) return;
+    state.lastSoundTick = tick;
+    for (const ev of sounds) {
+      try {
+        host.playSound({
+          name: ev.sound || ev.name || '',
+          pitch: ev.pitch,
+          volume: ev.volume,
+        });
+      } catch { /* sound is best effort */ }
+    }
   }
 
   function setTheme(theme, { persist = false } = {}) {
@@ -1162,6 +1203,20 @@ export function startApp(api) {
     dom.theme.addEventListener('click', () => {
       const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
       setTheme(next, { persist: true });
+    });
+  }
+
+  if (dom.sound) {
+    updateSoundButton();
+    dom.sound.addEventListener('click', () => {
+      if (host.sound !== true) return;
+      state.sound = !state.sound;
+      try { host.storageSet('tickpack.sound', state.sound ? '1' : '0'); } catch { /* best effort */ }
+      updateSoundButton();
+      if (state.sound) {
+        try { host.playSound({ name: 'block.note_block.pling', pitch: 1, volume: 0.3 }); } catch { /* best effort */ }
+      }
+      showToast(state.sound ? '声音已开启' : '已静音', 'ok');
     });
   }
 

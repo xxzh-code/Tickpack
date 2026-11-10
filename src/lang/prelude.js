@@ -41,6 +41,16 @@ fn stamp() {
   run execute at @e[tag=pen] run particle happy_villager ~ ~ ~ 0 0 0 0 1
 }
 
+fn particle(type) {
+  # spawn a particle at the pen; type is raw macro text (e.g. flame, end_rod)
+  run execute at @e[tag=pen] run particle $type ~ ~ ~ 0 0 0 0 1
+}
+
+fn sound(name, pitch) {
+  # play a sound at the pen; name/pitch are raw macro text (e.g. block.note_block.bell, 1.4)
+  run execute at @e[tag=pen] run playsound $name master @a ~ ~ ~ 0.8 $pitch
+}
+
 fn clear_ground() {
   # wipe a 33x33 ground layer around the player back to air
   run execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air

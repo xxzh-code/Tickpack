@@ -137,9 +137,32 @@ tick {
 `,
   },
   {
+    id: 'magic',
+    title: '魔法螺旋 · Magic Spiral',
+    description: '每一 tick 都留下粒子；方形螺旋越走越大，导出的数据包在 Minecraft 里也会一路冒光。',
+    source: `# 每一 tick 都留下一颗 end_rod 粒子
+state arm = 1
+state count = 0
+brush(purple_wool)
+
+over 120 as i {
+  walk
+  paint
+  particle(end_rod)
+  count = count + 1
+  if count >= arm {
+    count = 0
+    arm = arm + 1
+    turn(90)
+  }
+}
+stamp
+`,
+  },
+  {
     id: 'metronome',
     title: '节拍器 · Metronome',
-    description: 'tick 块每 tick 都跑，now 是已经过的 tick 数；按 press 让笔掉头。',
+    description: '每 20 tick 响一声、闪一次；按 press 让笔掉头。浏览器里会听到短促的节拍。',
     source: `# tick 块每 tick 都执行，不消耗时间
 state n = 0
 brush(emerald_block)
@@ -148,6 +171,7 @@ tick {
   n = n + 1
   if now % 20 == 0 {
     stamp
+    sound(block.note_block.hat, 1.0)
   }
 }
 
