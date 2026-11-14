@@ -62,6 +62,13 @@ function penOf(sim) {
   return sim.getWorld().entities.find((entity) => entity.tags.includes('pen'));
 }
 
+function assertClose(actual, expected, message = 'value') {
+  assert.ok(
+    Math.abs(actual - expected) < 1e-9,
+    `${message}: expected ≈${expected}, got ${actual}`,
+  );
+}
+
 const PEN_SUMMON =
   'summon armor_stand 0.5 0 0.5 {Tags:["pen"],Invisible:1b,NoGravity:1b,Marker:1b}';
 
@@ -746,6 +753,170 @@ test('execute positioned and rotated compose with as/at', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 3D (P1): y, pitch, local ^ with pitch, 3D blocks/particles/snapshots
+// ---------------------------------------------------------------------------
+
+test('3D baseline: pen starts on the ground at pitch 0, host player one block above', () => {
+  const sim = makeSim({ load: `${BASE_LOAD}\n${PEN_SUMMON}` });
+  const pen = penOf(sim);
+  assert.deepEqual(
+    [pen.x, pen.y, pen.z, pen.yaw, pen.pitch],
+    [0.5, 0, 0.5, 0, 0],
+  );
+  const player = sim.getWorld().entities.find((entity) => entity.type === 'player');
+  assert.ok(player, 'host player must exist');
+  assert.deepEqual([player.x, player.y, player.z, player.pitch], [0.5, 1, 0.5, 0]);
+});
+
+test('3D tp: ~ ~1 ~ / ~ ~-1 ~ move y; absolute and relative yaw/pitch', () => {
+  const load = `${BASE_LOAD}\n${PEN_SUMMON}`;
+
+  const simUp = makeSim({
+    load,
+    tick: 'execute as @e[tag=pen] at @s run tp @s ~ ~1 ~',
+  });
+  simUp.step();
+  let pen = penOf(simUp);
+  assert.deepEqual([pen.x, pen.y, pen.z], [0.5, 1, 0.5]);
+  assert.deepEqual([pen.yaw, pen.pitch], [0, 0]);
+
+  const simDown = makeSim({
+    load,
+    tick: [
+      'execute as @e[tag=pen] at @s run tp @s ~ ~3 ~',
+      'execute as @e[tag=pen] at @s run tp @s ~ ~-1 ~',
+    ].join('\n'),
+  });
+  simDown.step();
+  pen = penOf(simDown);
+  assert.equal(pen.y, 2);
+
+  const simAbsolute = makeSim({
+    load,
+    tick: 'tp @e[tag=pen] 2 3 4 90 45',
+  });
+  simAbsolute.step();
+  pen = penOf(simAbsolute);
+  assert.deepEqual([pen.x, pen.y, pen.z, pen.yaw, pen.pitch], [2, 3, 4, 90, 45]);
+
+  const simRelative = makeSim({
+    load,
+    tick: [
+      'tp @e[tag=pen] ~ ~ ~ 90 0', // yaw +90, pitch 0
+      'tp @e[tag=pen] ~ ~ ~ ~ 45', // yaw +0, pitch = 45 (absolute)
+      'tp @e[tag=pen] ~ ~ ~ ~ ~-10', // pitch += -10 -> 35
+    ].join('\n'),
+  });
+  simRelative.step();
+  pen = penOf(simRelative);
+  assert.deepEqual([pen.y, pen.yaw, pen.pitch], [0, 90, 35]);
+});
+
+test('3D local ^ uses pen pitch (diagonal walk) and local up tilts with pitch', () => {
+  const load = `${BASE_LOAD}\n${PEN_SUMMON}`;
+
+  // pitch 45, yaw 0 -> forward = (0, -sin45, cos45)
+  const forward45 = makeSim({
+    load,
+    tick: [
+      'tp @e[tag=pen] 0.5 0 0.5 0 45',
+      'execute as @e[tag=pen] at @s run tp @s ^ ^ ^1',
+    ].join('\n'),
+  });
+  forward45.step();
+  let pen = penOf(forward45);
+  assertClose(pen.x, 0.5, 'x');
+  assertClose(pen.y, -Math.SQRT1_2, 'forward y');
+  assertClose(pen.z, 0.5 + Math.SQRT1_2, 'forward z');
+
+  // pitch 30 -> local up = (0, cos30, sin30)
+  const up30 = makeSim({
+    load,
+    tick: [
+      'tp @e[tag=pen] 0 0 0 0 30',
+      'execute as @e[tag=pen] at @s run tp @s ^ ^1 ^',
+    ].join('\n'),
+  });
+  up30.step();
+  pen = penOf(up30);
+  assertClose(pen.x, 0, 'up x');
+  assertClose(pen.y, Math.cos(Math.PI / 6), 'up y');
+  assertClose(pen.z, Math.sin(Math.PI / 6), 'up z');
+
+  // yaw 90 + pitch 45 -> forward = (-sin90*cos45, -sin45, cos90*cos45)
+  const yawPitch = makeSim({
+    load,
+    tick: [
+      'tp @e[tag=pen] 0 0 0 90 45',
+      'execute as @e[tag=pen] at @s run tp @s ^ ^ ^1',
+    ].join('\n'),
+  });
+  yawPitch.step();
+  pen = penOf(yawPitch);
+  assertClose(pen.x, -Math.SQRT1_2, 'yaw+pitch x');
+  assertClose(pen.y, -Math.SQRT1_2, 'yaw+pitch y');
+  assertClose(pen.z, 0, 'yaw+pitch z');
+
+  // negative pitch looks up -> local forward gains +y
+  const upLook = makeSim({
+    load,
+    tick: [
+      'tp @e[tag=pen] 0 0 0 0 -45',
+      'execute as @e[tag=pen] at @s run tp @s ^ ^ ^1',
+    ].join('\n'),
+  });
+  upLook.step();
+  pen = penOf(upLook);
+  assertClose(pen.y, Math.SQRT1_2, 'negative pitch y');
+
+  // Execution rotation with pitch (execute rotated), independent of pen rotation.
+  const rotatedFrame = makeSim({
+    load,
+    tick: 'execute rotated 0 45 positioned 0 0 0 run tp @e[tag=pen] ^ ^ ^1',
+  });
+  rotatedFrame.step();
+  pen = penOf(rotatedFrame);
+  assertClose(pen.x, 0, 'rotated x');
+  assertClose(pen.y, -Math.SQRT1_2, 'rotated y');
+  assertClose(pen.z, Math.SQRT1_2, 'rotated z');
+});
+
+test('3D blocks/particles: setblock, fill, if block and particle events use y', () => {
+  const load = `${BASE_LOAD}\n${PEN_SUMMON}`;
+  const sim = makeSim({
+    load,
+    tick: [
+      'setblock 1 2 3 stone',
+      'setblock 0 -1 0 dirt',
+      'fill -1 1 -1 1 2 1 glass',
+      'execute if block 1 2 3 stone run scoreboard players set #hit tp 1',
+      'execute at @e[tag=pen] run particle flame ~ ~2 ~',
+      'execute at @e[tag=pen] run setblock ~ ~3 ~ glowstone',
+      'execute at @e[tag=pen] run fill ~-1 ~5 ~-1 ~1 ~5 ~1 sand',
+    ].join('\n'),
+  });
+  const events = sim.step();
+  const blocks = worldBlocks(sim);
+  const blockAt = (x, y, z) => blocks.find((b) => b.x === x && b.y === y && b.z === z);
+
+  assert.equal(blockAt(1, 2, 3)?.block, 'stone');
+  assert.equal(blockAt(0, -1, 0)?.block, 'dirt');
+  assert.equal(blockAt(0, 2, 0)?.block, 'glass'); // fill spans y 1..2
+  assert.equal(blockAt(0, 3, 0)?.block, 'glowstone'); // ~ ~3 ~ floor
+  assert.equal(blockAt(0, 5, 0)?.block, 'sand'); // fill at y 5
+  assert.equal(blocks.filter((b) => b.block === 'glass').length, 18); // 3*2*3
+  assert.equal(blocks.filter((b) => b.block === 'sand').length, 9); // 3*1*3
+  assert.equal(blocks.length, 30);
+  assert.equal(scoreOf(sim, '#hit'), 1);
+
+  const particles = byType(events, 'particle');
+  assert.equal(particles.length, 1);
+  assert.equal(particles[0].x, 0.5);
+  assert.equal(particles[0].y, 2); // pen y 0 + 2
+  assert.equal(particles[0].z, 0.5);
+});
+
+// ---------------------------------------------------------------------------
 // blocks
 // ---------------------------------------------------------------------------
 
@@ -1076,6 +1247,106 @@ test('snapshot()/restore() round-trips plain state and replays deterministically
 
   const replayed = [sim.step(), sim.step()];
   assert.deepEqual(replayed, recorded);
+});
+
+test('3D snapshot/restore round-trips blocks y and entity y/pitch, replays deterministically', () => {
+  const load = `${BASE_LOAD}\n${PEN_SUMMON}`;
+  const sim = makeSim({
+    load,
+    tick: [
+      'execute as @e[tag=pen] at @s run tp @s ~ ~1 ~',
+      'execute at @e[tag=pen] run setblock ~ ~ ~ gold_block',
+      'execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~15 ~10',
+    ].join('\n'),
+  });
+
+  sim.step();
+  sim.step();
+  const snap = structuredClone(sim.snapshot()); // must stay structured-cloneable
+
+  const penSnap = snap.entities.find((entity) => entity.tags.includes('pen'));
+  assert.deepEqual([penSnap.x, penSnap.y, penSnap.z], [0.5, 2, 0.5]);
+  assert.deepEqual([penSnap.yaw, penSnap.pitch], [30, 20]);
+  // 3D block tuples: [x, y, z, block].
+  assert.deepEqual(
+    snap.blocks.map((block) => block.slice(0, 3)),
+    [
+      [0, 1, 0],
+      [0, 2, 0],
+    ],
+  );
+  assert.ok(snap.blocks.every((block) => block.length === 4));
+  assert.equal(snap.tick, 2);
+
+  const worldAtSnap = structuredClone(sim.getWorld());
+  const player = worldAtSnap.entities.find((entity) => entity.type === 'player');
+  assert.deepEqual([player.y, player.pitch], [1, 0]);
+
+  const recorded = [sim.step(), sim.step()];
+  assert.equal(penOf(sim).y, 4); // two more up-steps after the snapshot
+
+  sim.restore(snap);
+  assert.equal(sim.getTick(), 2);
+  const pen = penOf(sim);
+  assert.deepEqual([pen.x, pen.y, pen.z, pen.yaw, pen.pitch], [0.5, 2, 0.5, 30, 20]);
+  assert.deepEqual(
+    worldBlocks(sim).map((block) => [block.x, block.y, block.z]),
+    [
+      [0, 1, 0],
+      [0, 2, 0],
+    ],
+  );
+
+  const replayed = [sim.step(), sim.step()];
+  assert.deepEqual(replayed, recorded);
+});
+
+test('restore() accepts old 2D snapshots (missing y/pitch default to 0)', () => {
+  const sim = makeSim({});
+  const oldSnapshot = {
+    version: 0,
+    tick: 7,
+    presses: 2,
+    nextEntityId: 5,
+    scores: { tp: { '#__tick': 7, '#x': 3 } },
+    blocks: [
+      [1, 2, 'stone'], // old 2D tuple [x, z, block]
+      { x: 3, z: 4, block: 'gold_block' }, // old object form without y
+      [0, 0, 0, 'dirt'], // a 3D tuple from a mixed version
+    ],
+    entities: [
+      { id: 1, type: 'player', x: 0.5, z: 0.5 }, // no y / pitch
+      { id: 2, type: 'armor_stand', x: 2.5, z: 1.5, yaw: 90, tags: ['pen'] },
+    ],
+  };
+
+  sim.restore(oldSnapshot);
+  assert.equal(sim.getTick(), 7);
+  assert.deepEqual(sim.getScores(), oldSnapshot.scores);
+  assert.deepEqual(sim.getWorld().blocks, [
+    { x: 0, y: 0, z: 0, block: 'dirt' },
+    { x: 1, y: 0, z: 2, block: 'stone' },
+    { x: 3, y: 0, z: 4, block: 'gold_block' },
+  ]);
+  assert.deepEqual(
+    sim.getWorld().entities.map((entity) => [
+      entity.type,
+      entity.x,
+      entity.y,
+      entity.z,
+      entity.yaw,
+      entity.pitch,
+    ]),
+    [
+      ['player', 0.5, 0, 0.5, 0, 0],
+      ['armor_stand', 2.5, 0, 1.5, 90, 0],
+    ],
+  );
+
+  // A restored old snapshot is still a live state: stepping must not throw.
+  const events = sim.step();
+  assert.equal(byType(events, 'error').length, 0);
+  assert.equal(sim.getTick(), 8);
 });
 
 // ---------------------------------------------------------------------------

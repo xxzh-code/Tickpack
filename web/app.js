@@ -225,6 +225,11 @@ export function startApp(api) {
       dom.sampleSelect.appendChild(o);
       return;
     }
+    const custom = document.createElement('option');
+    custom.value = '';
+    custom.textContent = '自定义程序';
+    custom.disabled = true;
+    dom.sampleSelect.appendChild(custom);
     for (const s of SAMPLES) {
       const o = document.createElement('option');
       o.value = s.id;
@@ -333,6 +338,8 @@ export function startApp(api) {
       dom.sampleSelect.value = sample.id;
       applySampleDescription(sample);
     } else {
+      lastSampleValue = '';
+      dom.sampleSelect.value = '';
       applySampleDescription(null);
     }
     editor.setValue(draft.source, { silent: true });
@@ -751,21 +758,24 @@ export function startApp(api) {
     }
     dom.penReadout.innerHTML =
       `<span class="pen-dot"></span>` +
-      `<b>x ${pen.x.toFixed(1)}</b> <b>z ${pen.z.toFixed(1)}</b> ` +
-      `<b>${Math.round(pen.yaw)}°</b>`;
+      `<b>x ${pen.x.toFixed(1)}</b> <b>y ${(pen.y || 0).toFixed(1)}</b> <b>z ${pen.z.toFixed(1)}</b> ` +
+      `<b>${Math.round(pen.yaw)}° / ${Math.round(pen.pitch || 0)}°</b>`;
   }
 
-  /** Viewport readout: y=0 · ×1.5 · (12, -4) — zoom relative to the 33-board. */
+  /** Viewport readout: y · ×zoom · (x, z); 3D isometric when content goes vertical. */
   function updateViewReadout(cam) {
     if (!dom.viewReadout || !cam) return;
     const zoom = cam.zoom >= 10 ? cam.zoom.toFixed(0) : (Math.round(cam.zoom * 10) / 10).toFixed(1);
     const cx = Math.round(cam.cx - 0.5);
     const cz = Math.round(cam.cz - 0.5);
-    dom.viewReadout.textContent = `y=0 · ×${zoom} · (${cx}, ${cz})`;
+    const y = cam.y != null ? cam.y : (cam.mode === '3d' ? cam.cy : 0);
+    dom.viewReadout.textContent = `y=${Math.round(y * 10) / 10} · ×${zoom} · (${cx}, ${cz})`;
     dom.viewReadout.dataset.auto = cam.autoFit ? '1' : '0';
-    dom.viewReadout.title = cam.autoFit
+    dom.viewReadout.dataset.mode = cam.mode || '2d';
+    dom.viewReadout.title = (cam.autoFit
       ? '视口：自动适配 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配'
-      : '视口：手动控制 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配';
+      : '视口：手动控制 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配')
+      + (cam.mode === '3d' ? ' · 正交 3D' : '');
     if (dom.fit) dom.fit.classList.toggle('is-auto', !!cam.autoFit);
   }
 
@@ -896,6 +906,10 @@ export function startApp(api) {
 
   function onSourceChange() {
     state.dirty = true;
+    state.sampleId = null;
+    lastSampleValue = '';
+    if (dom.sampleSelect) dom.sampleSelect.value = '';
+    applySampleDescription(null);
     dom.dirtyBadge.hidden = false;
     scheduleDraftSave();
     if (actionToastKind === 'draft') hideActionToast();
@@ -1025,6 +1039,7 @@ export function startApp(api) {
       if (!ok) return;
     }
     state.sampleId = null;
+    if (dom.sampleSelect) dom.sampleSelect.value = '';
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
     applySampleDescription(null);
@@ -1107,32 +1122,41 @@ export function startApp(api) {
   }
 
   function tabHas(tab, panelId) {
-    return !!tab && tab.main.some((col) => col.stack.some((item) => item.panel === panelId));
+    return !!(tab && layout && typeof layout.panelsOfTab === 'function' && layout.panelsOfTab(tab).includes(panelId));
   }
 
   /** Theatre needs one tab that has both 世界 and 源码 (defaults: 工作台). */
   function ensureTheaterTab() {
     if (!isTheater || !layout || !layout.document) return;
     const tabs = layout.document.tabs;
-    const active = tabs.find((t) => t.id === layout.activeTabId);
+    let active = tabs.find((t) => t.id === layout.activeTabId);
+    // A maximized pane would hide the world/source tree from the theater
+    // presentation; restore the tree once for this view.
+    if (active && active.maximized) {
+      layout.toggleMaximize(active.maximized);
+      active = tabs.find((t) => t.id === layout.activeTabId);
+    }
     if (tabHas(active, 'source') && tabHas(active, 'world')) return;
     const best = tabs.find((t) => tabHas(t, 'source') && tabHas(t, 'world'))
       || tabs.find((t) => tabHas(t, 'source'))
       || tabs.find((t) => tabHas(t, 'world'));
     if (best && best.id !== layout.activeTabId) layout.selectTab(best.id);
+    const chosen = layout.document.tabs.find((t) => t.id === layout.activeTabId);
+    if (chosen && chosen.maximized) layout.toggleMaximize(chosen.maximized);
   }
 
   /** Give the column that holds 世界 the full theater width (presentation only). */
+  /** Presentation-only classes for the recursive group tree in theater mode. */
   function syncTheaterClasses() {
     if (!isTheater) return;
-    let found = false;
-    const cols = dom.workspace.querySelectorAll('.pane-col');
-    for (const col of cols) {
-      const hasWorld = !!col.querySelector('.panel-world');
-      col.classList.toggle('theater-main', hasWorld);
-      if (hasWorld) found = true;
+    const world = dom.workspace.querySelector('.panel-world');
+    const source = dom.workspace.querySelector('.panel-source');
+    const groups = dom.workspace.querySelectorAll('.pane-group');
+    for (const group of groups) {
+      group.classList.toggle('theater-world-path', !!(world && group.contains(world)));
+      group.classList.toggle('theater-source-path', !!(source && group.contains(source)));
     }
-    document.documentElement.classList.toggle('theater-no-world', !found);
+    document.documentElement.classList.toggle('theater-no-world', !world);
   }
 
   let theaterOpen = false;
@@ -1355,6 +1379,7 @@ export function startApp(api) {
   if (srcOverride != null) {
     editor.setValue(srcOverride, { silent: true });
     state.sampleId = null;
+    dom.sampleSelect.value = '';
     applySampleDescription(null);
   } else {
     editor.setValue(initial.source || '', { silent: true });

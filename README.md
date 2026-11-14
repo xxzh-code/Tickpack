@@ -37,7 +37,7 @@ tickpack pack star              # 编译内置示例
 - **世界**：逐 tick 看笔移动、方块出现、计分板变量跳动；自动适配全部内容，滚轮缩放 / 拖动平移 / 双击适配。
 - **数据包**：这份代码**真正生成出来的数据包**，正在执行的那一行会亮起来 —— 源码行和 mcfunction 行同步。
 - **时间轴**：每个 tick 都存了快照，点/拖动就把世界倒带到那一刻。
-- **标签页 + 分栏**：源码/世界/数据包/计分板/运行日志/时间轴都是独立面板；可以调整大小、折叠、最大化、用面板菜单移动到其他标签页，布局自动记住。默认两个工作页：「工作台」和「观察」。
+- **标签页 + 分栏**：源码/世界/数据包/计分板/运行日志/时间轴都是独立面板；可以拖动标题栏调整布局、折叠、最大化、用面板菜单移动或复制到其他标签页；标签页可拖动排序、右键添加缺失分栏/仅重置当前页。布局自动记住。默认两个工作页：「工作台」和「观察」。
 - **导入 / 导出 `.tpk`**：把程序存成单个 `.tpk` 文本文件，或从文件载入；右上角 `下载 .zip` 则是可直接进 Minecraft 的整包。
 
 `hello` 示例演示最小程序：
@@ -48,7 +48,7 @@ tickpack pack star              # 编译内置示例
 
 - 日间 / 夜间模式：顶栏 ☀/☾ 切换，记住选择；没选过时跟随系统。
 - 扁平化：没有无意义的渐变/发光/装饰动画；保留的都是有信息量的提示——当前执行行、源码行高亮、诊断标记、时间轴播放头、方块出现的短促反馈。
-- 分栏操作：拖动分隔条调整大小；面板标题栏「折叠 / 最大化 / ⋯ → 移动到标签页」；标签页可新建、双击重命名、关闭；「重置布局」恢复默认。
+- 分栏操作：拖动分隔条调整大小，拖动面板标题栏调整组树布局；面板标题栏「折叠 / 最大化 / ⋯ → 移动或复制到标签页」；标签页可新建、拖动排序、双击重命名、右键菜单（添加缺失分栏/仅重置当前页/关闭）；「重置布局」恢复默认。
 - 品牌 logo 来自 `logo/`（顶栏 `logo-small.svg`，favicon `logo-minimal.svg`）。
 
 日间模式：
@@ -98,8 +98,14 @@ over 4 as side {
 | 彩虹圆 | `brush` 每三步换色：运行时画笔 |
 | 无尽螺旋 | `tick {}` + `state`：不结束的方形螺旋；游戏里随时换笔 / `tp:stop` 暂停 |
 | 魔法螺旋 | 每 tick 留一颗粒子；方形螺旋越走越大，浏览器和 Minecraft 同步冒光 |
+| 3D 螺旋 | `pitch(-35)` 抬头，`walk` 沿视线向上，12 步画出正交 3D 螺旋 |
 | 节拍器 | `tick {}` + `now % 20` + press；每 20 tick 响一声、闪一次 |
 | 你好 | 最小程序：`say` + `wait 5`，看 run log 里的时间 |
+
+
+3D 螺旋示例（正交投影，浏览器与 Minecraft 同一份数据包）：
+
+![3D 螺旋](docs/img/3d-helix.png)
 
 完整语法与编译模型：[docs/LANG.md](docs/LANG.md)。
 
@@ -127,7 +133,8 @@ main.tpk ──compile──▶ 真正的数据包文件（pack.mcmeta / mcfunct
   再开始逐 tick 画。`/function tp:start` 回到脚下、`tp:start_at` 指定坐标、
   `tp:brush/*` 换画笔、`tp:status` 自检。
   浏览器里则有一个虚拟玩家站在同一位置，所以两边画出同样的坐标。
-- **world 视口会自己适配**：自动把整幅画装进画面（大于 33×33 也行），
+- **world 视口会自己适配**：默认 2D 示例仍是原来的俯视平面；3D 内容自动切到正交等轴视图
+  （`x,y,z` 立方体、深度排序、pen pitch）。自动把整幅画装进画面（大于 33×33 也行），
   滚轮缩放、拖动平移、双击/`F`/`fit` 重新适配；暂停/完成后一定框住全部内容。
 
 ## 把数据包放进 Minecraft
@@ -140,6 +147,7 @@ dist/tickpack-star-datapack.zip      dist/tickpack-spiral-datapack.zip
 dist/tickpack-circle-datapack.zip    dist/tickpack-rainbow-datapack.zip
 dist/tickpack-metronome-datapack.zip dist/tickpack-hello-datapack.zip
 dist/tickpack-endless-datapack.zip   dist/tickpack-magic-datapack.zip
+ dist/tickpack-helix3d-datapack.zip
 dist/tickpack.html（单文件版）
 ```
 
@@ -215,7 +223,7 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 | `docs/NAMING.md` | 命名与标识、`.tpk`、CLI、数据包命名空间规则（设计） |
 | `scripts/build-html.mjs` | 零依赖单文件 HTML 构建 |
 | `dist/` | 预生成的数据包 zip + 单文件 HTML |
-| `test/` | 编译器 77 + 模拟器 33 + 端到端 16 + 会话 13 + zip 3 + 分层守卫 3 + 单文件构建 4 = **149 个测试** |
+| `test/` | 编译器/模拟器/端到端/会话/zip/分层守卫/构建 + 布局 13 + layout-drag 16 + 3D 9 = **206 个测试**（以 `node test/run-all.mjs` 为准） |
 | `scripts/pack.mjs` | 生成可安装的数据包 zip（Node 外壳的导出实现） |
 | `scripts/dump.mjs` | 打印某个示例生成的数据包（调试编译器用） |
 | `scripts/shot.ps1` | Edge headless 截图（QA 用） |
@@ -246,7 +254,8 @@ node test/integration.test.js  # 只跑端到端
       重画、`tp:start_at` 指定坐标（`/execute positioned`）、`tp:brush/*` 游戏内换画笔、
       `tp:status` 自检；pack.mcmeta 兼容 1.21.x（supported_formats）
 - [x] world 视口：自动适配全部内容（画布不再被 33×33 截断）、滚轮缩放、拖动平移、双击/F 适配
-- [x] 界面：全中文、日间/夜间模式、扁平化；标签页 + 可调整/折叠/最大化/移动的分栏面板，布局持久化；
+- [x] 界面：全中文、日间/夜间模式、扁平化；标签页 + 可调整/折叠/最大化/移动/复制的分栏面板；组树 header 拖动、整组折叠胶囊、标签页排序/右键菜单/单页重置，布局持久化；
+- [x] 3D：`x,y,z` + `up/down/pitch`，正交投影立方体、深度排序、3D 自动适配/缩放/平移；默认 2D 不回归，`helix3d` 浏览器与 Minecraft 同步；
       `logo/` 品牌；导入/导出 `.tpk`
 - [x] 分层：核心（编译器/模拟器/会话/zip）零平台依赖 + 外壳（DOM/下载/剪贴板/文件/持久化）通过
       `TickpackSession` / `web/host-web.js` 窄接口连接；`test/purity.test.js` 守卫边界
@@ -268,6 +277,10 @@ node test/integration.test.js  # 只跑端到端
   画大了会自动缩放视野，不再被 33×33 截断。等语言更稳再换更通用的世界。
 - 参数是编译期常量（`$param` 直接替换进 `run` 行）。没有运行时参数、没有闭包。
   以后也许会有，但不会以牺牲「循环就是时钟」为代价。
+
+## Vibe coding 程度
+
+本项目是 **vibe coding 驱动**的项目：大量界面、测试、文档和迭代由 AI 编程代理完成；需求边界、架构取舍、关键 bug 定位和发布验收由人工主导与确认。它不是“一键生成、不做审查”的项目——每个发布版本都经过自动测试和真实浏览器/CDP 验收。
 
 ## 许可证
 

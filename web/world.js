@@ -10,11 +10,26 @@
 import { blockColor, isGlass } from './blocks.js';
 import { clamp, prefersReducedMotion } from './util.js';
 import { CANVAS_THEMES } from './theme.js';
+import {
+  ISO_YAW,
+  ISO_PITCH,
+  projectScreen,
+  visibleCubeFaces,
+  sortBlocksByDepth,
+  sortFacesByDepth,
+  fitCameraToBounds,
+  shouldUse3D,
+  nextViewMode,
+  panCamera3D,
+  zoomCamera3D,
+  formatY,
+} from './world3d.js';
 
 const BOARD_LO = -16; // reference board: block coordinates -16 .. 16 inclusive
 const BOARD_HI = 17; // world-unit edge (block x occupies [x, x+1))
 const BOARD_SIZE = BOARD_HI - BOARD_LO; // 33
-const DEFAULT_CAM = { cx: 0.5, cz: 0.5, span: BOARD_SIZE };
+const DEFAULT_CAM = { cx: 0.5, cz: 0.5, span: BOARD_SIZE, cy: 0, yaw: ISO_YAW, pitch: ISO_PITCH, zoom: 18 };
+const DEFAULT_3D_ZOOM = 18;
 
 const MIN_SPAN = 4;
 const MAX_SPAN = 400;
@@ -57,13 +72,17 @@ export function createWorld(canvas, options = {}) {
   let pad = 18;
 
   let blocks = new Map(); // key "x,y,z" -> { x, y, z, block }
-  let pen = { x: 0.5, z: 0.5, yaw: 0 };
+  let pen = { x: 0.5, y: 0, z: 0.5, yaw: 0, pitch: 0 };
   let hasPen = false;
   let tick = 0;
   let blockCount = 0;
 
-  const cam = { ...DEFAULT_CAM };
-  let camTarget = { ...DEFAULT_CAM };
+  const cam = { ...DEFAULT_CAM, mode: '2d' };
+  let camTarget = { ...DEFAULT_CAM, mode: '2d' };
+  let mode = '2d';
+  let forcedView = null; // ?view=2d|3d pins the renderer mode
+  let ever3D = false;
+  let lastMode = '2d';
   let lastNow = 0;
   let palette = CANVAS_THEMES.dark;
 
@@ -134,19 +153,31 @@ export function createWorld(canvas, options = {}) {
       else if (typeof dprQuery.removeListener === 'function') dprQuery.removeListener(onDprChange);
     }
     watchDpr();
-    resize();
+    scheduleResize();
   }
 
-  const ro = new ResizeObserver(resize);
+  let resizeRaf = 0;
+  function scheduleResize() {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      resize();
+      // Resize + draw in the same frame: a resized backing store is never shown
+      // empty while a splitter is being dragged.
+      if (typeof api !== 'undefined') api.render(performance.now());
+    });
+  }
+
+  const ro = new ResizeObserver(scheduleResize);
   ro.observe(wrap);
   resize();
   watchDpr();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('resize', resize);
+    window.addEventListener('resize', scheduleResize);
   }
   // One more pass after the initial layout settles (panels are moved into the
   // active tab after this module is created).
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resize());
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => scheduleResize());
 
   function applyLayout() {
     side = Math.min(w, h) - pad * 2;
@@ -172,27 +203,32 @@ export function createWorld(canvas, options = {}) {
   // ------------------------------------------------------------ camera fit
   function contentBounds() {
     let minX = Infinity;
+    let minY = Infinity;
     let minZ = Infinity;
     let maxX = -Infinity;
+    let maxY = -Infinity;
     let maxZ = -Infinity;
     let count = 0;
 
     for (const b of blocks.values()) {
-      if (b.y !== 0) continue;
       count += 1;
-      if (b.x < minX) minX = b.x;
-      if (b.x + 1 > maxX) maxX = b.x + 1;
-      if (b.z < minZ) minZ = b.z;
-      if (b.z + 1 > maxZ) maxZ = b.z + 1;
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y || 0);
+      minZ = Math.min(minZ, b.z);
+      maxX = Math.max(maxX, b.x + 1);
+      maxY = Math.max(maxY, (b.y || 0) + 1);
+      maxZ = Math.max(maxZ, b.z + 1);
     }
     if (hasPen) {
       minX = Math.min(minX, pen.x - 0.5);
       maxX = Math.max(maxX, pen.x + 0.5);
+      minY = Math.min(minY, (pen.y || 0) - 0.5);
+      maxY = Math.max(maxY, (pen.y || 0) + 0.8);
       minZ = Math.min(minZ, pen.z - 0.5);
       maxZ = Math.max(maxZ, pen.z + 0.5);
     }
     if (!Number.isFinite(minX) || !Number.isFinite(minZ)) return null;
-    return { minX, minZ, maxX, maxZ, count };
+    return { minX, minY, minZ, maxX, maxY, maxZ, count };
   }
 
   function fitForBounds(b) {
@@ -202,9 +238,23 @@ export function createWorld(canvas, options = {}) {
     return { cx: (b.minX + b.maxX) / 2, cz: (b.minZ + b.maxZ) / 2, span };
   }
 
+  function fitForBounds3D(b) {
+    return fitCameraToBounds(b, w, h, {
+      yaw: cam.yaw,
+      pitch: cam.pitch,
+      padding: Math.max(34, Math.min(80, Math.min(w, h) * 0.1)),
+    });
+  }
+
   /** The camera the auto-fit wants right now (defaults to the 33x33 board). */
   function computeFit() {
     const b = contentBounds();
+    if (mode === '3d') {
+      const fitted = fitForBounds3D(b || {
+        minX: BOARD_LO, minY: 0, minZ: BOARD_LO, maxX: BOARD_HI, maxY: 1, maxZ: BOARD_HI,
+      });
+      return { ...fitted, mode: '3d' };
+    }
     if (!b) return { ...DEFAULT_CAM };
     // A few blocks keep the familiar board framing — unless the pen ran away.
     if (b.count < FEW_BLOCKS) {
@@ -216,19 +266,58 @@ export function createWorld(canvas, options = {}) {
   }
 
   function applyTarget(target, { instant = false } = {}) {
+    if (!target) return;
+    if (target.mode) mode = target.mode;
     camTarget = {
+      ...camTarget,
       cx: target.cx,
       cz: target.cz,
-      span: clamp(target.span, MIN_SPAN, MAX_SPAN),
+      cy: target.cy != null ? target.cy : camTarget.cy,
+      span: clamp(target.span != null ? target.span : camTarget.span, MIN_SPAN, MAX_SPAN),
+      zoom: clamp(target.zoom != null ? target.zoom : camTarget.zoom, 0.05, 400),
+      yaw: target.yaw != null ? target.yaw : camTarget.yaw,
+      pitch: clamp(target.pitch != null ? target.pitch : camTarget.pitch, -88, 88),
     };
     if (instant || reduceMotion) snapCamera();
   }
 
   function snapCamera() {
     cam.cx = camTarget.cx;
+    cam.cy = camTarget.cy;
     cam.cz = camTarget.cz;
     cam.span = camTarget.span;
+    cam.zoom = camTarget.zoom;
+    cam.yaw = camTarget.yaw;
+    cam.pitch = camTarget.pitch;
     applyLayout();
+  }
+
+  function setMode(nextMode, { fitNow = true } = {}) {
+    if (nextMode !== '2d' && nextMode !== '3d') return;
+    if (mode === nextMode) return;
+    mode = nextMode;
+    camTarget.mode = mode;
+    if (fitNow) {
+      const target = computeFit();
+      if (mode === '3d') {
+        camTarget.yaw = target.yaw;
+        camTarget.pitch = target.pitch;
+      }
+      applyTarget(target, { instant: true });
+    }
+  }
+
+  function updateViewMode() {
+    if (forcedView) {
+      const next = nextViewMode({ forcedView, ever3D, is3D: false });
+      ever3D = next.ever3D;
+      setMode(next.mode);
+      return;
+    }
+    const is3D = shouldUse3D(blocks.values(), hasPen ? { ...pen, visible: true } : null);
+    const next = nextViewMode({ ever3D, is3D });
+    ever3D = next.ever3D;
+    setMode(next.mode);
   }
 
   /** Called by the app when the run starts/pauses/finishes; debounced so a
@@ -248,10 +337,15 @@ export function createWorld(canvas, options = {}) {
     autoFit = true;
     fitLocked = false;
     fitPending = false;
+    if (forcedView) mode = forcedView;
     const target = computeFit();
     applyTarget(target, { instant: true });
     const b = contentBounds();
-    lastFitDim = b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ) : 0;
+    lastFitDim = b
+      ? (mode === '3d'
+        ? Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ)
+        : Math.max(b.maxX - b.minX, b.maxZ - b.minZ))
+      : 0;
     return target;
   }
 
@@ -259,6 +353,14 @@ export function createWorld(canvas, options = {}) {
     autoFit = false;
     fitLocked = false;
     fitPending = false;
+    if (mode === '3d') {
+      const next = zoomCamera3D(cam, px, py, factor, w, h);
+      if (Math.abs(next.zoom - cam.zoom) < 0.0001) return next.zoom;
+      cam.cx = next.cx; cam.cy = next.cy; cam.cz = next.cz; cam.zoom = next.zoom;
+      camTarget = { ...cam, mode };
+      applyLayout();
+      return cam.zoom;
+    }
     const before = screenToWorld(px, py);
     const nextSpan = clamp(cam.span / factor, MIN_SPAN, MAX_SPAN);
     if (Math.abs(nextSpan - cam.span) < 0.0001) return nextSpan;
@@ -278,12 +380,17 @@ export function createWorld(canvas, options = {}) {
     autoFit = false;
     fitLocked = false;
     fitPending = false;
-    cam.cx -= dxPx / cell;
-    cam.cz -= dyPx / cell;
-    camTarget = { ...cam };
+    if (mode === '3d') {
+      const next = panCamera3D(cam, dxPx, dyPx);
+      cam.cx = next.cx; cam.cy = next.cy; cam.cz = next.cz;
+    } else {
+      cam.cx -= dxPx / cell;
+      cam.cz -= dyPx / cell;
+    }
+    camTarget = { ...cam, mode };
   }
 
-  /** Debug screenshot parameters: ?zoom=2&cx=0&cz=0&fit=0 */
+  /** Debug screenshot parameters: ?view=3d&zoom=2&cx=0&cz=0&fit=0&yaw=45&pitch=35 */
   function applyQuery(search) {
     const q = new URLSearchParams(search || '');
     const num = (v) => {
@@ -291,24 +398,45 @@ export function createWorld(canvas, options = {}) {
       const n = Number.parseFloat(v);
       return Number.isFinite(n) ? n : null;
     };
+    const view = q.get('view');
+    if (view === '3d' || view === '3') { forcedView = '3d'; ever3D = true; }
+    else if (view === '2d' || view === '2') { forcedView = '2d'; ever3D = false; }
+    if (forcedView) {
+      mode = forcedView;
+      cam.mode = mode;
+      camTarget.mode = mode;
+    }
     const hasZoom = q.has('zoom');
     const hasCx = q.has('cx');
     const hasCz = q.has('cz');
     const pins = hasZoom || hasCx || hasCz || q.get('fit') === '0';
-
     if (pins) {
       autoFit = false;
       fitLocked = true;
       fitPending = false;
     }
     const z = num(q.get('zoom'));
-    if (z != null && z > 0) cam.span = clamp(BOARD_SIZE / z, MIN_SPAN, MAX_SPAN);
+    if (z != null && z > 0) {
+      if (mode === '3d') cam.zoom = clamp(z * 18, 0.05, 400);
+      else cam.span = clamp(BOARD_SIZE / z, MIN_SPAN, MAX_SPAN);
+    }
     const x = num(q.get('cx'));
-    if (x != null) cam.cx = x + 0.5; // block-centred, i.e. cx=0 is the board centre
+    if (x != null) cam.cx = x + 0.5;
+    const y = num(q.get('cy'));
+    if (y != null) cam.cy = y;
     const zz = num(q.get('cz'));
     if (zz != null) cam.cz = zz + 0.5;
-    camTarget = { ...cam };
+    const yaw = num(q.get('yaw'));
+    if (yaw != null) cam.yaw = yaw;
+    const pitch = num(q.get('pitch'));
+    if (pitch != null) cam.pitch = clamp(pitch, -88, 88);
+    camTarget = { ...cam, mode };
     snapCamera();
+    if (forcedView === '3d' && !pins) {
+      autoFit = true;
+      fitLocked = false;
+      applyTarget(computeFit(), { instant: true });
+    }
   }
 
   /** Refit while running only when it would help: content leaving the frame or
@@ -318,6 +446,17 @@ export function createWorld(canvas, options = {}) {
     const b = contentBounds();
     if (!b) return;
     const target = computeFit();
+    if (mode === '3d') {
+      const centerDist = Math.hypot(target.cx - camTarget.cx, target.cy - camTarget.cy, target.cz - camTarget.cz);
+      const dim = Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ);
+      const grew = dim > lastFitDim * FIT_GROW + 0.75;
+      const zoomRatio = target.zoom / camTarget.zoom;
+      if (centerDist > 0.75 || grew || zoomRatio < 0.82 || zoomRatio > 1.5) {
+        applyTarget({ ...target, mode: '3d' });
+        lastFitDim = dim;
+      }
+      return;
+    }
     const vis = {
       x0: camTarget.cx - camTarget.span / 2,
       x1: camTarget.cx + camTarget.span / 2,
@@ -363,89 +502,6 @@ export function createWorld(canvas, options = {}) {
     if (cellPx >= 0.9) return 10;
     if (cellPx >= 0.3) return 25;
     return 100;
-  }
-
-  /** The whole visible plane, with a subtle reference frame where the board is. */
-  function drawPlane() {
-    const r = visibleRange();
-
-    // board reference: faint plate + dashed outline, never a clip
-    const bx = wx2px(BOARD_LO);
-    const by = wz2py(BOARD_LO);
-    const bs = cell * BOARD_SIZE;
-    if (bx + bs > 0 && by + bs > 0 && bx < w && by < h) {
-      ctx.fillStyle = 'rgba(16, 24, 33, 0.32)';
-      ctx.fillRect(bx, by, bs, bs);
-      ctx.save();
-      ctx.strokeStyle = 'rgba(120, 160, 180, 0.24)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(Math.round(bx) + 0.5, Math.round(by) + 0.5, Math.round(bs), Math.round(bs));
-      ctx.setLineDash([]);
-      ctx.restore();
-      if (bs > 130) {
-        ctx.font = '500 9px ui-monospace, Consolas, monospace';
-        ctx.fillStyle = 'rgba(124, 139, 158, 0.42)';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText('33 × 33 board', bx + 6, by + 6);
-      }
-    }
-
-    // unbounded grid, stepping up as we zoom out
-    const step = gridStepFor(cell);
-    let gx0 = Math.ceil(r.x0 / step) * step;
-    let gx1 = Math.floor(r.x1 / step) * step;
-    let gz0 = Math.ceil(r.z0 / step) * step;
-    let gz1 = Math.floor(r.z1 / step) * step;
-    if ((gx1 - gx0) / step > 500) gx1 = gx0 + step * 500;
-    if ((gz1 - gz0) / step > 500) gz1 = gz0 + step * 500;
-
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let gx = gx0; gx <= gx1; gx += step) {
-      const x = Math.round(wx2px(gx)) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    for (let gz = gz0; gz <= gz1; gz += step) {
-      const y = Math.round(wz2py(gz)) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.strokeStyle = 'rgba(190, 215, 235, 0.05)';
-    ctx.stroke();
-
-    // stronger lines on every 5th step
-    const major = step * 5;
-    ctx.beginPath();
-    for (let gx = Math.ceil(r.x0 / major) * major; gx <= r.x1; gx += major) {
-      const x = Math.round(wx2px(gx)) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    for (let gz = Math.ceil(r.z0 / major) * major; gz <= r.z1; gz += major) {
-      const y = Math.round(wz2py(gz)) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.strokeStyle = 'rgba(190, 215, 235, 0.085)';
-    ctx.stroke();
-
-    // axes through the world origin
-    ctx.strokeStyle = 'rgba(95, 232, 224, 0.16)';
-    ctx.beginPath();
-    if (0 >= r.x0 && 0 <= r.x1) {
-      const x = Math.round(wx2px(0)) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    if (0 >= r.z0 && 0 <= r.z1) {
-      const y = Math.round(wz2py(0)) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.stroke();
   }
 
   /** The whole visible plane, with a flat reference frame where the board is. */
@@ -524,6 +580,154 @@ export function createWorld(canvas, options = {}) {
       ctx.moveTo(0, y);
       ctx.lineTo(w, y);
     }
+    ctx.stroke();
+  }
+
+  function shadeColor(hex, shade) {
+    if (typeof hex !== 'string' || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) return hex;
+    const full = hex.length === 4
+      ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+      : hex;
+    const n = Number.parseInt(full.slice(1), 16);
+    const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * shade)));
+    const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * shade)));
+    const b = Math.max(0, Math.min(255, Math.round((n & 255) * shade)));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function drawPolygon(points, fill, stroke, alpha = 1) {
+    if (!points.length) return;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+
+  function to3d(x, y, z) {
+    return projectScreen({ x, y, z }, cam, w, h);
+  }
+
+  function drawPlane3D() {
+    const y = 0;
+    const corners = [
+      to3d(BOARD_LO, y, BOARD_LO), to3d(BOARD_HI, y, BOARD_LO),
+      to3d(BOARD_HI, y, BOARD_HI), to3d(BOARD_LO, y, BOARD_HI),
+    ];
+    drawPolygon(corners, palette.boardFill, palette.boardEdge, 0.9);
+    const zoom = cam.zoom;
+    const step = zoom >= 8 ? 1 : zoom >= 3 ? 5 : zoom >= 1 ? 10 : 25;
+    ctx.strokeStyle = palette.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let g = BOARD_LO; g <= BOARD_HI; g += step) {
+      const a = to3d(g, y, BOARD_LO);
+      const b = to3d(g, y, BOARD_HI);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      const c = to3d(BOARD_LO, y, g);
+      const d = to3d(BOARD_HI, y, g);
+      ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = palette.gridMajor;
+    ctx.beginPath();
+    for (let g = BOARD_LO; g <= BOARD_HI; g += step * 5) {
+      const a = to3d(g, y, BOARD_LO);
+      const b = to3d(g, y, BOARD_HI);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      const c = to3d(BOARD_LO, y, g);
+      const d = to3d(BOARD_HI, y, g);
+      ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = palette.axis;
+    const ax0 = to3d(0, y, BOARD_LO); const ax1 = to3d(0, y, BOARD_HI);
+    const az0 = to3d(BOARD_LO, y, 0); const az1 = to3d(BOARD_HI, y, 0);
+    ctx.beginPath();
+    ctx.moveTo(ax0.x, ax0.y); ctx.lineTo(ax1.x, ax1.y);
+    ctx.moveTo(az0.x, az0.y); ctx.lineTo(az1.x, az1.y);
+    ctx.stroke();
+    if (zoom > 5) {
+      const label = to3d(BOARD_LO, y, BOARD_LO);
+      ctx.font = '500 9px ui-monospace, Consolas, monospace';
+      ctx.fillStyle = palette.labelDim;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('33 × 33 · 3D', label.x + 6, label.y + 6);
+    }
+  }
+
+  function drawBlocks3D() {
+    const list = sortBlocksByDepth([...blocks.values()], cam);
+    for (const b of list) {
+      const faces = sortFacesByDepth(visibleCubeFaces(b, cam));
+      const color = blockColor(b.block);
+      const glass = isGlass(b.block);
+      for (const face of faces) {
+        const pts = face.corners.map((p) => to3d(p.x, p.y, p.z));
+        drawPolygon(pts, shadeColor(color, face.shade), palette.tileEdge, glass ? 0.48 : 1);
+      }
+    }
+  }
+
+  function drawParticles3D(now) {
+    if (reduceMotion) { particles.length = 0; return; }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      const age = now - p.born;
+      if (age > PARTICLE_MS) { particles.splice(i, 1); continue; }
+      const t = age / PARTICLE_MS;
+      const alpha = Math.pow(1 - t, 1.4);
+      const proj = to3d(p.x, (p.y || 0) + t * 1.2, p.z);
+      const size = Math.max(1.5, cam.zoom * 0.17 * (1 - t * 0.5));
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = PARTICLE_COLORS[p.particle] || palette.particle;
+      ctx.fillRect(proj.x - size / 2, proj.y - size / 2, size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPen3D() {
+    if (!hasPen) return;
+    const zBase = to3d(pen.x, pen.y || 0, pen.z);
+    const zTop = to3d(pen.x, (pen.y || 0) + 0.9, pen.z);
+    if (cam.zoom < 2.4) {
+      ctx.fillStyle = palette.pen;
+      ctx.beginPath();
+      ctx.arc(zTop.x, zTop.y, Math.max(2.2, cam.zoom * 0.9), 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    ctx.strokeStyle = palette.penInk;
+    ctx.lineWidth = Math.max(1, cam.zoom * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(zBase.x, zBase.y);
+    ctx.lineTo(zTop.x, zTop.y);
+    ctx.stroke();
+    const yaw = ((pen.yaw || 0) * Math.PI) / 180;
+    const pitch = ((pen.pitch || 0) * Math.PI) / 180;
+    const fwd = to3d(
+      pen.x + Math.sin(yaw),
+      (pen.y || 0) + 0.9 - Math.sin(pitch),
+      pen.z + Math.cos(yaw),
+    );
+    let dx = fwd.x - zTop.x;
+    let dy = fwd.y - zTop.y;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    const r = Math.max(3, cam.zoom * 0.58);
+    ctx.beginPath();
+    ctx.moveTo(zTop.x + dx * r, zTop.y + dy * r);
+    ctx.lineTo(zTop.x - dx * r * 0.55 - dy * r * 0.7, zTop.y - dy * r * 0.55 + dx * r * 0.7);
+    ctx.lineTo(zTop.x - dx * r * 0.55 + dy * r * 0.7, zTop.y - dy * r * 0.55 - dx * r * 0.7);
+    ctx.closePath();
+    ctx.fillStyle = palette.pen;
+    ctx.fill();
+    ctx.strokeStyle = palette.penInk;
+    ctx.lineWidth = 1;
     ctx.stroke();
   }
 
@@ -644,17 +848,23 @@ export function createWorld(canvas, options = {}) {
     ctx.fillText(`已运行 ${tick}`, 10, h - 8);
     ctx.textAlign = 'right';
     ctx.fillStyle = palette.labelDim;
-    ctx.fillText(`y=0 · ×${formatZoom(BOARD_SIZE / cam.span)}`, w - 10, h - 8);
+    const y = mode === '3d' ? (hasPen ? pen.y : cam.cy) : (hasPen ? pen.y : 0);
+    const zoom = mode === '3d' ? cam.zoom / DEFAULT_3D_ZOOM : BOARD_SIZE / cam.span;
+    ctx.fillText(`y=${formatY(y)} · ×${formatZoom(zoom)}`, w - 10, h - 8);
     ctx.restore();
   }
 
   function reportCamera() {
     if (!onCamera) return;
-    const zoom = BOARD_SIZE / cam.span;
-    const key = `${cam.cx.toFixed(3)}|${cam.cz.toFixed(3)}|${cam.span.toFixed(3)}|${autoFit}`;
+    const zoom = mode === '3d' ? cam.zoom / DEFAULT_3D_ZOOM : BOARD_SIZE / cam.span;
+    const y = mode === '3d' ? (hasPen ? pen.y : cam.cy) : (hasPen ? pen.y : 0);
+    const key = `${mode}|${cam.cx.toFixed(3)}|${cam.cy.toFixed(3)}|${cam.cz.toFixed(3)}|${cam.span.toFixed(3)}|${cam.zoom.toFixed(3)}|${cam.yaw.toFixed(2)}|${cam.pitch.toFixed(2)}|${hasPen ? pen.y.toFixed(2) : ''}|${autoFit}`;
     if (key === lastReportKey) return;
     lastReportKey = key;
-    onCamera({ cx: cam.cx, cz: cam.cz, span: cam.span, zoom, autoFit });
+    onCamera({
+      mode, cx: cam.cx, cy: cam.cy, cz: cam.cz, span: cam.span, zoom,
+      yaw: cam.yaw, pitch: cam.pitch, y, autoFit,
+    });
   }
 
   // ------------------------------------------------------------- public API
@@ -669,9 +879,15 @@ export function createWorld(canvas, options = {}) {
       tick = 0;
       lastFitDim = 0;
       fitPending = false;
+      if (!forcedView) {
+        ever3D = false;
+        mode = '2d';
+        cam.mode = '2d';
+        camTarget.mode = '2d';
+      }
       if (!fitLocked) {
         autoFit = true;
-        applyTarget(computeFit());
+        applyTarget(computeFit(), { instant: true });
       }
     },
 
@@ -684,7 +900,8 @@ export function createWorld(canvas, options = {}) {
       const entities = Array.isArray(world && world.entities) ? world.entities : [];
       for (const b of (world && world.blocks) || []) {
         if (!b || b.block === 'air' || b.block === 'minecraft:air') continue;
-        next.set(key(b.x, b.y, b.z), { x: b.x, y: b.y, z: b.z, block: b.block });
+        const y = Number.isFinite(b.y) ? b.y : 0;
+        next.set(key(b.x, y, b.z), { x: b.x, y, z: b.z, block: b.block });
       }
 
       const changes = [];
@@ -704,11 +921,18 @@ export function createWorld(canvas, options = {}) {
       const penEntity = entities.find((e) => Array.isArray(e.tags) && e.tags.includes('pen'));
       if (penEntity) {
         hasPen = true;
-        pen = { x: penEntity.x, z: penEntity.z, yaw: penEntity.yaw || 0 };
+        pen = {
+          x: penEntity.x,
+          y: penEntity.y || 0,
+          z: penEntity.z,
+          yaw: penEntity.yaw || 0,
+          pitch: penEntity.pitch || 0,
+        };
       } else {
         hasPen = false;
       }
 
+      updateViewMode();
       autoFitWhileRunning();
       return changes;
     },
@@ -720,6 +944,7 @@ export function createWorld(canvas, options = {}) {
         if (ev && ev.type === 'particle') {
           particles.push({
             x: Number(ev.x) || 0,
+            y: Number(ev.y) || 0,
             z: Number(ev.z) || 0,
             particle: String(ev.particle || ev.name || '').replace(/^minecraft:/, ''),
             born: now,
@@ -756,10 +981,15 @@ export function createWorld(canvas, options = {}) {
     isAutoFit: () => autoFit,
 
     getCamera: () => ({
+      mode,
       cx: cam.cx,
+      cy: cam.cy,
       cz: cam.cz,
       span: cam.span,
-      zoom: BOARD_SIZE / cam.span,
+      zoom: mode === '3d' ? cam.zoom / DEFAULT_3D_ZOOM : BOARD_SIZE / cam.span,
+      yaw: cam.yaw,
+      pitch: cam.pitch,
+      y: mode === '3d' ? (hasPen ? pen.y : cam.cy) : (hasPen ? pen.y : 0),
       autoFit,
     }),
 
@@ -781,23 +1011,42 @@ export function createWorld(canvas, options = {}) {
       if (reduceMotion) {
         cam.span = camTarget.span;
         cam.cx = camTarget.cx;
+        cam.cy = camTarget.cy;
         cam.cz = camTarget.cz;
+        cam.zoom = camTarget.zoom;
+        cam.yaw = camTarget.yaw;
+        cam.pitch = camTarget.pitch;
       } else {
         cam.span += (camTarget.span - cam.span) * k;
         cam.cx += (camTarget.cx - cam.cx) * k;
+        cam.cy += (camTarget.cy - cam.cy) * k;
         cam.cz += (camTarget.cz - cam.cz) * k;
+        cam.zoom += (camTarget.zoom - cam.zoom) * k;
+        cam.yaw += (camTarget.yaw - cam.yaw) * k;
+        cam.pitch += (camTarget.pitch - cam.pitch) * k;
         if (Math.abs(cam.span - camTarget.span) < 0.003) cam.span = camTarget.span;
         if (Math.abs(cam.cx - camTarget.cx) < 0.003) cam.cx = camTarget.cx;
+        if (Math.abs(cam.cy - camTarget.cy) < 0.003) cam.cy = camTarget.cy;
         if (Math.abs(cam.cz - camTarget.cz) < 0.003) cam.cz = camTarget.cz;
+        if (Math.abs(cam.zoom - camTarget.zoom) < 0.003) cam.zoom = camTarget.zoom;
+        if (Math.abs(cam.yaw - camTarget.yaw) < 0.01) cam.yaw = camTarget.yaw;
+        if (Math.abs(cam.pitch - camTarget.pitch) < 0.01) cam.pitch = camTarget.pitch;
       }
       applyLayout();
 
       ctx.clearRect(0, 0, w, h);
       drawBackdrop();
-      drawPlane();
-      drawBlocks(now);
-      drawParticles(now);
-      drawPen(now);
+      if (mode === '3d') {
+        drawPlane3D();
+        drawBlocks3D();
+        drawParticles3D(now);
+        drawPen3D();
+      } else {
+        drawPlane();
+        drawBlocks(now);
+        drawParticles(now);
+        drawPen();
+      }
       drawCornerLabels();
       reportCamera();
 

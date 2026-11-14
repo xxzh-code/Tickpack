@@ -60,4 +60,19 @@ fn home() {
   # bring the pen back to the block under the player's feet, facing +Z
   run execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0
 }
+
+fn up(n) {
+  # move the pen up n blocks (relative y); n is a compile-time constant
+  run execute as @e[tag=pen] at @s run tp @s ~ ~$n ~
+}
+
+fn down(n) {
+  # move the pen down n blocks (relative y); n is a compile-time constant
+  run execute as @e[tag=pen] at @s run tp @s ~ ~-$n ~
+}
+
+fn pitch(deg) {
+  # rotate the pen's pitch by deg degrees (relative pitch, 6th tp rotation token)
+  run execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~ ~$deg
+}
 `;

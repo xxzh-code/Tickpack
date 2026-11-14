@@ -226,21 +226,42 @@ export function parseCoord(token) {
   return { mode: 'abs', value: v };
 }
 
+/**
+ * Orthonormal local frame for an entity/source rotation.
+ *
+ * Minecraft local coordinates are rotated by BOTH yaw and pitch:
+ *   - forward (local +Z): (-sinYaw*cosPitch, -sinPitch,  cosYaw*cosPitch)
+ *   - left    (local +X): ( cosYaw,            0,        sinYaw)
+ *   - up      (local +Y): (-sinYaw*sinPitch,   cosPitch, cosYaw*sinPitch)
+ * With pitch = 0 this reduces to the flat 2D turtle frame (yaw 0 -> +Z, +X).
+ * Positive pitch looks down (Minecraft convention), so forward.y = -sinPitch.
+ */
 export function localBasis(rot) {
   const yaw = ((rot && rot.yaw) || 0) * (Math.PI / 180);
-  const sin = Math.sin(yaw);
-  const cos = Math.cos(yaw);
-  // Forward matches spec §5: yaw 0 -> +Z, direction = (-sin, 0, cos).
-  // "Left" (local +X) completes the basis: (cos, 0, sin) — at yaw 0, +X.
+  const pitch = ((rot && rot.pitch) || 0) * (Math.PI / 180);
+  const sinYaw = Math.sin(yaw);
+  const cosYaw = Math.cos(yaw);
+  const sinPitch = Math.sin(pitch);
+  const cosPitch = Math.cos(pitch);
   return {
-    forward: { x: -sin, z: cos },
-    left: { x: cos, z: sin },
+    forward: {
+      x: -sinYaw * cosPitch,
+      y: -sinPitch,
+      z: cosYaw * cosPitch,
+    },
+    left: { x: cosYaw, y: 0, z: sinYaw },
+    up: {
+      x: -sinYaw * sinPitch,
+      y: cosPitch,
+      z: cosYaw * sinPitch,
+    },
   };
 }
 
 /**
  * Resolve `~` / `^` / absolute coordinates against an execution context.
  * Returns floored-free floats; callers floor for block commands.
+ * `^` uses the full yaw+pitch frame (3D local coordinates).
  */
 export function resolvePosition(coords, ctx) {
   const [cx, cy, cz] = coords;
@@ -255,24 +276,30 @@ export function resolvePosition(coords, ctx) {
   else if (cx.mode === 'rel') x = base.x + cx.value;
 
   if (cy.mode === 'abs') y = cy.value;
-  else y = base.y + cy.value; // 'rel' or 'local' both add on the Y axis
+  else if (cy.mode === 'rel') y = base.y + cy.value;
 
   if (cz.mode === 'abs') z = cz.value;
   else if (cz.mode === 'rel') z = base.z + cz.value;
 
-  if (cx.mode === 'local' || cz.mode === 'local') {
+  const hasLocal = cx.mode === 'local' || cy.mode === 'local' || cz.mode === 'local';
+  if (hasLocal) {
     const lx = cx.mode === 'local' ? cx.value : 0;
+    const ly = cy.mode === 'local' ? cy.value : 0;
     const lz = cz.mode === 'local' ? cz.value : 0;
-    if (cx.mode === 'local') {
-      x = base.x + basis.left.x * lx + basis.forward.x * lz;
-    } else {
-      x += basis.forward.x * lz;
-    }
-    if (cz.mode === 'local') {
-      z = base.z + basis.left.z * lx + basis.forward.z * lz;
-    } else {
-      z += basis.left.z * lx;
-    }
+    // Local coordinates are relative to the execution position: compose the
+    // local vector (left*x + up*y + forward*z), then apply it on each axis.
+    const dx = basis.left.x * lx + basis.up.x * ly + basis.forward.x * lz;
+    const dy = basis.left.y * lx + basis.up.y * ly + basis.forward.y * lz;
+    const dz = basis.left.z * lx + basis.up.z * ly + basis.forward.z * lz;
+
+    if (cx.mode === 'local') x = base.x + dx;
+    else if (cx.mode === 'rel') x += dx;
+
+    if (cy.mode === 'local') y = base.y + dy;
+    else if (cy.mode === 'rel') y += dy;
+
+    if (cz.mode === 'local') z = base.z + dz;
+    else if (cz.mode === 'rel') z += dz;
   }
 
   return { x, y, z };

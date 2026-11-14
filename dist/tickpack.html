@@ -364,6 +364,22 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
   border-color: var(--line);
   font-weight: 600;
 }
+.tab.tab-dragging { opacity: 0.4; }
+.tab { position: relative; }
+.tab.tab-drop-before::before,
+.tab.tab-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--panel);
+  z-index: 2;
+}
+.tab.tab-drop-before::before { left: -2px; }
+.tab.tab-drop-after::after { right: -2px; }
 .tab-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .tab-close {
   width: 20px; height: 20px;
@@ -456,6 +472,211 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 .pane-root[data-maximized][data-max-place="dock"] .pane-main { display: none; }
 .pane-root[data-maximized][data-max-place="dock"] > .pane-dock { flex: 1 1 auto; }
 .pane-root[data-maximized] .pane-slot.is-maximized { flex: 1 1 auto; }
+
+/* ------------------------------------------------- group-tree layout ---- */
+.pane-group {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+.pane-root > .pane-group { flex: 1 1 auto !important; }
+.pane-group > .pane-slot,
+.pane-group > .pane-group { min-width: 0; min-height: 0; }
+.pane-group > .pane-slot > .panel { flex: 1 1 auto; }
+
+/* One capsule represents an entire fully collapsed group. */
+.group-capsule {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+}
+.group-capsule[data-dir="H"] { flex-direction: column; align-items: center; }
+.group-capsule[data-dir="V"] { flex-direction: row; align-items: center; }
+.capsule-body {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 5px;
+}
+.group-capsule[data-dir="H"] .capsule-body {
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 6px 0;
+}
+.group-capsule[data-dir="V"] .capsule-body { height: 100%; }
+.capsule-icon { display: inline-flex; color: var(--dim); flex: 0 0 auto; }
+.capsule-icon .icon { width: 14px; height: 14px; }
+.capsule-count {
+  flex: 0 0 auto;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--active);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+}
+.capsule-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.group-capsule[data-dir="H"] .capsule-summary {
+  display: block;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  max-height: 110px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: clip;
+}
+.capsule-chevron { display: inline-flex; flex: 0 0 auto; color: var(--dim); }
+.capsule-chevron .icon { width: 12px; height: 12px; }
+.capsule-menu { flex: 0 0 auto; width: 22px; height: 22px; }
+.group-capsule[data-dir="H"] .capsule-menu { margin-bottom: 5px; }
+.group-capsule[data-dir="V"] .capsule-menu { margin-right: 5px; }
+.capsule-body:hover, .capsule-menu:hover { color: var(--text); background: var(--hover); }
+.capsule-body:focus-visible, .capsule-menu:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Header-drag layout editing (V1). */
+.pane-drag-ghost {
+  position: fixed;
+  z-index: 220;
+  pointer-events: none;
+  padding: 6px 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.92;
+}
+.pane-drag-label {
+  position: fixed;
+  z-index: 221;
+  pointer-events: none;
+  max-width: 340px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--text);
+  color: var(--panel);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pane-drag-label[hidden] { display: none; }
+.drag-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: transparent;
+  pointer-events: auto;
+  cursor: grabbing;
+}
+.drag-gap { position: fixed; pointer-events: none; z-index: 160; }
+.drag-gap::before,
+.drag-gap::after {
+  content: "";
+  position: absolute;
+  border-radius: 2px;
+  transition: opacity 0.08s;
+}
+.drag-gap::before { background: rgba(0, 0, 0, 0.65); opacity: 0; }
+.drag-gap::after { background: var(--accent); opacity: 0.12; }
+.drag-gap-v::before { left: 50%; top: 0; width: 6px; height: 100%; transform: translateX(-3px); }
+.drag-gap-h::before { top: 50%; left: 0; height: 6px; width: 100%; transform: translateY(-3px); }
+.drag-gap-v::after { left: 50%; top: 0; width: 1px; height: 100%; transform: translateX(-0.5px); }
+.drag-gap-h::after { top: 50%; left: 0; height: 1px; width: 100%; transform: translateY(-0.5px); }
+.drag-gap.active {
+  background: var(--accent-weak);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 16px var(--accent-weak);
+}
+.drag-gap.active::before { opacity: 1; }
+.drag-gap.active::after {
+  opacity: 1;
+  width: 4px;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55), 0 0 12px var(--accent);
+}
+.drag-gap-h.active::after { height: 4px; width: 100%; }
+.drag-gap-v.active::after { width: 4px; height: 100%; }
+.drag-target-box {
+  position: fixed;
+  z-index: 190;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-weak);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25), 0 0 14px var(--accent-weak);
+}
+.drag-target-box[hidden] { display: none; }
+.drag-target { outline: 2px solid var(--accent) !important; outline-offset: -2px; }
+.pane-slot.drag-source { opacity: 0.35; }
+body.dragging-pane { cursor: grabbing; user-select: none; }
+body.dragging-pane .panel-head { cursor: grabbing; }
+body.drag-invalid .pane-drag-ghost { border-color: var(--danger); }
+body.drag-valid .pane-drag-ghost { border-color: var(--accent); }
+
+/* Collapsed pane in an H group: full-height vertical rail (36px). */
+.pane-slot.is-collapsed[data-dir="H"] > .panel {
+  width: 100%;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0;
+}
+.pane-slot.is-collapsed[data-dir="H"] > .panel .panel-head {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  height: 100%;
+  padding: 8px 0;
+  border-bottom: 0;
+}
+.pane-slot.is-collapsed[data-dir="H"] > .panel .head-left { flex-direction: column; align-items: center; gap: 6px; width: 100%; }
+.pane-slot.is-collapsed[data-dir="H"] > .panel .head-right { flex-direction: column; align-items: center; gap: 6px; margin-top: 4px; width: 100%; }
+.pane-slot.is-collapsed[data-dir="H"] > .panel .head-left > :not(.panel-title) { display: none; }
+.pane-slot.is-collapsed[data-dir="H"] > .panel .head-right > :not(.panel-actions) { display: none; }
+.pane-slot.is-collapsed[data-dir="H"] > .panel .panel-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 1px;
+  line-height: 1.1;
+}
+.pane-slot.is-collapsed[data-dir="H"] > .panel .panel-actions { flex-direction: column; gap: 2px; }
+.pane-slot.is-collapsed[data-dir="H"] > .panel .panel-actions::before { display: none; }
+.pane-slot.is-collapsed[data-dir="H"] > .panel .panel-actions [data-action="maximize"],
+.pane-slot.is-collapsed[data-dir="H"] > .panel .panel-actions [data-action="menu"] { display: none; }
+.pane-slot.is-collapsed[data-dir="H"] > .panel .icon-btn { width: 28px; height: 28px; }
+
+/* Collapsed pane in a V group: 32px horizontal header strip. */
+.pane-slot.is-collapsed[data-dir="V"] > .panel { width: 100%; height: auto; min-width: 0; min-height: 0; }
+.pane-slot.is-collapsed[data-dir="V"] > .panel .panel-head { flex: 0 0 32px; height: 32px; }
+.pane-slot.is-collapsed[data-dir="V"] > .panel .panel-body { display: none; }
 
 /* empty tab */
 .tab-empty {
@@ -907,18 +1128,63 @@ html[data-view="theater"] .topbar-right { margin-left: auto; }
 html[data-view="theater"] .workspace { padding: 0; }
 html[data-view="theater"] .pane-root,
 html[data-view="theater"] .pane-main { height: 100%; }
+html[data-view="theater"] .pane-root { display: flex; min-width: 0; min-height: 0; }
+
+/* Recursive groups: keep only the world/source ancestor paths visible.
+   display must beat renderNode's inline style.display='flex'. */
+html[data-view="theater"] .pane-root .pane-group { display: none !important; }
+html[data-view="theater"] .pane-group.theater-world-path,
+html[data-view="theater"] .pane-group.theater-source-path {
+  display: flex !important;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+}
+/* Every ancestor of the world must fill the workspace, including groups that
+   also contain the source. Inline solver flex-basis must not survive here. */
+html[data-view="theater"] .pane-group.theater-world-path {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  inline-size: 100% !important;
+  block-size: 100% !important;
+}
+html[data-view="theater"] .pane-group.theater-source-path:not(.theater-world-path) {
+  flex: 0 0 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: visible;
+}
 
 /* only the column that contains 世界 keeps width; the rest collapse to zero */
 html[data-view="theater"] .pane-col { flex: 0 0 0 !important; min-width: 0; min-height: 0; overflow: visible; }
 html[data-view="theater"] .pane-col.theater-main { flex: 1 1 auto !important; }
 html[data-view="theater"] .split,
 html[data-view="theater"] .pane-dock { display: none !important; }
-html[data-view="theater"] .pane-slot { display: none; }
-html[data-view="theater"] .pane-slot[data-panel-id="world"] { display: flex; flex: 1 1 auto; }
-html[data-view="theater"] .pane-slot[data-panel-id="source"] {
-  display: flex; flex: 0 0 0 !important; min-height: 0; overflow: visible;
+html[data-view="theater"] .pane-slot { display: none !important; }
+html[data-view="theater"] .group-capsule { display: none !important; }
+html[data-view="theater"] .pane-slot[data-panel-id="world"] {
+  display: flex !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0;
 }
-html[data-view="theater"] .panel-world { border: 0; border-radius: 0; }
+html[data-view="theater"] .pane-slot[data-panel-id="source"] {
+  display: flex !important; flex: 0 0 0 !important; width: 0 !important; height: 0 !important;
+  min-width: 0; min-height: 0; overflow: visible;
+}
+html[data-view="theater"] .panel-world {
+  border: 0;
+  border-radius: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
 html[data-view="theater"] .panel-world .panel-head { display: none; }
 html[data-view="theater"] .panel-world.collapsed { height: 100% !important; }
 html[data-view="theater"] .panel-world.collapsed .panel-body { display: flex; }
@@ -1650,6 +1916,21 @@ fn clear_ground() {
 fn home() {
   # bring the pen back to the block under the player's feet, facing +Z
   run execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0
+}
+
+fn up(n) {
+  # move the pen up n blocks (relative y); n is a compile-time constant
+  run execute as @e[tag=pen] at @s run tp @s ~ ~$n ~
+}
+
+fn down(n) {
+  # move the pen down n blocks (relative y); n is a compile-time constant
+  run execute as @e[tag=pen] at @s run tp @s ~ ~-$n ~
+}
+
+fn pitch(deg) {
+  # rotate the pen's pitch by deg degrees (relative pitch, 6th tp rotation token)
+  run execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~ ~$deg
 }
 `;
 
@@ -4078,15 +4359,26 @@ function parseNumber(text) {
   return { mode: 'abs', value: v };
 }
 
+ 
  function localBasis(rot) {
   const yaw = ((rot && rot.yaw) || 0) * (Math.PI / 180);
-  const sin = Math.sin(yaw);
-  const cos = Math.cos(yaw);
-  
-  
+  const pitch = ((rot && rot.pitch) || 0) * (Math.PI / 180);
+  const sinYaw = Math.sin(yaw);
+  const cosYaw = Math.cos(yaw);
+  const sinPitch = Math.sin(pitch);
+  const cosPitch = Math.cos(pitch);
   return {
-    forward: { x: -sin, z: cos },
-    left: { x: cos, z: sin },
+    forward: {
+      x: -sinYaw * cosPitch,
+      y: -sinPitch,
+      z: cosYaw * cosPitch,
+    },
+    left: { x: cosYaw, y: 0, z: sinYaw },
+    up: {
+      x: -sinYaw * sinPitch,
+      y: cosPitch,
+      z: cosYaw * sinPitch,
+    },
   };
 }
 
@@ -4104,24 +4396,30 @@ function parseNumber(text) {
   else if (cx.mode === 'rel') x = base.x + cx.value;
 
   if (cy.mode === 'abs') y = cy.value;
-  else y = base.y + cy.value; 
+  else if (cy.mode === 'rel') y = base.y + cy.value;
 
   if (cz.mode === 'abs') z = cz.value;
   else if (cz.mode === 'rel') z = base.z + cz.value;
 
-  if (cx.mode === 'local' || cz.mode === 'local') {
+  const hasLocal = cx.mode === 'local' || cy.mode === 'local' || cz.mode === 'local';
+  if (hasLocal) {
     const lx = cx.mode === 'local' ? cx.value : 0;
+    const ly = cy.mode === 'local' ? cy.value : 0;
     const lz = cz.mode === 'local' ? cz.value : 0;
-    if (cx.mode === 'local') {
-      x = base.x + basis.left.x * lx + basis.forward.x * lz;
-    } else {
-      x += basis.forward.x * lz;
-    }
-    if (cz.mode === 'local') {
-      z = base.z + basis.left.z * lx + basis.forward.z * lz;
-    } else {
-      z += basis.left.z * lx;
-    }
+    
+    
+    const dx = basis.left.x * lx + basis.up.x * ly + basis.forward.x * lz;
+    const dy = basis.left.y * lx + basis.up.y * ly + basis.forward.y * lz;
+    const dz = basis.left.z * lx + basis.up.z * ly + basis.forward.z * lz;
+
+    if (cx.mode === 'local') x = base.x + dx;
+    else if (cx.mode === 'rel') x += dx;
+
+    if (cy.mode === 'local') y = base.y + dy;
+    else if (cy.mode === 'rel') y += dy;
+
+    if (cz.mode === 'local') z = base.z + dz;
+    else if (cz.mode === 'rel') z += dz;
   }
 
   return { x, y, z };
@@ -5027,11 +5325,40 @@ function resolveFunctionName(name) {
 
     if (Array.isArray(snap.blocks)) {
       for (const entry of snap.blocks) {
-        if (!Array.isArray(entry) || entry.length < 4) continue;
-        const x = Math.floor(Number(entry[0]));
-        const y = Math.floor(Number(entry[1]));
-        const z = Math.floor(Number(entry[2]));
-        const block = canonicalBlock(entry[3]);
+        
+        
+        
+        
+        let x;
+        let y;
+        let z;
+        let block;
+        if (Array.isArray(entry)) {
+          if (entry.length >= 4) {
+            x = Number(entry[0]);
+            y = Number(entry[1]);
+            z = Number(entry[2]);
+            block = entry[3];
+          } else if (entry.length === 3) {
+            x = Number(entry[0]);
+            y = 0;
+            z = Number(entry[1]);
+            block = entry[2];
+          } else {
+            continue;
+          }
+        } else if (entry && typeof entry === 'object' && entry.block !== undefined) {
+          x = Number(entry.x);
+          y = entry.y === undefined ? 0 : Number(entry.y);
+          z = Number(entry.z);
+          block = entry.block;
+        } else {
+          continue;
+        }
+        x = Math.floor(x);
+        y = Math.floor(y);
+        z = Math.floor(z);
+        block = canonicalBlock(block);
         if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
         if (block === 'air') continue;
         state.blocks.set(blockKey(x, y, z), block);
@@ -5772,6 +6099,20 @@ over 120 as i {
     arm = arm + 1
     turn(90)
   }
+}
+stamp
+`,
+  },
+  {
+    id: 'helix3d',
+    title: '3D 螺旋 · Helix 3D',
+    description: 'pitch(-35) 让笔抬头（Minecraft 里负 pitch 向上），walk 沿视线方向前进：12 步边走边转，画出向上螺旋的三维螺旋。浏览器与 Minecraft 里形状一致。',
+    source: `brush(emerald_block)
+pitch(-35)
+over 12 as i {
+  walk
+  paint
+  turn(30)
 }
 stamp
 `,
@@ -6943,6 +7284,238 @@ exports.CANVAS_THEMES = CANVAS_THEMES;
 exports.canvasTheme = canvasTheme;
   };
 
+  // ---- web/world3d.js ----
+  __tpb_modules["web/world3d.js"] = function (exports) {
+
+
+
+ const ISO_YAW = 45;
+ const ISO_PITCH = 35.264;
+
+const DEG = Math.PI / 180;
+
+ function rad(deg) { return deg * DEG; }
+
+ 
+ function cameraBasis(yawDeg = ISO_YAW, pitchDeg = ISO_PITCH) {
+  const yaw = rad(yawDeg);
+  const pitch = rad(pitchDeg);
+  const cp = Math.cos(pitch);
+  const sp = Math.sin(pitch);
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
+  return {
+    yaw: yawDeg,
+    pitch: pitchDeg,
+    right: { x: cy, y: 0, z: -sy },
+    up: { x: -sp * sy, y: cp, z: -sp * cy },
+    depth: { x: cp * sy, y: sp, z: cp * cy },
+  };
+}
+
+ function projectPoint(point, camera) {
+  const basis = cameraBasis(camera.yaw, camera.pitch);
+  const dx = (point.x || 0) - (camera.cx || 0);
+  const dy = (point.y || 0) - (camera.cy || 0);
+  const dz = (point.z || 0) - (camera.cz || 0);
+  const zoom = camera.zoom || 1;
+  return {
+    x: (dx * basis.right.x + dy * basis.right.y + dz * basis.right.z) * zoom,
+    y: -(dx * basis.up.x + dy * basis.up.y + dz * basis.up.z) * zoom,
+    depth: dx * basis.depth.x + dy * basis.depth.y + dz * basis.depth.z,
+  };
+}
+
+ function projectScreen(point, camera, width, height) {
+  const p = projectPoint(point, camera);
+  return { x: width / 2 + p.x, y: height / 2 + p.y, depth: p.depth };
+}
+
+const CUBE_FACES = [
+  { normal: { x: 0, y: 1, z: 0 }, corners: [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]] },
+  { normal: { x: 0, y: -1, z: 0 }, corners: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]] },
+  { normal: { x: 0, y: 0, z: 1 }, corners: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]] },
+  { normal: { x: 0, y: 0, z: -1 }, corners: [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]] },
+  { normal: { x: 1, y: 0, z: 0 }, corners: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]] },
+  { normal: { x: -1, y: 0, z: 0 }, corners: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]] },
+];
+
+ function visibleCubeFaces(block, camera) {
+  const basis = cameraBasis(camera.yaw, camera.pitch);
+  const faces = [];
+  for (const face of CUBE_FACES) {
+    const facing = face.normal.x * basis.depth.x
+      + face.normal.y * basis.depth.y
+      + face.normal.z * basis.depth.z;
+    if (facing <= 0.0001) continue;
+    const corners = face.corners.map(([dx, dy, dz]) => ({
+      x: block.x + dx,
+      y: (block.y || 0) + dy,
+      z: block.z + dz,
+    }));
+    const center = {
+      x: block.x + (face.normal.x < 0 ? 0 : face.normal.x > 0 ? 1 : 0.5),
+      y: (block.y || 0) + (face.normal.y < 0 ? 0 : face.normal.y > 0 ? 1 : 0.5),
+      z: block.z + (face.normal.z < 0 ? 0 : face.normal.z > 0 ? 1 : 0.5),
+    };
+    faces.push({
+      normal: face.normal,
+      corners,
+      center,
+      shade: faceShade(face.normal),
+      depth: projectPoint(center, camera).depth,
+    });
+  }
+  return faces;
+}
+
+ function faceShade(normal) {
+  const lx = -0.42;
+  const ly = 0.86;
+  const lz = -0.28;
+  const len = Math.hypot(lx, ly, lz) || 1;
+  const dot = (normal.x * lx + normal.y * ly + normal.z * lz) / len;
+  return 0.62 + 0.38 * Math.max(0, dot);
+}
+
+ function depthOfBlock(block, camera) {
+  return projectPoint({
+    x: block.x + 0.5,
+    y: (block.y || 0) + 0.5,
+    z: block.z + 0.5,
+  }, camera).depth;
+}
+
+ function sortBlocksByDepth(list, camera) {
+  return list
+    .map((block) => ({ block, key: depthOfBlock(block, camera) }))
+    .sort((a, b) => a.key - b.key)
+    .map((item) => item.block);
+}
+
+ function sortFacesByDepth(faces) {
+  return faces.slice().sort((a, b) => a.depth - b.depth);
+}
+
+ function boundsOfBlocks(blocks, pen = null) {
+  let minX = Infinity; let minY = Infinity; let minZ = Infinity;
+  let maxX = -Infinity; let maxY = -Infinity; let maxZ = -Infinity;
+  for (const b of blocks || []) {
+    if (!b) continue;
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y || 0);
+    minZ = Math.min(minZ, b.z);
+    maxX = Math.max(maxX, b.x + 1);
+    maxY = Math.max(maxY, (b.y || 0) + 1);
+    maxZ = Math.max(maxZ, b.z + 1);
+  }
+  if (pen && pen.visible !== false) {
+    minX = Math.min(minX, pen.x - 0.6);
+    maxX = Math.max(maxX, pen.x + 0.6);
+    minY = Math.min(minY, (pen.y || 0) - 0.6);
+    maxY = Math.max(maxY, (pen.y || 0) + 0.8);
+    minZ = Math.min(minZ, pen.z - 0.6);
+    maxZ = Math.max(maxZ, pen.z + 0.6);
+  }
+  if (!Number.isFinite(minX)) return null;
+  return { minX, minY, minZ, maxX, maxY, maxZ };
+}
+
+ function fitCameraToBounds(bounds, width, height, {
+  yaw = ISO_YAW, pitch = ISO_PITCH, padding = 46, minZoom = 2, maxZoom = 120,
+} = {}) {
+  const box = bounds || { minX: -16, minY: 0, minZ: -16, maxX: 17, maxY: 1, maxZ: 17 };
+  const cx = (box.minX + box.maxX) / 2;
+  const cy = (box.minY + box.maxY) / 2;
+  const cz = (box.minZ + box.maxZ) / 2;
+  const base = { cx, cy, cz, yaw, pitch, zoom: 1 };
+  const basis = cameraBasis(yaw, pitch);
+  let minX = Infinity; let maxX = -Infinity; let minY = Infinity; let maxY = -Infinity;
+  const corners = [];
+  for (const x of [box.minX, box.maxX]) for (const y of [box.minY, box.maxY]) for (const z of [box.minZ, box.maxZ]) corners.push({ x, y, z });
+  for (const p of corners) {
+    const dx = p.x - cx; const dy = p.y - cy; const dz = p.z - cz;
+    const sx = dx * basis.right.x + dy * basis.right.y + dz * basis.right.z;
+    const sy = -(dx * basis.up.x + dy * basis.up.y + dz * basis.up.z);
+    minX = Math.min(minX, sx); maxX = Math.max(maxX, sx);
+    minY = Math.min(minY, sy); maxY = Math.max(maxY, sy);
+  }
+  const availW = Math.max(32, width - padding * 2);
+  const availH = Math.max(32, height - padding * 2);
+  const spanX = Math.max(0.001, maxX - minX);
+  const spanY = Math.max(0.001, maxY - minY);
+  const zoom = Math.max(minZoom, Math.min(maxZoom, Math.min(availW / spanX, availH / spanY)));
+  return { mode: '3d', cx, cy, cz, yaw, pitch, zoom };
+}
+
+ function shouldUse3D(blocks, pen) {
+  for (const b of blocks || []) if (b && Math.abs(b.y || 0) > 0.001) return true;
+  if (!pen || pen.visible === false) return false;
+  return Math.abs(pen.y || 0) > 0.001 || Math.abs(pen.pitch || 0) > 0.01;
+}
+
+ 
+ function nextViewMode({ forcedView = null, ever3D = false, is3D = false } = {}) {
+  if (forcedView === '2d' || forcedView === '3d') {
+    return { mode: forcedView, ever3D: forcedView === '3d' ? true : ever3D };
+  }
+  if (is3D) return { mode: '3d', ever3D: true };
+  return { mode: ever3D ? '3d' : '2d', ever3D };
+}
+
+ function panCamera3D(camera, dxPx, dyPx) {
+  const basis = cameraBasis(camera.yaw, camera.pitch);
+  const zoom = Math.max(0.0001, camera.zoom);
+  return {
+    ...camera,
+    cx: camera.cx - (basis.right.x * dxPx + basis.up.x * -dyPx) / zoom,
+    cy: camera.cy - (basis.right.y * dxPx + basis.up.y * -dyPx) / zoom,
+    cz: camera.cz - (basis.right.z * dxPx + basis.up.z * -dyPx) / zoom,
+  };
+}
+
+ function zoomCamera3D(camera, px, py, factor, width, height) {
+  const nextZoom = Math.max(0.05, camera.zoom * factor);
+  if (Math.abs(nextZoom - camera.zoom) < 1e-6) return { ...camera };
+  const basis = cameraBasis(camera.yaw, camera.pitch);
+  const old = Math.max(0.0001, camera.zoom);
+  const dx = px - width / 2;
+  const dy = py - height / 2;
+  const ratio = 1 - old / nextZoom;
+  return {
+    ...camera,
+    cx: camera.cx + (basis.right.x * dx / old + basis.up.x * -dy / old) * ratio,
+    cy: camera.cy + (basis.right.y * dx / old + basis.up.y * -dy / old) * ratio,
+    cz: camera.cz + (basis.right.z * dx / old + basis.up.z * -dy / old) * ratio,
+    zoom: nextZoom,
+  };
+}
+
+ function formatY(value) {
+  const v = Number(value) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+exports.ISO_YAW = ISO_YAW;
+exports.ISO_PITCH = ISO_PITCH;
+exports.rad = rad;
+exports.cameraBasis = cameraBasis;
+exports.projectPoint = projectPoint;
+exports.projectScreen = projectScreen;
+exports.visibleCubeFaces = visibleCubeFaces;
+exports.faceShade = faceShade;
+exports.depthOfBlock = depthOfBlock;
+exports.sortBlocksByDepth = sortBlocksByDepth;
+exports.sortFacesByDepth = sortFacesByDepth;
+exports.boundsOfBlocks = boundsOfBlocks;
+exports.fitCameraToBounds = fitCameraToBounds;
+exports.shouldUse3D = shouldUse3D;
+exports.nextViewMode = nextViewMode;
+exports.panCamera3D = panCamera3D;
+exports.zoomCamera3D = zoomCamera3D;
+exports.formatY = formatY;
+  };
+
   // ---- web/world.js ----
   __tpb_modules["web/world.js"] = function (exports) {
 
@@ -6957,11 +7530,13 @@ exports.canvasTheme = canvasTheme;
 const { blockColor, isGlass } = __tpb_require("web/blocks.js");
 const { clamp, prefersReducedMotion } = __tpb_require("web/util.js");
 const { CANVAS_THEMES } = __tpb_require("web/theme.js");
+const { ISO_YAW, ISO_PITCH, projectScreen, visibleCubeFaces, sortBlocksByDepth, sortFacesByDepth, fitCameraToBounds, shouldUse3D, nextViewMode, panCamera3D, zoomCamera3D, formatY } = __tpb_require("web/world3d.js");
 
 const BOARD_LO = -16; 
 const BOARD_HI = 17; 
 const BOARD_SIZE = BOARD_HI - BOARD_LO; 
-const DEFAULT_CAM = { cx: 0.5, cz: 0.5, span: BOARD_SIZE };
+const DEFAULT_CAM = { cx: 0.5, cz: 0.5, span: BOARD_SIZE, cy: 0, yaw: ISO_YAW, pitch: ISO_PITCH, zoom: 18 };
+const DEFAULT_3D_ZOOM = 18;
 
 const MIN_SPAN = 4;
 const MAX_SPAN = 400;
@@ -7004,13 +7579,17 @@ function formatZoom(zoom) {
   let pad = 18;
 
   let blocks = new Map(); 
-  let pen = { x: 0.5, z: 0.5, yaw: 0 };
+  let pen = { x: 0.5, y: 0, z: 0.5, yaw: 0, pitch: 0 };
   let hasPen = false;
   let tick = 0;
   let blockCount = 0;
 
-  const cam = { ...DEFAULT_CAM };
-  let camTarget = { ...DEFAULT_CAM };
+  const cam = { ...DEFAULT_CAM, mode: '2d' };
+  let camTarget = { ...DEFAULT_CAM, mode: '2d' };
+  let mode = '2d';
+  let forcedView = null; 
+  let ever3D = false;
+  let lastMode = '2d';
   let lastNow = 0;
   let palette = CANVAS_THEMES.dark;
 
@@ -7081,19 +7660,31 @@ function formatZoom(zoom) {
       else if (typeof dprQuery.removeListener === 'function') dprQuery.removeListener(onDprChange);
     }
     watchDpr();
-    resize();
+    scheduleResize();
   }
 
-  const ro = new ResizeObserver(resize);
+  let resizeRaf = 0;
+  function scheduleResize() {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      resize();
+      
+      
+      if (typeof api !== 'undefined') api.render(performance.now());
+    });
+  }
+
+  const ro = new ResizeObserver(scheduleResize);
   ro.observe(wrap);
   resize();
   watchDpr();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('resize', resize);
+    window.addEventListener('resize', scheduleResize);
   }
   
   
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resize());
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => scheduleResize());
 
   function applyLayout() {
     side = Math.min(w, h) - pad * 2;
@@ -7119,27 +7710,32 @@ function formatZoom(zoom) {
   
   function contentBounds() {
     let minX = Infinity;
+    let minY = Infinity;
     let minZ = Infinity;
     let maxX = -Infinity;
+    let maxY = -Infinity;
     let maxZ = -Infinity;
     let count = 0;
 
     for (const b of blocks.values()) {
-      if (b.y !== 0) continue;
       count += 1;
-      if (b.x < minX) minX = b.x;
-      if (b.x + 1 > maxX) maxX = b.x + 1;
-      if (b.z < minZ) minZ = b.z;
-      if (b.z + 1 > maxZ) maxZ = b.z + 1;
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y || 0);
+      minZ = Math.min(minZ, b.z);
+      maxX = Math.max(maxX, b.x + 1);
+      maxY = Math.max(maxY, (b.y || 0) + 1);
+      maxZ = Math.max(maxZ, b.z + 1);
     }
     if (hasPen) {
       minX = Math.min(minX, pen.x - 0.5);
       maxX = Math.max(maxX, pen.x + 0.5);
+      minY = Math.min(minY, (pen.y || 0) - 0.5);
+      maxY = Math.max(maxY, (pen.y || 0) + 0.8);
       minZ = Math.min(minZ, pen.z - 0.5);
       maxZ = Math.max(maxZ, pen.z + 0.5);
     }
     if (!Number.isFinite(minX) || !Number.isFinite(minZ)) return null;
-    return { minX, minZ, maxX, maxZ, count };
+    return { minX, minY, minZ, maxX, maxY, maxZ, count };
   }
 
   function fitForBounds(b) {
@@ -7149,9 +7745,23 @@ function formatZoom(zoom) {
     return { cx: (b.minX + b.maxX) / 2, cz: (b.minZ + b.maxZ) / 2, span };
   }
 
+  function fitForBounds3D(b) {
+    return fitCameraToBounds(b, w, h, {
+      yaw: cam.yaw,
+      pitch: cam.pitch,
+      padding: Math.max(34, Math.min(80, Math.min(w, h) * 0.1)),
+    });
+  }
+
    
   function computeFit() {
     const b = contentBounds();
+    if (mode === '3d') {
+      const fitted = fitForBounds3D(b || {
+        minX: BOARD_LO, minY: 0, minZ: BOARD_LO, maxX: BOARD_HI, maxY: 1, maxZ: BOARD_HI,
+      });
+      return { ...fitted, mode: '3d' };
+    }
     if (!b) return { ...DEFAULT_CAM };
     
     if (b.count < FEW_BLOCKS) {
@@ -7163,19 +7773,58 @@ function formatZoom(zoom) {
   }
 
   function applyTarget(target, { instant = false } = {}) {
+    if (!target) return;
+    if (target.mode) mode = target.mode;
     camTarget = {
+      ...camTarget,
       cx: target.cx,
       cz: target.cz,
-      span: clamp(target.span, MIN_SPAN, MAX_SPAN),
+      cy: target.cy != null ? target.cy : camTarget.cy,
+      span: clamp(target.span != null ? target.span : camTarget.span, MIN_SPAN, MAX_SPAN),
+      zoom: clamp(target.zoom != null ? target.zoom : camTarget.zoom, 0.05, 400),
+      yaw: target.yaw != null ? target.yaw : camTarget.yaw,
+      pitch: clamp(target.pitch != null ? target.pitch : camTarget.pitch, -88, 88),
     };
     if (instant || reduceMotion) snapCamera();
   }
 
   function snapCamera() {
     cam.cx = camTarget.cx;
+    cam.cy = camTarget.cy;
     cam.cz = camTarget.cz;
     cam.span = camTarget.span;
+    cam.zoom = camTarget.zoom;
+    cam.yaw = camTarget.yaw;
+    cam.pitch = camTarget.pitch;
     applyLayout();
+  }
+
+  function setMode(nextMode, { fitNow = true } = {}) {
+    if (nextMode !== '2d' && nextMode !== '3d') return;
+    if (mode === nextMode) return;
+    mode = nextMode;
+    camTarget.mode = mode;
+    if (fitNow) {
+      const target = computeFit();
+      if (mode === '3d') {
+        camTarget.yaw = target.yaw;
+        camTarget.pitch = target.pitch;
+      }
+      applyTarget(target, { instant: true });
+    }
+  }
+
+  function updateViewMode() {
+    if (forcedView) {
+      const next = nextViewMode({ forcedView, ever3D, is3D: false });
+      ever3D = next.ever3D;
+      setMode(next.mode);
+      return;
+    }
+    const is3D = shouldUse3D(blocks.values(), hasPen ? { ...pen, visible: true } : null);
+    const next = nextViewMode({ ever3D, is3D });
+    ever3D = next.ever3D;
+    setMode(next.mode);
   }
 
    
@@ -7191,10 +7840,15 @@ function formatZoom(zoom) {
     autoFit = true;
     fitLocked = false;
     fitPending = false;
+    if (forcedView) mode = forcedView;
     const target = computeFit();
     applyTarget(target, { instant: true });
     const b = contentBounds();
-    lastFitDim = b ? Math.max(b.maxX - b.minX, b.maxZ - b.minZ) : 0;
+    lastFitDim = b
+      ? (mode === '3d'
+        ? Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ)
+        : Math.max(b.maxX - b.minX, b.maxZ - b.minZ))
+      : 0;
     return target;
   }
 
@@ -7202,6 +7856,14 @@ function formatZoom(zoom) {
     autoFit = false;
     fitLocked = false;
     fitPending = false;
+    if (mode === '3d') {
+      const next = zoomCamera3D(cam, px, py, factor, w, h);
+      if (Math.abs(next.zoom - cam.zoom) < 0.0001) return next.zoom;
+      cam.cx = next.cx; cam.cy = next.cy; cam.cz = next.cz; cam.zoom = next.zoom;
+      camTarget = { ...cam, mode };
+      applyLayout();
+      return cam.zoom;
+    }
     const before = screenToWorld(px, py);
     const nextSpan = clamp(cam.span / factor, MIN_SPAN, MAX_SPAN);
     if (Math.abs(nextSpan - cam.span) < 0.0001) return nextSpan;
@@ -7221,9 +7883,14 @@ function formatZoom(zoom) {
     autoFit = false;
     fitLocked = false;
     fitPending = false;
-    cam.cx -= dxPx / cell;
-    cam.cz -= dyPx / cell;
-    camTarget = { ...cam };
+    if (mode === '3d') {
+      const next = panCamera3D(cam, dxPx, dyPx);
+      cam.cx = next.cx; cam.cy = next.cy; cam.cz = next.cz;
+    } else {
+      cam.cx -= dxPx / cell;
+      cam.cz -= dyPx / cell;
+    }
+    camTarget = { ...cam, mode };
   }
 
    
@@ -7234,24 +7901,45 @@ function formatZoom(zoom) {
       const n = Number.parseFloat(v);
       return Number.isFinite(n) ? n : null;
     };
+    const view = q.get('view');
+    if (view === '3d' || view === '3') { forcedView = '3d'; ever3D = true; }
+    else if (view === '2d' || view === '2') { forcedView = '2d'; ever3D = false; }
+    if (forcedView) {
+      mode = forcedView;
+      cam.mode = mode;
+      camTarget.mode = mode;
+    }
     const hasZoom = q.has('zoom');
     const hasCx = q.has('cx');
     const hasCz = q.has('cz');
     const pins = hasZoom || hasCx || hasCz || q.get('fit') === '0';
-
     if (pins) {
       autoFit = false;
       fitLocked = true;
       fitPending = false;
     }
     const z = num(q.get('zoom'));
-    if (z != null && z > 0) cam.span = clamp(BOARD_SIZE / z, MIN_SPAN, MAX_SPAN);
+    if (z != null && z > 0) {
+      if (mode === '3d') cam.zoom = clamp(z * 18, 0.05, 400);
+      else cam.span = clamp(BOARD_SIZE / z, MIN_SPAN, MAX_SPAN);
+    }
     const x = num(q.get('cx'));
-    if (x != null) cam.cx = x + 0.5; 
+    if (x != null) cam.cx = x + 0.5;
+    const y = num(q.get('cy'));
+    if (y != null) cam.cy = y;
     const zz = num(q.get('cz'));
     if (zz != null) cam.cz = zz + 0.5;
-    camTarget = { ...cam };
+    const yaw = num(q.get('yaw'));
+    if (yaw != null) cam.yaw = yaw;
+    const pitch = num(q.get('pitch'));
+    if (pitch != null) cam.pitch = clamp(pitch, -88, 88);
+    camTarget = { ...cam, mode };
     snapCamera();
+    if (forcedView === '3d' && !pins) {
+      autoFit = true;
+      fitLocked = false;
+      applyTarget(computeFit(), { instant: true });
+    }
   }
 
    
@@ -7260,6 +7948,17 @@ function formatZoom(zoom) {
     const b = contentBounds();
     if (!b) return;
     const target = computeFit();
+    if (mode === '3d') {
+      const centerDist = Math.hypot(target.cx - camTarget.cx, target.cy - camTarget.cy, target.cz - camTarget.cz);
+      const dim = Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ);
+      const grew = dim > lastFitDim * FIT_GROW + 0.75;
+      const zoomRatio = target.zoom / camTarget.zoom;
+      if (centerDist > 0.75 || grew || zoomRatio < 0.82 || zoomRatio > 1.5) {
+        applyTarget({ ...target, mode: '3d' });
+        lastFitDim = dim;
+      }
+      return;
+    }
     const vis = {
       x0: camTarget.cx - camTarget.span / 2,
       x1: camTarget.cx + camTarget.span / 2,
@@ -7305,89 +8004,6 @@ function formatZoom(zoom) {
     if (cellPx >= 0.9) return 10;
     if (cellPx >= 0.3) return 25;
     return 100;
-  }
-
-   
-  function drawPlane() {
-    const r = visibleRange();
-
-    
-    const bx = wx2px(BOARD_LO);
-    const by = wz2py(BOARD_LO);
-    const bs = cell * BOARD_SIZE;
-    if (bx + bs > 0 && by + bs > 0 && bx < w && by < h) {
-      ctx.fillStyle = 'rgba(16, 24, 33, 0.32)';
-      ctx.fillRect(bx, by, bs, bs);
-      ctx.save();
-      ctx.strokeStyle = 'rgba(120, 160, 180, 0.24)';
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(Math.round(bx) + 0.5, Math.round(by) + 0.5, Math.round(bs), Math.round(bs));
-      ctx.setLineDash([]);
-      ctx.restore();
-      if (bs > 130) {
-        ctx.font = '500 9px ui-monospace, Consolas, monospace';
-        ctx.fillStyle = 'rgba(124, 139, 158, 0.42)';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        ctx.fillText('33 × 33 board', bx + 6, by + 6);
-      }
-    }
-
-    
-    const step = gridStepFor(cell);
-    let gx0 = Math.ceil(r.x0 / step) * step;
-    let gx1 = Math.floor(r.x1 / step) * step;
-    let gz0 = Math.ceil(r.z0 / step) * step;
-    let gz1 = Math.floor(r.z1 / step) * step;
-    if ((gx1 - gx0) / step > 500) gx1 = gx0 + step * 500;
-    if ((gz1 - gz0) / step > 500) gz1 = gz0 + step * 500;
-
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let gx = gx0; gx <= gx1; gx += step) {
-      const x = Math.round(wx2px(gx)) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    for (let gz = gz0; gz <= gz1; gz += step) {
-      const y = Math.round(wz2py(gz)) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.strokeStyle = 'rgba(190, 215, 235, 0.05)';
-    ctx.stroke();
-
-    
-    const major = step * 5;
-    ctx.beginPath();
-    for (let gx = Math.ceil(r.x0 / major) * major; gx <= r.x1; gx += major) {
-      const x = Math.round(wx2px(gx)) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    for (let gz = Math.ceil(r.z0 / major) * major; gz <= r.z1; gz += major) {
-      const y = Math.round(wz2py(gz)) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.strokeStyle = 'rgba(190, 215, 235, 0.085)';
-    ctx.stroke();
-
-    
-    ctx.strokeStyle = 'rgba(95, 232, 224, 0.16)';
-    ctx.beginPath();
-    if (0 >= r.x0 && 0 <= r.x1) {
-      const x = Math.round(wx2px(0)) + 0.5;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-    }
-    if (0 >= r.z0 && 0 <= r.z1) {
-      const y = Math.round(wz2py(0)) + 0.5;
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-    }
-    ctx.stroke();
   }
 
    
@@ -7466,6 +8082,154 @@ function formatZoom(zoom) {
       ctx.moveTo(0, y);
       ctx.lineTo(w, y);
     }
+    ctx.stroke();
+  }
+
+  function shadeColor(hex, shade) {
+    if (typeof hex !== 'string' || hex[0] !== '#' || (hex.length !== 7 && hex.length !== 4)) return hex;
+    const full = hex.length === 4
+      ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
+      : hex;
+    const n = Number.parseInt(full.slice(1), 16);
+    const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * shade)));
+    const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * shade)));
+    const b = Math.max(0, Math.min(255, Math.round((n & 255) * shade)));
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function drawPolygon(points, fill, stroke, alpha = 1) {
+    if (!points.length) return;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+
+  function to3d(x, y, z) {
+    return projectScreen({ x, y, z }, cam, w, h);
+  }
+
+  function drawPlane3D() {
+    const y = 0;
+    const corners = [
+      to3d(BOARD_LO, y, BOARD_LO), to3d(BOARD_HI, y, BOARD_LO),
+      to3d(BOARD_HI, y, BOARD_HI), to3d(BOARD_LO, y, BOARD_HI),
+    ];
+    drawPolygon(corners, palette.boardFill, palette.boardEdge, 0.9);
+    const zoom = cam.zoom;
+    const step = zoom >= 8 ? 1 : zoom >= 3 ? 5 : zoom >= 1 ? 10 : 25;
+    ctx.strokeStyle = palette.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let g = BOARD_LO; g <= BOARD_HI; g += step) {
+      const a = to3d(g, y, BOARD_LO);
+      const b = to3d(g, y, BOARD_HI);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      const c = to3d(BOARD_LO, y, g);
+      const d = to3d(BOARD_HI, y, g);
+      ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = palette.gridMajor;
+    ctx.beginPath();
+    for (let g = BOARD_LO; g <= BOARD_HI; g += step * 5) {
+      const a = to3d(g, y, BOARD_LO);
+      const b = to3d(g, y, BOARD_HI);
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      const c = to3d(BOARD_LO, y, g);
+      const d = to3d(BOARD_HI, y, g);
+      ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = palette.axis;
+    const ax0 = to3d(0, y, BOARD_LO); const ax1 = to3d(0, y, BOARD_HI);
+    const az0 = to3d(BOARD_LO, y, 0); const az1 = to3d(BOARD_HI, y, 0);
+    ctx.beginPath();
+    ctx.moveTo(ax0.x, ax0.y); ctx.lineTo(ax1.x, ax1.y);
+    ctx.moveTo(az0.x, az0.y); ctx.lineTo(az1.x, az1.y);
+    ctx.stroke();
+    if (zoom > 5) {
+      const label = to3d(BOARD_LO, y, BOARD_LO);
+      ctx.font = '500 9px ui-monospace, Consolas, monospace';
+      ctx.fillStyle = palette.labelDim;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('33 × 33 · 3D', label.x + 6, label.y + 6);
+    }
+  }
+
+  function drawBlocks3D() {
+    const list = sortBlocksByDepth([...blocks.values()], cam);
+    for (const b of list) {
+      const faces = sortFacesByDepth(visibleCubeFaces(b, cam));
+      const color = blockColor(b.block);
+      const glass = isGlass(b.block);
+      for (const face of faces) {
+        const pts = face.corners.map((p) => to3d(p.x, p.y, p.z));
+        drawPolygon(pts, shadeColor(color, face.shade), palette.tileEdge, glass ? 0.48 : 1);
+      }
+    }
+  }
+
+  function drawParticles3D(now) {
+    if (reduceMotion) { particles.length = 0; return; }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      const age = now - p.born;
+      if (age > PARTICLE_MS) { particles.splice(i, 1); continue; }
+      const t = age / PARTICLE_MS;
+      const alpha = Math.pow(1 - t, 1.4);
+      const proj = to3d(p.x, (p.y || 0) + t * 1.2, p.z);
+      const size = Math.max(1.5, cam.zoom * 0.17 * (1 - t * 0.5));
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = PARTICLE_COLORS[p.particle] || palette.particle;
+      ctx.fillRect(proj.x - size / 2, proj.y - size / 2, size, size);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPen3D() {
+    if (!hasPen) return;
+    const zBase = to3d(pen.x, pen.y || 0, pen.z);
+    const zTop = to3d(pen.x, (pen.y || 0) + 0.9, pen.z);
+    if (cam.zoom < 2.4) {
+      ctx.fillStyle = palette.pen;
+      ctx.beginPath();
+      ctx.arc(zTop.x, zTop.y, Math.max(2.2, cam.zoom * 0.9), 0, Math.PI * 2);
+      ctx.fill();
+      return;
+    }
+    ctx.strokeStyle = palette.penInk;
+    ctx.lineWidth = Math.max(1, cam.zoom * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(zBase.x, zBase.y);
+    ctx.lineTo(zTop.x, zTop.y);
+    ctx.stroke();
+    const yaw = ((pen.yaw || 0) * Math.PI) / 180;
+    const pitch = ((pen.pitch || 0) * Math.PI) / 180;
+    const fwd = to3d(
+      pen.x + Math.sin(yaw),
+      (pen.y || 0) + 0.9 - Math.sin(pitch),
+      pen.z + Math.cos(yaw),
+    );
+    let dx = fwd.x - zTop.x;
+    let dy = fwd.y - zTop.y;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    const r = Math.max(3, cam.zoom * 0.58);
+    ctx.beginPath();
+    ctx.moveTo(zTop.x + dx * r, zTop.y + dy * r);
+    ctx.lineTo(zTop.x - dx * r * 0.55 - dy * r * 0.7, zTop.y - dy * r * 0.55 + dx * r * 0.7);
+    ctx.lineTo(zTop.x - dx * r * 0.55 + dy * r * 0.7, zTop.y - dy * r * 0.55 - dx * r * 0.7);
+    ctx.closePath();
+    ctx.fillStyle = palette.pen;
+    ctx.fill();
+    ctx.strokeStyle = palette.penInk;
+    ctx.lineWidth = 1;
     ctx.stroke();
   }
 
@@ -7586,17 +8350,23 @@ function formatZoom(zoom) {
     ctx.fillText(`已运行 ${tick}`, 10, h - 8);
     ctx.textAlign = 'right';
     ctx.fillStyle = palette.labelDim;
-    ctx.fillText(`y=0 · ×${formatZoom(BOARD_SIZE / cam.span)}`, w - 10, h - 8);
+    const y = mode === '3d' ? (hasPen ? pen.y : cam.cy) : (hasPen ? pen.y : 0);
+    const zoom = mode === '3d' ? cam.zoom / DEFAULT_3D_ZOOM : BOARD_SIZE / cam.span;
+    ctx.fillText(`y=${formatY(y)} · ×${formatZoom(zoom)}`, w - 10, h - 8);
     ctx.restore();
   }
 
   function reportCamera() {
     if (!onCamera) return;
-    const zoom = BOARD_SIZE / cam.span;
-    const key = `${cam.cx.toFixed(3)}|${cam.cz.toFixed(3)}|${cam.span.toFixed(3)}|${autoFit}`;
+    const zoom = mode === '3d' ? cam.zoom / DEFAULT_3D_ZOOM : BOARD_SIZE / cam.span;
+    const y = mode === '3d' ? (hasPen ? pen.y : cam.cy) : (hasPen ? pen.y : 0);
+    const key = `${mode}|${cam.cx.toFixed(3)}|${cam.cy.toFixed(3)}|${cam.cz.toFixed(3)}|${cam.span.toFixed(3)}|${cam.zoom.toFixed(3)}|${cam.yaw.toFixed(2)}|${cam.pitch.toFixed(2)}|${hasPen ? pen.y.toFixed(2) : ''}|${autoFit}`;
     if (key === lastReportKey) return;
     lastReportKey = key;
-    onCamera({ cx: cam.cx, cz: cam.cz, span: cam.span, zoom, autoFit });
+    onCamera({
+      mode, cx: cam.cx, cy: cam.cy, cz: cam.cz, span: cam.span, zoom,
+      yaw: cam.yaw, pitch: cam.pitch, y, autoFit,
+    });
   }
 
   
@@ -7611,9 +8381,15 @@ function formatZoom(zoom) {
       tick = 0;
       lastFitDim = 0;
       fitPending = false;
+      if (!forcedView) {
+        ever3D = false;
+        mode = '2d';
+        cam.mode = '2d';
+        camTarget.mode = '2d';
+      }
       if (!fitLocked) {
         autoFit = true;
-        applyTarget(computeFit());
+        applyTarget(computeFit(), { instant: true });
       }
     },
 
@@ -7623,7 +8399,8 @@ function formatZoom(zoom) {
       const entities = Array.isArray(world && world.entities) ? world.entities : [];
       for (const b of (world && world.blocks) || []) {
         if (!b || b.block === 'air' || b.block === 'minecraft:air') continue;
-        next.set(key(b.x, b.y, b.z), { x: b.x, y: b.y, z: b.z, block: b.block });
+        const y = Number.isFinite(b.y) ? b.y : 0;
+        next.set(key(b.x, y, b.z), { x: b.x, y, z: b.z, block: b.block });
       }
 
       const changes = [];
@@ -7643,11 +8420,18 @@ function formatZoom(zoom) {
       const penEntity = entities.find((e) => Array.isArray(e.tags) && e.tags.includes('pen'));
       if (penEntity) {
         hasPen = true;
-        pen = { x: penEntity.x, z: penEntity.z, yaw: penEntity.yaw || 0 };
+        pen = {
+          x: penEntity.x,
+          y: penEntity.y || 0,
+          z: penEntity.z,
+          yaw: penEntity.yaw || 0,
+          pitch: penEntity.pitch || 0,
+        };
       } else {
         hasPen = false;
       }
 
+      updateViewMode();
       autoFitWhileRunning();
       return changes;
     },
@@ -7659,6 +8443,7 @@ function formatZoom(zoom) {
         if (ev && ev.type === 'particle') {
           particles.push({
             x: Number(ev.x) || 0,
+            y: Number(ev.y) || 0,
             z: Number(ev.z) || 0,
             particle: String(ev.particle || ev.name || '').replace(/^minecraft:/, ''),
             born: now,
@@ -7695,10 +8480,15 @@ function formatZoom(zoom) {
     isAutoFit: () => autoFit,
 
     getCamera: () => ({
+      mode,
       cx: cam.cx,
+      cy: cam.cy,
       cz: cam.cz,
       span: cam.span,
-      zoom: BOARD_SIZE / cam.span,
+      zoom: mode === '3d' ? cam.zoom / DEFAULT_3D_ZOOM : BOARD_SIZE / cam.span,
+      yaw: cam.yaw,
+      pitch: cam.pitch,
+      y: mode === '3d' ? (hasPen ? pen.y : cam.cy) : (hasPen ? pen.y : 0),
       autoFit,
     }),
 
@@ -7720,23 +8510,42 @@ function formatZoom(zoom) {
       if (reduceMotion) {
         cam.span = camTarget.span;
         cam.cx = camTarget.cx;
+        cam.cy = camTarget.cy;
         cam.cz = camTarget.cz;
+        cam.zoom = camTarget.zoom;
+        cam.yaw = camTarget.yaw;
+        cam.pitch = camTarget.pitch;
       } else {
         cam.span += (camTarget.span - cam.span) * k;
         cam.cx += (camTarget.cx - cam.cx) * k;
+        cam.cy += (camTarget.cy - cam.cy) * k;
         cam.cz += (camTarget.cz - cam.cz) * k;
+        cam.zoom += (camTarget.zoom - cam.zoom) * k;
+        cam.yaw += (camTarget.yaw - cam.yaw) * k;
+        cam.pitch += (camTarget.pitch - cam.pitch) * k;
         if (Math.abs(cam.span - camTarget.span) < 0.003) cam.span = camTarget.span;
         if (Math.abs(cam.cx - camTarget.cx) < 0.003) cam.cx = camTarget.cx;
+        if (Math.abs(cam.cy - camTarget.cy) < 0.003) cam.cy = camTarget.cy;
         if (Math.abs(cam.cz - camTarget.cz) < 0.003) cam.cz = camTarget.cz;
+        if (Math.abs(cam.zoom - camTarget.zoom) < 0.003) cam.zoom = camTarget.zoom;
+        if (Math.abs(cam.yaw - camTarget.yaw) < 0.01) cam.yaw = camTarget.yaw;
+        if (Math.abs(cam.pitch - camTarget.pitch) < 0.01) cam.pitch = camTarget.pitch;
       }
       applyLayout();
 
       ctx.clearRect(0, 0, w, h);
       drawBackdrop();
-      drawPlane();
-      drawBlocks(now);
-      drawParticles(now);
-      drawPen(now);
+      if (mode === '3d') {
+        drawPlane3D();
+        drawBlocks3D();
+        drawParticles3D(now);
+        drawPen3D();
+      } else {
+        drawPlane();
+        drawBlocks(now);
+        drawParticles(now);
+        drawPen();
+      }
       drawCornerLabels();
       reportCamera();
 
@@ -8188,17 +8997,40 @@ function niceStep(pxPerTick) {
   let palette = CANVAS_THEMES.dark.timeline;
   let themeName = 'dark';
 
-  const ro = new ResizeObserver(() => {
-    const rect = canvas.getBoundingClientRect();
-    w = Math.max(80, Math.floor(rect.width));
-    h = Math.max(40, Math.floor(rect.height));
-    dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    dirty = true;
-  });
+  const ro = new ResizeObserver(() => scheduleResize());
   ro.observe(canvas);
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const nextW = Math.max(80, Math.floor(rect.width));
+    const nextH = Math.max(40, Math.floor(rect.height));
+    const nextDpr = Math.min(2, window.devicePixelRatio || 1);
+    const changed = nextW !== w || nextH !== h || nextDpr !== dpr;
+    w = nextW;
+    h = nextH;
+    dpr = nextDpr;
+    if (changed) {
+      const bw = Math.round(w * dpr);
+      const bh = Math.round(h * dpr);
+      if (canvas.width !== bw) canvas.width = bw;
+      if (canvas.height !== bh) canvas.height = bh;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    dirty = true;
+  }
+
+  let resizeRaf = 0;
+  function scheduleResize() {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      resize();
+      
+      
+      draw();
+    });
+  }
+  scheduleResize();
 
   const domain = () => domainFor(total);
   const xOf = (t) => PAD + (t / domain()) * (w - PAD * 2);
@@ -8469,34 +9301,882 @@ function niceStep(pxPerTick) {
 exports.createTimeline = createTimeline;
   };
 
+  // ---- web/layout-tree.js ----
+  __tpb_modules["web/layout-tree.js"] = function (exports) {
+
+
+
+ const LAYOUT_VERSION = 4;
+ const SPLITTER = 6;
+ const BAR = { H: 36, V: 32 };
+ const PANEL_IDS = ['source', 'world', 'pack', 'scores', 'log', 'timeline'];
+ const PANEL_LIMITS = {
+  source: { minW: 250, minH: 140 },
+  world: { minW: 232, minH: 180 },
+  pack: { minW: 250, minH: 160 },
+  scores: { minW: 200, minH: 140 },
+  log: { minW: 200, minH: 120 },
+  timeline: { minW: 200, minH: 90 },
+};
+const PANEL_TITLES = {
+  source: '源码', world: '世界', pack: '数据包', scores: '计分板', log: '运行日志', timeline: '时间轴',
+};
+
+ function panelTitle(panel) { return PANEL_TITLES[panel] || panel; }
+ function isPane(node) { return !!node && typeof node.panel === 'string'; }
+ function isGroup(node) { return !!node && Array.isArray(node.children); }
+
+ function createPane(panel, { weight = 1, size = null, collapsed = false, recordedSize = null } = {}) {
+  const lim = PANEL_LIMITS[panel] || { minW: 200, minH: 120 };
+  return {
+    panel,
+    weight: Math.max(1, Number(weight) || 1),
+    size: Number.isFinite(size) ? Math.max(0, size) : null,
+    collapsed: !!collapsed,
+    recordedSize: Number.isFinite(recordedSize) ? Math.max(0, recordedSize) : null,
+    minW: lim.minW,
+    minH: lim.minH,
+  };
+}
+
+ function createGroup(dir, children = [], { weight = 1, size = null } = {}) {
+  return {
+    dir: dir === 'V' ? 'V' : 'H',
+    children,
+    weight: Math.max(1, Number(weight) || 1),
+    size: Number.isFinite(size) ? Math.max(0, size) : null,
+    lastActive: null,
+  };
+}
+
+ function cloneTree(value) { return JSON.parse(JSON.stringify(value)); }
+
+ function barThickness(dir) { return dir === 'V' ? BAR.V : BAR.H; }
+
+ function walkNodes(node, out = []) {
+  if (!node) return out;
+  out.push(node);
+  if (isGroup(node)) for (const child of node.children) walkNodes(child, out);
+  return out;
+}
+
+ function allPanes(node) {
+  const out = [];
+  if (!node) return out;
+  if (isPane(node)) { out.push(node); return out; }
+  for (const child of node.children) out.push(...allPanes(child));
+  return out;
+}
+
+ function findPaneNode(node, panel) {
+  if (!node) return null;
+  if (isPane(node)) return node.panel === panel ? node : null;
+  for (const child of node.children) {
+    const found = findPaneNode(child, panel);
+    if (found) return found;
+  }
+  return null;
+}
+
+ function parentGroupOf(root, target) {
+  if (!root || !isGroup(root)) return null;
+  for (const child of root.children) if (child === target) return root;
+  for (const child of root.children) {
+    if (isGroup(child)) {
+      const found = parentGroupOf(child, target);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+ function fullyCollapsed(node) {
+  if (!node) return true;
+  if (isPane(node)) return !!node.collapsed;
+  if (!node.children.length) return true;
+  return node.children.every(fullyCollapsed);
+}
+
+ 
+ function layoutDir(node, parentDir = null) {
+  if (!node) return parentDir || 'H';
+  if (isPane(node)) return parentDir || 'H';
+  if (parentDir == null) return node.dir;
+  if (fullyCollapsed(node)) return parentDir;
+  return node.dir;
+}
+
+ function nodeMin(node, axis) {
+  if (!node) return 0;
+  if (isPane(node)) {
+    if (node.collapsed) return barThickness(axis);
+    return axis === 'H' ? node.minW : node.minH;
+  }
+  if (!node.children.length) return 0;
+  if (fullyCollapsed(node)) {
+    
+    return barThickness(axis);
+  }
+  if (axis === node.dir) {
+    let sum = 0;
+    for (const child of node.children) sum += nodeMin(child, axis);
+    return sum + splitterPairs(node).length * SPLITTER;
+  }
+  let max = 0;
+  for (const child of node.children) max = Math.max(max, nodeMin(child, axis));
+  return max;
+}
+
+ function groupMin(group) {
+  return { w: nodeMin(group, 'H'), h: nodeMin(group, 'V') };
+}
+
+ function isExpandedNode(node) {
+  return isPane(node) ? !node.collapsed : !fullyCollapsed(node);
+}
+
+ 
+ function splitterPairs(group) {
+  const pairs = [];
+  if (!isGroup(group)) return pairs;
+  for (let i = 1; i < group.children.length; i++) {
+    const left = group.children[i - 1];
+    const right = group.children[i];
+    if (isExpandedNode(left) && isExpandedNode(right)) pairs.push({ index: i, left, right });
+  }
+  return pairs;
+}
+
+ function expandedPanes(node) {
+  return allPanes(node).filter((p) => !p.collapsed);
+}
+
+ function expansionTarget({
+  available, splitters = 0, otherExpandedMins = 0, collapsedBars = 0,
+  min = 0, recordedSize = null, fullyCollapsedBefore = false,
+}) {
+  const rec = Number.isFinite(recordedSize) && recordedSize > 0 ? recordedSize : min;
+  if (fullyCollapsedBefore) {
+    return Math.max(min, available - splitters - collapsedBars);
+  }
+  return Math.max(min, Math.min(rec, available - splitters - otherExpandedMins - collapsedBars));
+}
+
+ function collapsePane(pane) {
+  if (!pane || pane.collapsed) return false;
+  if (Number.isFinite(pane.size) && pane.size > 0) pane.recordedSize = pane.size;
+  pane.collapsed = true;
+  return true;
+}
+
+ function expandPane(pane) {
+  if (!pane || !pane.collapsed) return false;
+  pane.collapsed = false;
+  const min = Math.min(pane.minW, pane.minH);
+  const rec = Number.isFinite(pane.recordedSize) ? pane.recordedSize : 0;
+  pane.weight = Math.max(1, rec > min ? rec - min : 1);
+  return true;
+}
+
+ 
+function normalizeNode(node) {
+  if (isPane(node)) return node;
+  const children = [];
+  for (const child of node.children) {
+    const norm = normalizeNode(child);
+    if (norm) children.push(norm);
+  }
+  node.children = children;
+  
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const next = [];
+    for (const child of node.children) {
+      if (isGroup(child) && child.dir === node.dir && child.children.length && !child.keep) {
+        next.push(...child.children);
+        changed = true;
+      } else {
+        next.push(child);
+      }
+    }
+    node.children = next;
+  }
+  if (!node.children.length) return null;
+  if (node.children.length === 1) return node.children[0];
+  return node;
+}
+
+ function normalizeTree(root) {
+  if (!isGroup(root)) return root;
+  const children = [];
+  for (const child of root.children) {
+    const norm = normalizeNode(child);
+    if (norm) children.push(norm);
+  }
+  root.children = children;
+  
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const next = [];
+    for (const child of root.children) {
+      if (isGroup(child) && child.dir === root.dir && child.children.length && !child.keep) {
+        next.push(...child.children);
+        changed = true;
+      } else {
+        next.push(child);
+      }
+    }
+    root.children = next;
+  }
+  return root;
+}
+
+ function removePaneFromTree(root, panel) {
+  function remove(node) {
+    if (isPane(node)) return node.panel === panel ? null : node;
+    const children = [];
+    for (const child of node.children) {
+      const next = remove(child);
+      if (next) children.push(next);
+    }
+    node.children = children;
+    if (!node.children.length) return null;
+    if (node.children.length === 1) return node.children[0];
+    return node;
+  }
+  remove(root);
+  normalizeTree(root);
+  return root;
+}
+
+ function appendPaneToRoot(root, pane) {
+  if (!isGroup(root)) return pane;
+  root.children.push(pane);
+  normalizeTree(root);
+  return root;
+}
+
+ function ensureOneExpanded(root, preferredPanel = null) {
+  const panes = allPanes(root);
+  if (!panes.length) return null;
+  let preferred = null;
+  if (preferredPanel) {
+    preferred = panes.find((p) => p === preferredPanel || p.panel === preferredPanel) || null;
+  }
+  if (preferred) {
+    if (preferred.collapsed) preferred.collapsed = false;
+    return preferred;
+  }
+  if (panes.some((p) => !p.collapsed)) return panes.find((p) => !p.collapsed);
+  const first = panes[0];
+  first.collapsed = false;
+  return first;
+}
+
+ function panesInGroup(group) {
+  return allPanes(group);
+}
+
+ function lastActivePane(group) {
+  const panes = allPanes(group);
+  if (!panes.length) return null;
+  if (group.lastActive) {
+    const found = panes.find((p) => p.panel === group.lastActive);
+    if (found) return found;
+  }
+  return panes[0];
+}
+
+ function markPaneActive(root, panel) {
+  function walk(node, ancestors) {
+    if (isPane(node)) {
+      if (node.panel === panel) {
+        for (const group of ancestors) group.lastActive = panel;
+        return true;
+      }
+      return false;
+    }
+    ancestors.push(node);
+    for (const child of node.children) if (walk(child, ancestors)) return true;
+    ancestors.pop();
+    return false;
+  }
+  return walk(root, []);
+}
+
+ function refreshLastActive(root) {
+  if (!root) return;
+  function walk(node) {
+    if (isPane(node)) return;
+    walkChildren(node);
+    const panes = allPanes(node);
+    if (panes.length && !panes.some((p) => p.panel === node.lastActive)) {
+      node.lastActive = panes[0].panel;
+    }
+  }
+  function walkChildren(node) {
+    for (const child of node.children) walk(child);
+  }
+  walk(root);
+}
+
+function nodeInTree(root, node) {
+  if (root === node) return true;
+  if (!isGroup(root)) return false;
+  return root.children.some((child) => nodeInTree(child, node));
+}
+
+function detachPaneLoose(root, panel) {
+  let source = null;
+  function remove(node) {
+    if (isPane(node)) {
+      if (node.panel === panel) { source = node; return null; }
+      return node;
+    }
+    const children = [];
+    for (const child of node.children) {
+      const next = remove(child);
+      if (next) children.push(next);
+    }
+    node.children = children;
+    if (!node.children.length) return null;
+    return node;
+  }
+  remove(root);
+  return source;
+}
+
+ 
+ function movePaneForDrop(root, panel, target) {
+  if (!isGroup(root) || !target) return { ok: false };
+  const source = findPaneNode(root, panel);
+  if (!source) return { ok: false };
+  const sourceParent = parentGroupOf(root, source);
+  const sourceIndex = sourceParent ? sourceParent.children.indexOf(source) : -1;
+  if (!sourceParent) return { ok: false };
+  if (target.kind === 'wrap' && target.node === source) return { ok: false };
+  if (target.kind === 'gap' && target.group === sourceParent) {
+    if (sourceParent.children.length === 1) {
+      source.collapsed = false;
+      ensureOneExpanded(root, source.panel);
+      return { ok: true, pane: source };
+    }
+    const gapIndex = Number.isInteger(target.index) ? target.index : sourceParent.children.length;
+    if (gapIndex === sourceIndex || gapIndex === sourceIndex + 1) {
+      source.collapsed = false;
+      ensureOneExpanded(root, source.panel);
+      return { ok: true, pane: source };
+    }
+  }
+  if (target.kind === 'wrap' && target.node === sourceParent && sourceParent.children.length <= 1) {
+    return { ok: false };
+  }
+  const pane = detachPaneLoose(root, panel);
+  if (!pane) return { ok: false };
+  const restore = () => {
+    if (sourceParent && nodeInTree(root, sourceParent)) {
+      sourceParent.children.splice(Math.max(0, sourceIndex), 0, pane);
+      normalizeTree(root);
+    }
+  };
+  if (target.kind === 'gap') {
+    const group = target.group;
+    if (!isGroup(group) || !nodeInTree(root, group)) { restore(); return { ok: false }; }
+    let index = Number.isInteger(target.index) ? target.index : group.children.length;
+    if (group === sourceParent && sourceIndex >= 0 && sourceIndex < index) index -= 1;
+    index = Math.max(0, Math.min(group.children.length, index));
+    group.children.splice(index, 0, pane);
+  } else if (target.kind === 'wrap') {
+    let node = target.node;
+    const side = target.side;
+    if (!node || !nodeInTree(root, node)) { restore(); return { ok: false }; }
+    if (node === root) {
+      const edge = side === 'top' ? 'top' : side === 'bottom' ? 'bottom' : side;
+      target = { kind: 'root-edge', edge };
+    } else {
+      const parent = parentGroupOf(root, node);
+      if (!parent) { restore(); return { ok: false }; }
+      const index = parent.children.indexOf(node);
+      const dir = side === 'left' || side === 'right' ? 'H' : 'V';
+      const before = side === 'left' || side === 'top';
+      const originalWeight = Math.max(1, Number(node.weight) || 1);
+      if (isGroup(node)) node.keep = true;
+      pane.weight = 1;
+      node.weight = 1;
+      const wrapper = createGroup(dir, before ? [pane, node] : [node, pane], { weight: originalWeight });
+      wrapper.keep = true;
+      parent.children.splice(index, 1, wrapper);
+    }
+  }
+  if (target && target.kind === 'root-edge') {
+    const edge = target.edge;
+    if (edge === 'left') root.children.unshift(pane);
+    else if (edge === 'right') root.children.push(pane);
+    else {
+      const wrapper = createGroup('V', edge === 'top' ? [pane, ...root.children] : [...root.children, pane]);
+      wrapper.keep = true;
+      root.children = [wrapper];
+    }
+  }
+  normalizeTree(root);
+  ensureOneExpanded(root, pane.panel);
+  refreshLastActive(root);
+  return { ok: true, pane };
+}
+
+ function rotateGroup(group) {
+  if (!isGroup(group)) return false;
+  group.dir = oppositeDir(group.dir);
+  group.keep = true;
+  return true;
+}
+
+ function reorderTabs(tabs, draggedId, targetId, after = false) {
+  if (!Array.isArray(tabs) || draggedId === targetId) return false;
+  const from = tabs.findIndex((t) => t.id === draggedId);
+  if (from < 0) return false;
+  const [tab] = tabs.splice(from, 1);
+  let to = tabs.findIndex((t) => t.id === targetId);
+  if (to < 0) { tabs.splice(from, 0, tab); return false; }
+  if (after) to += 1;
+  tabs.splice(to, 0, tab);
+  return true;
+}
+
+ function clampMenuPosition({
+  button, width, height, vw, vh, margin = 8, align = 'right',
+}) {
+  const bw = Math.max(1, width);
+  const bh = Math.max(1, height);
+  let left = align === 'left' ? button.left : button.right - bw;
+  left = Math.max(margin, Math.min(vw - bw - margin, left));
+  const below = vh - button.bottom - margin;
+  const above = button.top - margin;
+  let top;
+  if (below >= bh || below >= above) top = button.bottom + 5;
+  else top = button.top - bh - 5;
+  top = Math.max(margin, Math.min(vh - bh - margin, top));
+  return { left, top };
+}
+
+ function clonePaneForCopy(pane) {
+  const copy = cloneTree(pane);
+  delete copy.preferredSize;
+  return copy;
+}
+
+ function addPaneToTab(tab, pane) {
+  if (!tab || !isGroup(tab.root) || !isPane(pane)) return false;
+  if (findPaneNode(tab.root, pane.panel)) return false;
+  appendPaneToRoot(tab.root, cloneTree(pane));
+  normalizeTree(tab.root);
+  ensureOneExpanded(tab.root);
+  refreshLastActive(tab.root);
+  return true;
+}
+
+ function addMissingPaneToTab(tab, panel) {
+  if (!tab || !PANEL_IDS.includes(panel) || findPaneNode(tab.root, panel)) return false;
+  return addPaneToTab(tab, createPane(panel, { weight: 25 }));
+}
+
+ function resetTabTree(tab, templateRoot) {
+  if (!tab || !isGroup(templateRoot)) return false;
+  tab.root = cloneTree(templateRoot);
+  tab.maximized = null;
+  normalizeTree(tab.root);
+  ensureOneExpanded(tab.root);
+  refreshLastActive(tab.root);
+  return true;
+}
+
+function oppositeDir(dir) { return dir === 'H' ? 'V' : 'H'; }
+
+function resetRestricted(node) {
+  if (!node) return;
+  if (isGroup(node)) {
+    node.restricted = false;
+    for (const child of node.children) resetRestricted(child);
+  }
+}
+
+function lowestWeightExpandedPane(group, ctx) {
+  const panes = expandedPanes(group);
+  if (panes.length <= 1) return null;
+  let best = null;
+  for (const pane of panes) {
+    if (pane === ctx.keepExpanded) continue;
+    if (!best || pane.weight < best.weight) best = pane;
+  }
+  return best;
+}
+
+function layoutChildren(group, main, cross, ctx) {
+  const dir = group.dir;
+  group.manualLocked = false;
+  let guard = 0;
+  while (guard++ < 32) {
+    group.restricted = false;
+    const pairs = splitterPairs(group);
+    const splitPx = pairs.length * SPLITTER;
+    const expanded = [];
+    const fixed = [];
+    let fixedSum = 0;
+    for (const child of group.children) {
+      if (isExpandedNode(child)) expanded.push(child);
+      else {
+        fixed.push(child);
+        fixedSum += nodeMin(child, dir);
+      }
+    }
+    const minSum = expanded.reduce((n, child) => n + nodeMin(child, dir), 0);
+    const free = main - splitPx - fixedSum - minSum;
+    if (free >= 0 || expanded.length === 0) {
+      
+      
+      
+      const preferred = new Map();
+      let preferredExtra = 0;
+      for (const child of expanded) {
+        if (!Number.isFinite(child.preferredSize)) continue;
+        const othersMin = expanded.reduce((n, other) => n + (other === child ? 0 : nodeMin(other, dir)), 0);
+        const room = Math.max(nodeMin(child, dir), main - splitPx - fixedSum - othersMin);
+        const target = Math.max(nodeMin(child, dir), Math.min(room, child.preferredSize));
+        if (target + 0.5 < child.preferredSize) group.manualLocked = true;
+        preferred.set(child, target);
+        preferredExtra += target - nodeMin(child, dir);
+      }
+      let remainingFree = Math.max(0, free - preferredExtra);
+      const normal = expanded.filter((child) => !preferred.has(child));
+      if (!normal.length && preferred.size && remainingFree > 0) {
+        const extra = remainingFree / preferred.size;
+        for (const [child, target] of preferred) preferred.set(child, target + extra);
+        remainingFree = 0;
+      }
+      const normalWeight = normal.reduce((n, child) => n + Math.max(0.001, child.weight || 1), 0) || 1;
+      for (const child of group.children) {
+        let size;
+        if (!isExpandedNode(child)) {
+          size = nodeMin(child, dir);
+        } else if (preferred.has(child)) {
+          size = preferred.get(child);
+          child.weight = Math.max(1, size - nodeMin(child, dir));
+        } else {
+          const share = Math.max(0.001, child.weight || 1) / normalWeight;
+          size = nodeMin(child, dir) + (remainingFree > 0 ? remainingFree * share : 0);
+        }
+        child.size = size;
+        solveNode(child, dir, size, cross, dir, ctx);
+      }
+      for (const child of expanded) child.preferredSize = undefined;
+      if (free < 0) group.restricted = true;
+      return;
+    }
+    
+    
+    const victim = lowestWeightExpandedPane(group, ctx);
+    if (!victim) {
+      group.restricted = true;
+      const weightSum = expanded.reduce((n, child) => n + Math.max(0.001, child.weight || 1), 0) || 1;
+      for (const child of group.children) {
+        const size = isExpandedNode(child)
+          ? nodeMin(child, dir) + 0 
+          : nodeMin(child, dir);
+        child.size = size;
+        solveNode(child, dir, size, cross, dir, ctx);
+        void weightSum;
+      }
+      return;
+    }
+    if (!Number.isFinite(victim.size) || victim.size <= 0) {
+      
+    }
+    victim.collapsed = true;
+    if (ctx.autoCollapsed) ctx.autoCollapsed.push(victim.panel);
+  }
+  group.restricted = true;
+}
+
+function solveNode(node, parentAxis, extent, cross, parentDir, ctx) {
+  if (isPane(node)) {
+    node.size = extent;
+    return;
+  }
+  node.size = extent;
+  const fully = fullyCollapsed(node);
+  if (fully) {
+    node.restricted = false;
+    
+    return;
+  }
+  let main = extent;
+  let crossInternal = cross;
+  if (parentDir != null && node.dir !== parentAxis) {
+    main = cross;
+    crossInternal = extent;
+  }
+  layoutChildren(node, main, crossInternal, ctx);
+}
+
+ function solveTab(tab, width, height, { mutate = true, keepExpanded = null } = {}) {
+  if (!tab || !isGroup(tab.root)) return tab;
+  const working = mutate ? tab : cloneTree(tab);
+  resetRestricted(working.root);
+  const panes = allPanes(working.root);
+  let protectedPane = null;
+  if (keepExpanded) {
+    protectedPane = panes.find((p) => p === keepExpanded || p.panel === keepExpanded) || null;
+    if (protectedPane && protectedPane.collapsed) protectedPane.collapsed = false;
+  }
+  const expanded = panes.filter((p) => !p.collapsed);
+  const keep = protectedPane || (expanded.length > 0 ? expanded[expanded.length - 1] : null);
+  const ctx = { keepExpanded: keep, autoCollapsed: [] };
+  const w = Math.max(1, Number(width) || 1);
+  const h = Math.max(1, Number(height) || 1);
+  const axis = working.root.dir;
+  const main = axis === 'H' ? w : h;
+  const cross = axis === 'H' ? h : w;
+  solveNode(working.root, axis, main, cross, null, ctx);
+  return working;
+}
+
+function sanitizePane(raw) {
+  if (!raw || !PANEL_IDS.includes(raw.panel)) return null;
+  const min = PANEL_LIMITS[raw.panel];
+  return {
+    panel: raw.panel,
+    weight: Math.max(1, Number(raw.weight) || 1),
+    size: Number.isFinite(raw.size) ? Math.max(0, raw.size) : null,
+    collapsed: !!raw.collapsed,
+    recordedSize: Number.isFinite(raw.recordedSize) ? Math.max(0, raw.recordedSize) : null,
+    minW: min.minW,
+    minH: min.minH,
+  };
+}
+
+function sanitizeNode(raw, seen) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (typeof raw.panel === 'string') {
+    if (seen.has(raw.panel)) return null;
+    seen.add(raw.panel);
+    return sanitizePane(raw);
+  }
+  if (!Array.isArray(raw.children)) return null;
+  const dir = raw.dir === 'V' ? 'V' : 'H';
+  const children = [];
+  for (const child of raw.children) {
+    const node = sanitizeNode(child, seen);
+    if (node) children.push(node);
+  }
+  if (!children.length) return null;
+  const group = {
+    dir,
+    children,
+    weight: Math.max(1, Number(raw.weight) || 1),
+    size: Number.isFinite(raw.size) ? Math.max(0, raw.size) : null,
+    lastActive: typeof raw.lastActive === 'string' ? raw.lastActive : null,
+  };
+  if (raw.manualLocked) group.manualLocked = true;
+  if (raw.keep) group.keep = true;
+  return group;
+}
+
+function migrateV3(raw) {
+  const tabs = [];
+  for (const candidate of raw.tabs) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const id = typeof candidate.id === 'string' && candidate.id ? candidate.id : `tab-${tabs.length + 1}`;
+    const name = typeof candidate.name === 'string' && candidate.name ? candidate.name.slice(0, 24) : '标签页';
+    const panes = [];
+    const makePane = (panel, grow) => {
+      const pane = createPane(panel, { weight: Math.max(1, Number(grow) || 1), collapsed: !!(candidate.collapsed && candidate.collapsed[panel]) });
+      panes.push(pane);
+      return pane;
+    };
+    const makeStack = (stack) => {
+      const items = Array.isArray(stack) ? stack : [];
+      const nodes = items.filter((it) => it && PANEL_IDS.includes(it.panel) && it.panel !== 'timeline')
+        .map((it) => makePane(it.panel, it.grow));
+      if (!nodes.length) return null;
+      if (nodes.length === 1) return nodes[0];
+      return createGroup('V', nodes);
+    };
+    const columns = [];
+    for (const col of Array.isArray(candidate.main) ? candidate.main : []) {
+      const node = makeStack(col && col.stack);
+      if (node) {
+        node.weight = Math.max(1, Number(col.grow) || 30);
+        columns.push(node);
+      }
+    }
+    const dock = candidate.dock && candidate.dock.panel === 'timeline' ? makePane('timeline', 18) : null;
+    if (dock) dock.weight = 18;
+    let root;
+    if (columns.length && dock) {
+      const h = createGroup('H', columns, { weight: 82 });
+      root = createGroup('H', [createGroup('V', [h, dock], { weight: 1 })]);
+    } else if (columns.length) {
+      root = createGroup('H', columns);
+    } else if (dock) {
+      root = createGroup('H', [dock]);
+    } else {
+      root = createGroup('H', []);
+    }
+    const tab = {
+      id,
+      name,
+      root,
+      maximized: typeof candidate.maximized === 'string' && PANEL_IDS.includes(candidate.maximized) ? candidate.maximized : null,
+    };
+    normalizeTree(tab.root);
+    tabs.push(tab);
+  }
+  return tabs;
+}
+
+function addMissingPanels(tabs) {
+  const seen = new Set();
+  for (const tab of tabs) {
+    for (const pane of allPanes(tab.root)) seen.add(pane.panel);
+  }
+  const missing = PANEL_IDS.filter((p) => !seen.has(p));
+  if (!missing.length) return;
+  const host = tabs[0];
+  if (!host) return;
+  for (const panel of missing) {
+    const has = findPaneNode(host.root, panel);
+    if (has) continue;
+    appendPaneToRoot(host.root, createPane(panel, { weight: 25 }));
+  }
+}
+
+ function sanitizeLayout(raw) {
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.tabs)) return null;
+  const tabs = [];
+  const usedIds = new Set();
+  if (raw.version === 3 || (!Array.isArray(raw.tabs[0]?.root) && raw.tabs[0] && Array.isArray(raw.tabs[0].main))) {
+    
+  }
+  const sourceTabs = (raw.version === 4 && raw.tabs.every((t) => t && t.root))
+    ? raw.tabs
+    : migrateV3(raw);
+  for (const candidate of sourceTabs) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    let id = typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : '';
+    if (!id || usedIds.has(id)) id = `tab-${tabs.length + 1}`;
+    usedIds.add(id);
+    const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim().slice(0, 24) : '标签页';
+    const seen = new Set();
+    let root = sanitizeNode(candidate.root, seen);
+    if (!root) root = createGroup('H', []);
+    if (!isGroup(root)) root = createGroup('H', [root]);
+    normalizeTree(root);
+    const tab = { id, name, root, maximized: null };
+    if (typeof candidate.maximized === 'string' && PANEL_IDS.includes(candidate.maximized) && findPaneNode(root, candidate.maximized)) {
+      tab.maximized = candidate.maximized;
+    }
+    ensureOneExpanded(root);
+    tabs.push(tab);
+  }
+  if (!tabs.length) return null;
+  addMissingPanels(tabs);
+  for (const tab of tabs) {
+    normalizeTree(tab.root);
+    refreshLastActive(tab.root);
+  }
+  let activeId = typeof raw.activeId === 'string' ? raw.activeId : tabs[0].id;
+  if (!tabs.some((t) => t.id === activeId)) activeId = tabs[0].id;
+  const nextId = Number.isFinite(raw.nextId) ? Math.max(3, Math.floor(raw.nextId)) : tabs.length + 1;
+  return { version: LAYOUT_VERSION, activeId, nextId, tabs };
+}
+
+function w(panel, weight) { return createPane(panel, { weight }); }
+
+ function defaultLayout() {
+  const workMain = createGroup('H', [
+    w('source', 30),
+    createGroup('V', [w('world', 69), w('scores', 31)], { weight: 36 }),
+    createGroup('V', [w('pack', 67), w('log', 33)], { weight: 34 }),
+  ], { weight: 82 });
+  const workbench = {
+    id: 'workbench',
+    name: '工作台',
+    root: createGroup('H', [createGroup('V', [workMain, w('timeline', 18)], { weight: 1 })]),
+    maximized: null,
+  };
+  const observeMain = createGroup('H', [
+    w('world', 62),
+    createGroup('V', [w('scores', 45), w('log', 55)], { weight: 38 }),
+  ], { weight: 82 });
+  const observe = {
+    id: 'observe',
+    name: '观察',
+    root: createGroup('H', [createGroup('V', [observeMain, w('timeline', 18)], { weight: 1 })]),
+    maximized: null,
+  };
+  return { version: LAYOUT_VERSION, activeId: 'workbench', nextId: 3, tabs: [workbench, observe] };
+}
+
+exports.LAYOUT_VERSION = LAYOUT_VERSION;
+exports.SPLITTER = SPLITTER;
+exports.BAR = BAR;
+exports.PANEL_IDS = PANEL_IDS;
+exports.PANEL_LIMITS = PANEL_LIMITS;
+exports.panelTitle = panelTitle;
+exports.isPane = isPane;
+exports.isGroup = isGroup;
+exports.createPane = createPane;
+exports.createGroup = createGroup;
+exports.cloneTree = cloneTree;
+exports.barThickness = barThickness;
+exports.walkNodes = walkNodes;
+exports.allPanes = allPanes;
+exports.findPaneNode = findPaneNode;
+exports.parentGroupOf = parentGroupOf;
+exports.fullyCollapsed = fullyCollapsed;
+exports.layoutDir = layoutDir;
+exports.nodeMin = nodeMin;
+exports.groupMin = groupMin;
+exports.isExpandedNode = isExpandedNode;
+exports.splitterPairs = splitterPairs;
+exports.expandedPanes = expandedPanes;
+exports.expansionTarget = expansionTarget;
+exports.collapsePane = collapsePane;
+exports.expandPane = expandPane;
+exports.normalizeTree = normalizeTree;
+exports.removePaneFromTree = removePaneFromTree;
+exports.appendPaneToRoot = appendPaneToRoot;
+exports.ensureOneExpanded = ensureOneExpanded;
+exports.panesInGroup = panesInGroup;
+exports.lastActivePane = lastActivePane;
+exports.markPaneActive = markPaneActive;
+exports.refreshLastActive = refreshLastActive;
+exports.movePaneForDrop = movePaneForDrop;
+exports.rotateGroup = rotateGroup;
+exports.reorderTabs = reorderTabs;
+exports.clampMenuPosition = clampMenuPosition;
+exports.clonePaneForCopy = clonePaneForCopy;
+exports.addPaneToTab = addPaneToTab;
+exports.addMissingPaneToTab = addMissingPaneToTab;
+exports.resetTabTree = resetTabTree;
+exports.solveTab = solveTab;
+exports.sanitizeLayout = sanitizeLayout;
+exports.defaultLayout = defaultLayout;
+  };
+
   // ---- web/layout.js ----
   __tpb_modules["web/layout.js"] = function (exports) {
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 const { icon } = __tpb_require("web/util.js");
+const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
 
  const LAYOUT_KEY = 'tickpack.layout.v2';
- const LAYOUT_VERSION = 3;
+
 
  const PANEL_DEFS = [
   { id: 'source', title: '源码' },
@@ -8506,125 +10186,7 @@ const { icon } = __tpb_require("web/util.js");
   { id: 'log', title: '运行日志' },
   { id: 'timeline', title: '时间轴' },
 ];
-const PANEL_IDS = PANEL_DEFS.map((p) => p.id);
-const MIN_GROW = 8;
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
- function defaultLayout() {
-  return {
-    version: LAYOUT_VERSION,
-    activeId: 'workbench',
-    nextId: 3,
-    tabs: [
-      {
-        id: 'workbench',
-        name: '工作台',
-        main: [
-          { grow: 30, stack: [{ panel: 'source', grow: 100 }] },
-          { grow: 36, stack: [{ panel: 'world', grow: 69 }, { panel: 'scores', grow: 31 }] },
-          { grow: 34, stack: [{ panel: 'pack', grow: 67 }, { panel: 'log', grow: 33 }] },
-        ],
-        dock: { panel: 'timeline', size: 150 },
-        collapsed: {},
-        maximized: null,
-      },
-      {
-        id: 'observe',
-        name: '观察',
-        main: [
-          { grow: 62, stack: [{ panel: 'world', grow: 100 }] },
-          { grow: 38, stack: [{ panel: 'scores', grow: 45 }, { panel: 'log', grow: 55 }] },
-        ],
-        dock: { panel: 'timeline', size: 150 },
-        collapsed: {},
-        maximized: null,
-      },
-    ],
-  };
-}
-
-function isPlainObject(v) {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
-}
-
- 
-function sanitizeLayout(raw) {
-  if (!isPlainObject(raw) || raw.version !== LAYOUT_VERSION || !Array.isArray(raw.tabs)) return null;
-  const seenGlobal = new Set();
-  const usedIds = new Set();
-  const tabs = [];
-
-  for (const candidate of raw.tabs) {
-    if (!isPlainObject(candidate)) continue;
-    let id = typeof candidate.id === 'string' && candidate.id.trim() ? candidate.id.trim() : '';
-    if (!id || usedIds.has(id)) id = `tab-${usedIds.size + 1}`;
-    usedIds.add(id);
-    const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim().slice(0, 24) : '标签页';
-    const tab = { id, name, main: [], dock: null, collapsed: {}, maximized: null };
-    const tabSeen = new Set();
-
-    const main = Array.isArray(candidate.main) ? candidate.main : [];
-    for (const col of main) {
-      if (!isPlainObject(col) || !Array.isArray(col.stack)) continue;
-      const stack = [];
-      for (const item of col.stack) {
-        if (!isPlainObject(item) || !PANEL_IDS.includes(item.panel)) continue;
-        if (tabSeen.has(item.panel) || item.panel === 'timeline') continue;
-        tabSeen.add(item.panel);
-        seenGlobal.add(item.panel);
-        stack.push({ panel: item.panel, grow: clampGrow(item.grow) });
-      }
-      if (stack.length) tab.main.push({ grow: clampGrow(col.grow), stack });
-    }
-
-    if (isPlainObject(candidate.dock) && candidate.dock.panel === 'timeline' && !tabSeen.has('timeline')) {
-      tab.dock = { panel: 'timeline', size: clampDock(candidate.dock.size) };
-      tabSeen.add('timeline');
-      seenGlobal.add('timeline');
-    }
-
-    if (isPlainObject(candidate.collapsed)) {
-      for (const pid of Object.keys(candidate.collapsed)) {
-        if (PANEL_IDS.includes(pid) && candidate.collapsed[pid]) tab.collapsed[pid] = true;
-      }
-    }
-    if (typeof candidate.maximized === 'string' && PANEL_IDS.includes(candidate.maximized)) {
-      tab.maximized = candidate.maximized;
-    }
-    tabs.push(tab);
-  }
-
-  if (!tabs.length || seenGlobal.size === 0) return null;
-  
-  
-  const missing = PANEL_IDS.filter((p) => !seenGlobal.has(p));
-  for (const pid of missing) {
-    const hostTab = tabs[0];
-    if (pid === 'timeline' && !hostTab.dock) hostTab.dock = { panel: 'timeline', size: 150 };
-    else if (pid !== 'timeline') hostTab.main.push({ grow: 25, stack: [{ panel: pid, grow: 100 }] });
-    seenGlobal.add(pid);
-  }
-
-  let activeId = typeof raw.activeId === 'string' ? raw.activeId : tabs[0].id;
-  if (!tabs.some((t) => t.id === activeId)) activeId = tabs[0].id;
-  const nextId = Number.isFinite(raw.nextId) ? Math.max(3, Math.floor(raw.nextId)) : tabs.length + 1;
-  return { version: LAYOUT_VERSION, activeId, nextId, tabs };
-}
-
-function clampGrow(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 25;
-  return Math.max(MIN_GROW, Math.min(1000, n));
-}
-
-function clampDock(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 150;
-  return Math.max(90, Math.min(420, Math.round(n)));
-}
+const MIN_GROW = 1;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -8633,9 +10195,6 @@ function el(tag, className, text) {
   return node;
 }
 
-const PANEL_TITLES = new Map(PANEL_DEFS.map((p) => [p.id, p.title]));
-
- 
 function setIcon(button, name) {
   if (!button) return;
   const use = typeof button.querySelector === 'function' ? button.querySelector('use') : null;
@@ -8643,21 +10202,17 @@ function setIcon(button, name) {
   else button.innerHTML = icon(name);
 }
 
- 
-function collapseDirection(tab, panelId, pos, collapsed) {
-  if (pos.dock) return collapsed ? 'chevrons-up' : 'chevrons-down';
-  const col = tab.main[pos.ci];
-  const stackLen = col ? col.stack.length : 1;
-  if (stackLen > 1) {
-    const top = pos.si === 0;
-    
-    return collapsed ? (top ? 'chevrons-down' : 'chevrons-up') : (top ? 'chevrons-up' : 'chevrons-down');
+function collapseIcon(dir, index, count, collapsed) {
+  if (dir === 'V') {
+    const towardTop = index <= count - 1 - index;
+    const collapse = towardTop ? 'chevrons-up' : 'chevrons-down';
+    const expand = towardTop ? 'chevrons-down' : 'chevrons-up';
+    return collapsed ? expand : collapse;
   }
-  const count = tab.main.length;
-  const onLeft = pos.ci <= count - 1 - pos.ci; 
-  return collapsed
-    ? (onLeft ? 'chevrons-right' : 'chevrons-left')
-    : (onLeft ? 'chevrons-left' : 'chevrons-right');
+  const towardLeft = index <= count - 1 - index;
+  const collapse = towardLeft ? 'chevrons-left' : 'chevrons-right';
+  const expand = towardLeft ? 'chevrons-right' : 'chevrons-left';
+  return collapsed ? expand : collapse;
 }
 
  function createLayout({
@@ -8674,11 +10229,24 @@ function collapseDirection(tab, panelId, pos, collapsed) {
   let doc = null;
   let menus = [];
   let dragCleanup = null;
+  let pendingFrame = 0;
+  let pendingEmit = 0;
+  let lastSize = { w: 0, h: 0 };
+  let restrictedNotified = false;
+  const nodeEls = new Map();
+  let headerDrag = null;
+  let dragGaps = [];
+  let dragGhost = null;
+  let dragLabel = null;
+  let dragShield = null;
+  let dragTargetBox = null;
+  let protectedPanel = null;
+  let tabDragId = null;
+  let tabDropId = null;
+  let tabDropAfter = false;
+  let tabClickSuppressedUntil = 0;
 
-  const notify = (message) => {
-    if (typeof onNotify === 'function') onNotify(message);
-  };
-
+  const notify = (message) => { if (typeof onNotify === 'function') onNotify(message); };
   const activeTab = () => doc.tabs.find((t) => t.id === doc.activeId) || doc.tabs[0];
 
   function canPersist() {
@@ -8687,12 +10255,7 @@ function collapseDirection(tab, panelId, pos, collapsed) {
 
   function save() {
     if (!canPersist()) return false;
-    try {
-      host.storageSet(LAYOUT_KEY, JSON.stringify(doc));
-      return true;
-    } catch {
-      return false;
-    }
+    try { host.storageSet(LAYOUT_KEY, JSON.stringify(doc)); return true; } catch { return false; }
   }
 
   function load(requestedTab) {
@@ -8701,13 +10264,9 @@ function collapseDirection(tab, panelId, pos, collapsed) {
       try {
         const raw = host.storageGet(LAYOUT_KEY);
         if (raw) parsed = sanitizeLayout(JSON.parse(raw));
-      } catch {
-        parsed = null;
-      }
+      } catch { parsed = null; }
     }
     doc = parsed || defaultLayout();
-    
-    
     if (requestedTab) {
       const match = doc.tabs.find((t) => t.id === requestedTab);
       doc.activeId = match ? match.id : doc.tabs[0].id;
@@ -8715,36 +10274,723 @@ function collapseDirection(tab, panelId, pos, collapsed) {
     if (!doc.tabs.some((t) => t.id === doc.activeId)) doc.activeId = doc.tabs[0].id;
   }
 
+  function workspaceBox() {
+    let w = 1200;
+    let h = 700;
+    try {
+      const cs = getComputedStyle(workspaceEl);
+      w = workspaceEl.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      h = workspaceEl.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+    } catch {   }
+    return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) };
+  }
+
   function visiblePanels(tab) {
     if (!tab) return new Set();
     if (tab.maximized) return new Set([tab.maximized]);
-    const visible = new Set();
-    for (const col of tab.main) {
-      for (const item of col.stack) {
-        if (!tab.collapsed[item.panel]) visible.add(item.panel);
-      }
-    }
-    if (tab.dock && !tab.collapsed[tab.dock.panel]) visible.add(tab.dock.panel);
-    return visible;
+    return new Set(expandedPanes(tab.root).map((p) => p.panel));
+  }
+
+  function panelsOfTab(tab) {
+    return allPanes(tab && tab.root).map((p) => p.panel);
   }
 
   function panelCount(tab) {
-    return tab.main.reduce((n, col) => n + col.stack.length, 0) + (tab.dock ? 1 : 0);
+    return allPanes(tab && tab.root).length;
   }
 
   function emitChange() {
     const tab = activeTab();
     if (typeof onLayoutChange === 'function') {
-      onLayoutChange({
-        tabId: tab.id,
-        tabName: tab.name,
-        visiblePanels: visiblePanels(tab),
-        tabCount: doc.tabs.length,
-      });
+      onLayoutChange({ tabId: tab ? tab.id : null, visiblePanels: visiblePanels(tab), tab });
     }
   }
 
-  
+  function scheduleEmit() {
+    if (pendingEmit) return;
+    pendingEmit = requestAnimationFrame(() => {
+      pendingEmit = 0;
+      emitChange();
+    });
+  }
+
+  function findPaneInfo(panelId, tab = activeTab()) {
+    if (!tab || !tab.root) return null;
+    function walk(node, parentDir, parent, index) {
+      if (isPane(node)) {
+        if (node.panel === panelId) return { tab, pane: node, parent, index, dir: parentDir };
+        return null;
+      }
+      const eff = layoutDir(node, parentDir);
+      for (let i = 0; i < node.children.length; i++) {
+        const got = walk(node.children[i], eff, node, i);
+        if (got) return got;
+      }
+      return null;
+    }
+    return walk(tab.root, tab.root.dir, null, 0);
+  }
+
+  function updateControls(pane, info) {
+    const panel = panelNodes[pane.panel];
+    if (!panel) return;
+    const title = panelTitle(pane.panel);
+    const count = info && info.parent ? info.parent.children.length : 1;
+    const dir = info ? info.dir : 'H';
+    const collapseBtn = panel.querySelector && panel.querySelector('[data-action="collapse"]');
+    if (collapseBtn) {
+      setIcon(collapseBtn, collapseIcon(dir, info ? info.index : 0, count, pane.collapsed));
+      collapseBtn.title = `${pane.collapsed ? '展开' : '折叠'} ${title}`;
+      collapseBtn.setAttribute('aria-label', `${pane.collapsed ? '展开' : '折叠'} ${title}`);
+      collapseBtn.setAttribute('aria-expanded', pane.collapsed ? 'false' : 'true');
+    }
+    const maxBtn = panel.querySelector && panel.querySelector('[data-action="maximize"]');
+    const tab = activeTab();
+    if (maxBtn) {
+      const maximized = !!(tab && tab.maximized === pane.panel);
+      setIcon(maxBtn, maximized ? 'minimize' : 'maximize');
+      maxBtn.title = maximized ? '还原' : '最大化';
+      maxBtn.setAttribute('aria-label', maximized ? '还原' : '最大化');
+      maxBtn.setAttribute('aria-pressed', maximized ? 'true' : 'false');
+    }
+    const menuBtn = panel.querySelector && panel.querySelector('[data-action="menu"]');
+    if (menuBtn) {
+      setIcon(menuBtn, 'more-horizontal');
+      menuBtn.title = '更多操作';
+      menuBtn.setAttribute('aria-label', '更多操作');
+      menuBtn.setAttribute('aria-haspopup', 'menu');
+    }
+  }
+
+  function memberSummary(group) {
+    return allPanes(group).map((p) => panelTitle(p.panel)).join('、');
+  }
+
+  function markActive(panelId) {
+    const tab = activeTab();
+    if (!tab) return;
+    if (markPaneActive(tab.root, panelId)) save();
+  }
+
+  function expandCapsuleGroup(group, tab) {
+    const pane = lastActivePane(group) || allPanes(group)[0];
+    if (!pane) return;
+    const info = findPaneInfo(pane.panel, tab);
+    if (!info) return;
+    expandWithWeight(pane, info);
+    protectedPanel = pane.panel;
+    markPaneActive(tab.root, pane.panel);
+    save();
+    renderAll();
+  }
+
+  function expandCapsulePane(group, panelId, tab) {
+    const pane = allPanes(group).find((p) => p.panel === panelId);
+    if (!pane) return;
+    const info = findPaneInfo(panelId, tab);
+    if (!info) return;
+    expandWithWeight(pane, info);
+    protectedPanel = pane.panel;
+    markPaneActive(tab.root, panelId);
+    save();
+    renderAll();
+  }
+
+  function positionMenu(menu, button, { align = 'right' } = {}) {
+    const winW = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const margin = 8;
+    menu.style.position = 'fixed';
+    menu.style.left = '0px';
+    menu.style.top = '0px';
+    menu.style.right = 'auto';
+    menu.style.maxWidth = `${Math.max(160, winW - margin * 2)}px`;
+    menu.style.maxHeight = `${Math.max(120, winH - margin * 2)}px`;
+    menu.style.overflowY = 'auto';
+    menu.style.visibility = 'hidden';
+    document.body.appendChild(menu);
+    menus.push(menu);
+    const rect = typeof button.getBoundingClientRect === 'function'
+      ? button.getBoundingClientRect()
+      : { left: winW - 40, right: winW - 12, top: 28, bottom: 40 };
+    const mw = menu.offsetWidth || menu.getBoundingClientRect().width || 180;
+    const mh = menu.offsetHeight || menu.getBoundingClientRect().height || 120;
+    const pos = clampMenuPosition({
+      button: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+      width: mw, height: mh, vw: winW, vh: winH, margin, align,
+    });
+    menu.style.left = `${Math.round(pos.left)}px`;
+    menu.style.top = `${Math.round(pos.top)}px`;
+    menu.style.visibility = 'visible';
+  }
+
+  function openCapsuleMenu(button, group, tab) {
+    closeMenus();
+    const menu = el('div', 'panel-menu');
+    menu.setAttribute('role', 'menu');
+    addMenuItem(menu, `展开分栏（${allPanes(group).length}）`, () => {}, { heading: true });
+    for (const pane of allPanes(group)) {
+      addMenuItem(menu, panelTitle(pane.panel), () => expandCapsulePane(group, pane.panel, tab));
+    }
+    positionMenu(menu, button);
+  }
+
+  function makeCapsule(group, parentDir, info, tab) {
+    const capsule = el('div', 'group-capsule');
+    capsule.dataset.dir = parentDir;
+    capsule.dataset.group = group.lastActive || '';
+    capsule.style.flex = `0 0 ${barThickness(parentDir)}px`;
+    capsule.style.minWidth = '0';
+    capsule.style.minHeight = '0';
+    nodeEls.set(group, capsule);
+    const members = memberSummary(group);
+    const body = el('button', 'capsule-body');
+    body.type = 'button';
+    body.setAttribute('aria-expanded', 'false');
+    body.setAttribute('aria-label', `展开 ${members}（${allPanes(group).length} 个分栏）`);
+    body.title = `${members}（${allPanes(group).length} 个分栏）`;
+    const iconSpan = el('span', 'capsule-icon');
+    iconSpan.innerHTML = icon('archive');
+    body.append(iconSpan);
+    body.append(el('span', 'capsule-count', String(allPanes(group).length)));
+    body.append(el('span', 'capsule-summary', members));
+    const chevron = el('span', 'capsule-chevron');
+    chevron.innerHTML = icon(parentDir === 'V' ? 'chevron-down' : 'chevron-right');
+    body.append(chevron);
+    body.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeMenus();
+      expandCapsuleGroup(group, tab);
+    });
+    body.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openCapsuleMenu(body, group, tab);
+    });
+    body.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ContextMenu' || (ev.key === 'F10' && ev.shiftKey)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openCapsuleMenu(body, group, tab);
+      }
+    });
+    const menuBtn = el('button', 'capsule-menu icon-btn');
+    menuBtn.type = 'button';
+    menuBtn.dataset.action = 'capsule-menu';
+    menuBtn.title = '选择要展开的分栏';
+    menuBtn.setAttribute('aria-label', '选择要展开的分栏');
+    menuBtn.setAttribute('aria-haspopup', 'menu');
+    menuBtn.innerHTML = icon('more-horizontal');
+    menuBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openCapsuleMenu(menuBtn, group, tab);
+    });
+    capsule.append(body, menuBtn);
+    return capsule;
+  }
+
+  function bindPaneActive(panel, panelId) {
+    if (panel.dataset.layoutActiveBound === '1') return;
+    panel.dataset.layoutActiveBound = '1';
+    panel.addEventListener('pointerdown', () => markActive(panelId), { capture: true });
+    panel.addEventListener('focusin', () => {
+      const tab = activeTab();
+      if (tab) markPaneActive(tab.root, panelId);
+    });
+  }
+
+  function rectHas(rect, x, y) {
+    return !!rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  function ancestorGroups(tab, panelId) {
+    const chain = [];
+    function walk(node, path) {
+      if (isPane(node)) {
+        if (node.panel === panelId) {
+          chain.push(...path.slice().reverse());
+          return true;
+        }
+        return false;
+      }
+      path.push(node);
+      for (const child of node.children) if (walk(child, path)) return true;
+      path.pop();
+      return false;
+    }
+    walk(tab.root, []);
+    return chain;
+  }
+
+  function clearDragPreview() {
+    for (const gap of dragGaps) gap.el.classList.remove('active');
+    for (const el of document.querySelectorAll('.drag-target')) el.classList.remove('drag-target');
+    if (dragTargetBox) dragTargetBox.hidden = true;
+    if (dragLabel) {
+      dragLabel.textContent = '';
+      dragLabel.hidden = true;
+    }
+    document.body.classList.remove('drag-valid', 'drag-invalid');
+  }
+
+  function buildDragGaps(tab) {
+    dragGaps = [];
+    for (const node of walkNodes(tab.root)) {
+      if (!isGroup(node) || fullyCollapsed(node)) continue;
+      const groupEl = nodeEls.get(node);
+      if (!groupEl) continue;
+      const gr = groupEl.getBoundingClientRect();
+      const childRects = node.children.map((child) => {
+        const el = nodeEls.get(child);
+        return el ? el.getBoundingClientRect() : null;
+      });
+      if (!childRects.length) continue;
+      const axis = node.dir;
+      for (let i = 0; i <= node.children.length; i++) {
+        let coord;
+        if (i === 0) coord = axis === 'H' ? gr.left : gr.top;
+        else if (i === node.children.length) coord = axis === 'H' ? gr.right : gr.bottom;
+        else {
+          const a = childRects[i - 1];
+          const b = childRects[i];
+          if (!a || !b) continue;
+          coord = axis === 'H' ? (a.right + b.left) / 2 : (a.bottom + b.top) / 2;
+        }
+        const gap = el('div', `drag-gap drag-gap-${axis === 'H' ? 'v' : 'h'}`);
+        gap.dataset.dir = axis;
+        const hit = axis === 'H'
+          ? { left: coord - 5, top: gr.top, width: 10, height: gr.height }
+          : { left: gr.left, top: coord - 5, width: gr.width, height: 10 };
+        gap.style.position = 'fixed';
+        gap.style.left = `${hit.left}px`;
+        gap.style.top = `${hit.top}px`;
+        gap.style.width = `${Math.max(1, hit.width)}px`;
+        gap.style.height = `${Math.max(1, hit.height)}px`;
+        gap.style.pointerEvents = 'none';
+        gap.style.zIndex = '160';
+        document.body.appendChild(gap);
+        dragGaps.push({ group: node, index: i, axis, coord, groupRect: gr, hit, el: gap });
+      }
+    }
+  }
+
+  function nearestGap(x, y) {
+    let best = null;
+    for (const gap of dragGaps) {
+      const g = gap.groupRect;
+      let distance;
+      if (gap.axis === 'H') {
+        if (y < g.top - 24 || y > g.bottom + 24) continue;
+        distance = Math.abs(x - gap.coord);
+      } else {
+        if (x < g.left - 24 || x > g.right + 24) continue;
+        distance = Math.abs(y - gap.coord);
+      }
+      if (distance <= 14 && (!best || distance < best.distance)) best = { gap, distance };
+    }
+    return best ? best.gap : null;
+  }
+
+  function paneUnderPoint(x, y, sourcePanelId) {
+    const elements = document.elementsFromPoint
+      ? document.elementsFromPoint(x, y)
+      : [document.elementFromPoint ? document.elementFromPoint(x, y) : null];
+    let slot = null;
+    for (const at of elements) {
+      if (!at || !at.closest || at.closest('.drag-shield')) continue;
+      const found = at.closest('.pane-slot[data-panel-id]');
+      if (found) { slot = found; break; }
+    }
+    if (!slot || slot.dataset.panelId === sourcePanelId) return null;
+    if (slot.classList.contains('is-collapsed')) return null;
+    const rect = slot.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const edges = [
+      { side: 'left', d: x - rect.left },
+      { side: 'right', d: rect.right - x },
+      { side: 'top', d: y - rect.top },
+      { side: 'bottom', d: rect.bottom - y },
+    ].sort((a, b) => a.d - b.d);
+    const limit = Math.min(48, Math.max(18, Math.min(rect.width, rect.height) * 0.3));
+    if (edges[0].d > limit) return null;
+    return {
+      paneId: slot.dataset.panelId,
+      side: edges[0].side,
+      rect,
+      slot,
+    };
+  }
+
+  function detectDropTarget(tab, x, y, sourcePanelId, state) {
+    if (tabsEl && rectHas(tabsEl.getBoundingClientRect(), x, y)) {
+      return { kind: 'gap', group: tab.root, index: tab.root.children.length, label: '追加到标签页末尾' };
+    }
+    const wr = workspaceEl.getBoundingClientRect();
+    if (rectHas(wr, x, y)) {
+      const edges = [
+        { edge: 'left', d: x - wr.left },
+        { edge: 'right', d: wr.right - x },
+        { edge: 'top', d: y - wr.top },
+        { edge: 'bottom', d: wr.bottom - y },
+      ].sort((a, b) => a.d - b.d);
+      if (edges[0].d <= 26) {
+        const edge = edges[0].edge;
+        return { kind: 'root-edge', edge, label: `根级：${edge}` };
+      }
+    }
+    const gap = nearestGap(x, y);
+    if (gap) {
+      return { kind: 'gap', group: gap.group, index: gap.index, gap, label: '作为兄弟插入' };
+    }
+    const pane = paneUnderPoint(x, y, sourcePanelId);
+    if (pane) {
+      if (state.ancestorMode) {
+        const chain = ancestorGroups(tab, pane.paneId);
+        if (chain.length) {
+          const node = chain[Math.min(chain.length - 1, Math.max(0, state.ancestorIndex))];
+          if (node === tab.root) {
+            return { kind: 'root-edge', edge: pane.side, label: '根级：包裹整个根内容' };
+          }
+          return { kind: 'wrap', node, side: pane.side, label: `将包裹：${memberSummary(node)}` };
+        }
+      }
+      return { kind: 'wrap', node: findPaneNode(tab.root, pane.paneId), side: pane.side, label: `包裹：${panelTitle(pane.paneId)}` };
+    }
+    return null;
+  }
+
+  function updateDragTarget(x, y) {
+    if (!headerDrag || !headerDrag.dragging) return;
+    const { tab, panelId } = headerDrag;
+    const target = detectDropTarget(tab, x, y, panelId, headerDrag);
+    headerDrag.target = target;
+    clearDragPreview();
+    if (dragGhost) {
+      dragGhost.style.left = `${x + 14}px`;
+      dragGhost.style.top = `${y + 14}px`;
+    }
+    if (dragLabel) {
+      dragLabel.style.left = `${x + 14}px`;
+      dragLabel.style.top = `${y + 34}px`;
+    }
+    if (!target) {
+      document.body.classList.add('drag-invalid');
+      if (dragLabel) { dragLabel.hidden = false; dragLabel.textContent = 'V1 不交换中心；请拖到边缘、间隙或标签栏'; }
+      return;
+    }
+    document.body.classList.add('drag-valid');
+    if (dragLabel) {
+      dragLabel.hidden = false;
+      dragLabel.textContent = target.label || '';
+    }
+    if (target.gap) target.gap.el.classList.add('active');
+    let box = null;
+    if (target.gap) {
+      const hit = target.gap.hit;
+      box = { left: hit.left, top: hit.top, width: hit.width, height: hit.height };
+    } else if (target.kind === 'root-edge') {
+      const wr = workspaceEl.getBoundingClientRect();
+      const band = 24;
+      box = target.edge === 'left' ? { left: wr.left, top: wr.top, width: band, height: wr.height }
+        : target.edge === 'right' ? { left: wr.right - band, top: wr.top, width: band, height: wr.height }
+          : target.edge === 'top' ? { left: wr.left, top: wr.top, width: wr.width, height: band }
+            : { left: wr.left, top: wr.bottom - band, width: wr.width, height: band };
+    } else if (target.kind === 'wrap') {
+      const nodeEl = nodeEls.get(target.node);
+      if (nodeEl) {
+        const r = nodeEl.getBoundingClientRect();
+        box = { left: r.left, top: r.top, width: r.width, height: r.height };
+      }
+    }
+    if (box && dragTargetBox) {
+      dragTargetBox.hidden = false;
+      dragTargetBox.style.left = `${box.left}px`;
+      dragTargetBox.style.top = `${box.top}px`;
+      dragTargetBox.style.width = `${Math.max(2, box.width)}px`;
+      dragTargetBox.style.height = `${Math.max(2, box.height)}px`;
+    }
+  }
+
+  function cleanupHeaderDrag() {
+    if (!headerDrag) return;
+    headerDrag.removers.forEach((fn) => fn());
+    if (headerDrag.slot) headerDrag.slot.classList.remove('drag-source');
+    for (const gap of dragGaps) if (gap.el.parentNode) gap.el.parentNode.removeChild(gap.el);
+    dragGaps = [];
+    if (dragShield && dragShield.parentNode) dragShield.parentNode.removeChild(dragShield);
+    if (dragTargetBox && dragTargetBox.parentNode) dragTargetBox.parentNode.removeChild(dragTargetBox);
+    if (dragGhost && dragGhost.parentNode) dragGhost.parentNode.removeChild(dragGhost);
+    if (dragLabel && dragLabel.parentNode) dragLabel.parentNode.removeChild(dragLabel);
+    dragShield = null;
+    dragTargetBox = null;
+    dragGhost = null;
+    dragLabel = null;
+    document.body.classList.remove('dragging-pane', 'drag-valid', 'drag-invalid');
+    for (const el of document.querySelectorAll('.drag-target')) el.classList.remove('drag-target');
+    headerDrag = null;
+  }
+
+  function startHeaderDrag(ev, panelId) {
+    const tab = activeTab();
+    const panel = panelNodes[panelId];
+    if (!tab || !panel) return;
+    const slot = panel.closest ? panel.closest('.pane-slot') : null;
+    const state = {
+      startX: ev.clientX,
+      startY: ev.clientY,
+      lastX: ev.clientX,
+      lastY: ev.clientY,
+      panelId,
+      tab,
+      slot,
+      dragging: false,
+      ancestorMode: !!ev.altKey,
+      altHeld: !!ev.altKey,
+      ancestorIndex: 0,
+      target: null,
+      removers: [],
+    };
+    headerDrag = state;
+    const onMove = (mv) => {
+      state.lastX = mv.clientX;
+      state.lastY = mv.clientY;
+      if (!state.dragging) {
+        if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
+        state.dragging = true;
+        if (typeof mv.preventDefault === 'function') mv.preventDefault();
+        document.body.classList.add('dragging-pane');
+        if (slot) slot.classList.add('drag-source');
+        dragShield = el('div', 'drag-shield');
+        dragTargetBox = el('div', 'drag-target-box');
+        dragTargetBox.hidden = true;
+        dragGhost = el('div', 'pane-drag-ghost', panelTitle(panelId));
+        dragLabel = el('div', 'pane-drag-label');
+        dragLabel.hidden = true;
+        document.body.append(dragShield, dragTargetBox, dragGhost, dragLabel);
+        buildDragGaps(tab);
+      }
+      updateDragTarget(mv.clientX, mv.clientY);
+    };
+    const onUp = (mv) => {
+      if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+      if (!state.dragging) { cleanupHeaderDrag(); return; }
+      const target = detectDropTarget(tab, state.lastX, state.lastY, panelId, state);
+      cleanupHeaderDrag();
+      if (!target) {
+        notify('此处不能放置分栏');
+        return;
+      }
+      const result = movePaneForDrop(tab.root, panelId, target);
+      if (!result.ok) {
+        notify('无法完成这次分栏移动');
+        return;
+      }
+      result.pane.collapsed = false;
+      protectedPanel = panelId;
+      ensureOneExpanded(tab.root, panelId);
+      markPaneActive(tab.root, panelId);
+      refreshLastActive(tab.root);
+      save();
+      renderAll();
+    };
+    const onCancel = () => cleanupHeaderDrag();
+    const onKey = (kev) => {
+      if (kev.key === 'Escape') { kev.preventDefault(); kev.stopPropagation(); cleanupHeaderDrag(); }
+      else if (kev.key === 'Alt') {
+        kev.preventDefault();
+        if (!state.altHeld) {
+          state.altHeld = true;
+          state.ancestorMode = true;
+          state.ancestorIndex = 0;
+        }
+        if (state.dragging) updateDragTarget(state.lastX, state.lastY);
+      }
+    };
+    const onKeyUp = (kev) => {
+      if (kev.key === 'Alt') {
+        kev.preventDefault();
+        state.altHeld = false;
+        state.ancestorMode = false;
+        state.ancestorIndex = 0;
+        if (state.dragging) updateDragTarget(state.lastX, state.lastY);
+      }
+    };
+    const onWheel = (wev) => {
+      if (!state.dragging) return;
+      wev.preventDefault();
+      if (!state.ancestorMode) return;
+      const pane = paneUnderPoint(state.lastX, state.lastY, panelId);
+      if (!pane) return;
+      const chain = ancestorGroups(tab, pane.paneId);
+      if (!chain.length) return;
+      const dir = wev.deltaY > 0 ? 1 : -1;
+      state.ancestorIndex = (state.ancestorIndex + dir + chain.length) % chain.length;
+      updateDragTarget(state.lastX, state.lastY);
+    };
+    const add = (target, type, fn, opts) => {      target.addEventListener(type, fn, opts);
+      state.removers.push(() => target.removeEventListener(type, fn, opts));
+    };
+    add(window, 'pointermove', onMove);
+    add(window, 'pointerup', onUp);
+    add(window, 'pointercancel', onCancel);
+    add(window, 'keydown', onKey, true);
+    add(window, 'keyup', onKeyUp, true);
+    add(window, 'wheel', onWheel, { passive: false });
+  }
+
+  function makeSlot(pane, parentDir, info) {
+    const slot = el('div', 'pane-slot');
+    slot.dataset.panelId = pane.panel;
+    slot.dataset.dir = parentDir;
+    slot.style.flex = `0 0 ${Math.max(0, pane.size || 0)}px`;
+    slot.style.minWidth = '0';
+    slot.style.minHeight = '0';
+    if (pane.collapsed) slot.classList.add('is-collapsed');
+    const panel = panelNodes[pane.panel];
+    if (!panel) {
+      slot.append(el('div', 'panel-missing', '分栏不可用'));
+      return slot;
+    }
+    panel.dataset.panelId = pane.panel;
+    panel.classList.toggle('collapsed', pane.collapsed);
+    panel.classList.toggle('maximized', activeTab().maximized === pane.panel);
+    bindPaneActive(panel, pane.panel);
+    updateControls(pane, info);
+    slot.append(panel);
+    nodeEls.set(pane, slot);
+    return slot;
+  }
+
+  function makeSplitter(group, index, dir, tab) {
+    const splitter = el('div', `split split-${dir === 'H' ? 'v' : 'h'}`);
+    splitter.dataset.split = dir === 'H' ? 'v' : 'h';
+    splitter.setAttribute('role', 'separator');
+    splitter.setAttribute('aria-orientation', dir === 'H' ? 'vertical' : 'horizontal');
+    splitter.style.flex = `0 0 ${SPLITTER}px`;
+    splitter.title = group === tab.root ? '根组方向固定为 H' : '双击切换分栏方向';
+    splitter.addEventListener('pointerdown', (ev) => startSplitDrag(ev, group, index, dir, tab));
+    return splitter;
+  }
+
+  function renderNode(node, parentDir, info, tab, isRoot = false) {
+    if (isPane(node)) return makeSlot(node, parentDir, info);
+    
+    if (!isRoot && info && info.parent && fullyCollapsed(node) && allPanes(node).length > 1) {
+      return makeCapsule(node, parentDir, info, tab);
+    }
+    const effective = layoutDir(node, parentDir);
+    const groupEl = el('div', 'pane-group');
+    groupEl.dataset.dir = effective;
+    groupEl.style.display = 'flex';
+    groupEl.style.flexDirection = effective === 'H' ? 'row' : 'column';
+    groupEl.style.minWidth = '0';
+    groupEl.style.minHeight = '0';
+    groupEl.style.flex = isRoot ? '1 1 auto' : `0 0 ${Math.max(0, node.size || 0)}px`;
+    nodeEls.set(node, groupEl);
+    node.children.forEach((child, index) => {
+      groupEl.append(renderNode(child, effective, { tab, parent: node, index, dir: effective }, tab, false));
+      const next = node.children[index + 1];
+      if (next && isExpandedNode(child) && isExpandedNode(next)) {
+        groupEl.append(makeSplitter(node, index + 1, effective, tab));
+      }
+    });
+    return groupEl;
+  }
+
+  function emptyState() {
+    const box = el('div', 'tab-empty');
+    const img = document.createElement('img');
+    img.src = 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNDA5NiA0MDk2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iNDA5Ni4wMDAwMDAiIGhlaWdodD0iNDA5Ni4wMDAwMDAiIGZpbGw9Im5vbmUiPgoJPGRlZnM+CgkJPGxpbmVhckdyYWRpZW50IGlkPSJwYWludF9saW5lYXJfMCIgeDE9IjAuMDAwMzY2MjEwOTM4IiB4Mj0iMjA0OCIgeTE9Ii0wLjAwMDI0NDE0MDYyNSIgeTI9IjIwNDgiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KCQkJPHN0b3Agc3RvcC1jb2xvcj0icmdiKDI0OCwyMTQsNTEpIiBvZmZzZXQ9IjAuNDAwMDAwMDA2IiBzdG9wLW9wYWNpdHk9IjEiIC8+CgkJCTxzdG9wIHN0b3AtY29sb3I9InJnYigyMDcsMTQ2LDUxKSIgb2Zmc2V0PSIwLjYwMDAwMDAyNCIgc3RvcC1vcGFjaXR5PSIxIiAvPgoJCTwvbGluZWFyR3JhZGllbnQ+CgkJPGxpbmVhckdyYWRpZW50IGlkPSJwYWludF9saW5lYXJfMSIgeDE9IjAuMDAwMTIyMDcwMzEyIiB4Mj0iMjA0Ny45OTk1MSIgeTE9Ii0wLjAwMDMwNTE3NTc4MSIgeTI9IjIwNDguMDAwNDkiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KCQkJPHN0b3Agc3RvcC1jb2xvcj0icmdiKDI1MSwyMzMsMTg5KSIgb2Zmc2V0PSIwIiBzdG9wLW9wYWNpdHk9IjEiIC8+CgkJCTxzdG9wIHN0b3AtY29sb3I9InJnYigyNDgsMjE0LDUxKSIgb2Zmc2V0PSIxIiBzdG9wLW9wYWNpdHk9IjEiIC8+CgkJPC9saW5lYXJHcmFkaWVudD4KCTwvZGVmcz4KCTxyZWN0IGlkPSJsb2dvLW1pZGRsZSIgd2lkdGg9IjQwOTYuMDAwMDAwIiBoZWlnaHQ9IjQwOTYuMDAwMDAwIiB4PSIwLjAwMDAwMCIgeT0iMC4wMDAwMDAiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNMjc0IDEwMjRMMjA0Ny41IDBMMzgyMSAxMDI0TDIwNDcuNSAyMDQ4TDI3NCAxMDI0WiIgZmlsbD0icmdiKDEwNiw3OSwxOTkpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNNjYxLjk1MyA4MDBMNjYxLjk1MyAxMjQ4TDEzMjcuMDIgMTI0OEwxNjU5LjU1IDE0NDBMMTY1OS41NSAxODI0TDI0MzUuNDUgMTgyNEwyNDM1LjQ1IDE0NDBMMjc2Ny45OCAxMjQ4TDM0MzMuMDUgMTI0OEwzNDMzLjA1IDgwMEwyNzY3Ljk4IDgwMEwyNDM1LjQ1IDYwOEwyNDM1LjQ1IDIyNEwxNjU5LjU1IDIyNEwxNjU5LjU1IDYwOEwxMzI3LjAyIDgwMEw2NjEuOTUzIDgwMFoiIGZpbGw9InJnYigxMDYsNzksMTk5KSIgZmlsbC1ydWxlPSJldmVub2RkIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNyIgZD0iTTY2MS45NTMgODAwTDY2MS45NTMgMTI0OEwxMzI3LjAyIDEyNDhMMTY1OS41NSAxNDQwTDE2NTkuNTUgMTgyNEwyNDM1LjQ1IDE4MjRMMjQzNS40NSAxNDQwTDI3NjcuOTggMTI0OEwzNDMzLjA1IDEyNDhMMzQzMy4wNSA4MDBMMjc2Ny45OCA4MDBMMjQzNS40NSA2MDhMMjQzNS40NSAyMjRMMTY1OS41NSAyMjRMMTY1OS41NSA2MDhMMTMyNy4wMiA4MDBMNjYxLjk1MyA4MDBaIiBmaWxsPSJyZ2IoMTU1LDEzOSwyMDcpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNMTMyNy4wMiA4MDBMMTY1OS41NSA2MDhMMjQzNS40NSA2MDhMMjc2Ny45OCA4MDBMMjc2Ny45OCAxMjQ4TDI0MzUuNDUgMTQ0MEwxNjU5LjU1IDE0NDBMMTMyNy4wMiAxMjQ4TDEzMjcuMDIgODAwWiIgZmlsbD0icmdiKDEwNiw3OSwxOTkpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNMTMyNy4wMiA4MDBMMTY1OS41NSA2MDhMMjQzNS40NSA2MDhMMjc2Ny45OCA4MDBMMjc2Ny45OCAxMjQ4TDI0MzUuNDUgMTQ0MEwxNjU5LjU1IDE0NDBMMTMyNy4wMiAxMjQ4TDEzMjcuMDIgODAwWiIgZmlsbD0icmdiKDE3OSwxNzYsMTg1KSIgZmlsbC1ydWxlPSJldmVub2RkIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNSIgZD0iTTAgMjA0OEwwIDBMMjA0OCAwTDIwNDggMjA0OEwwIDIwNDhaIiBmaWxsPSJyZ2IoMjMwLDMyLDgpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHRyYW5zZm9ybT0ibWF0cml4KDAuODY2MDI1LDAuNSwtMi41ODA5NmUtMDgsMSwyNzQsMTAyNCkiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI1IiBkPSJNMTg2My41NSAxMzU3Ljg3TDE3NDYuMTkgMTM1Ny44N0wxNzQ2LjE5IDEyNjIuNzVMMTg2My41NSAxMDI4LjA3TDE4NjMuNTUgOTAyLjIzNkwxNzM5LjMyIDY1My44MTdMMTYyOC44MyA2NTMuODE3TDE2MjguODMgNTcyLjQzNUwxNzQxLjE3IDU3Mi40MzVMMTg3NCAxNzRMMTQ5MC41NiAzMDEuNzkxTDEzODAuMzYgMzAxLjc5MUwxMTQ1LjY0IDE4NC40NDlMNzg1LjA2NCAxODQuNDQ5TDUzNi42MDMgMzA4LjY1OEw1MzYuNjAzIDQxOS4xMzNMNDU1LjIwNyA0MTkuMTMzTDQ1NS4yMDcgMTg0LjQ0OUwxNzkuNDY4IDE4NC40NDlMMzAwLjgwMyA2NjkuNzA1TDE4NC41MTcgOTAyLjIzNkwxODQuNTE3IDExNDMuMzhMMzAwLjgwMyAxNjA4LjQ0TDE2NyAxODc2TDU2NC4zIDE3NDMuNTlMNjc5LjM5NiAxNjI4LjUxTDc4MS44NjEgMTYyOC41MUw4NjMuMjU3IDE3MDkuODlMNzg5LjMxIDE3MDkuODlMNzgxLjI2NyAxNzQzLjk2TDEwMTkuNzkgMTg2My4yTDE4NjMuNTUgMTg2My4yTDE4NjMuNTUgMTM1Ny44N1oiIGZpbGw9InJnYigyMzAsMzIsOCkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYwMjUsMC41LC0yLjU4MDk2ZS0wOCwxLDI3NCwxMDI0KSIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMjUiIGQ9Ik0xODYzLjU1IDEzNTcuODdMMTc0Ni4xOSAxMzU3Ljg3TDE3NDYuMTkgMTI2Mi43NUwxODYzLjU1IDEwMjguMDdMMTg2My41NSA5MDIuMjM2TDE3MzkuMzIgNjUzLjgxN0wxNjI4LjgzIDY1My44MTdMMTYyOC44MyA1NzIuNDM1TDE3NDEuMTcgNTcyLjQzNUwxODc0IDE3NEwxNDkwLjU2IDMwMS43OTFMMTM4MC4zNiAzMDEuNzkxTDExNDUuNjQgMTg0LjQ0OUw3ODUuMDY0IDE4NC40NDlMNTM2LjYwMyAzMDguNjU4TDUzNi42MDMgNDE5LjEzM0w0NTUuMjA3IDQxOS4xMzNMNDU1LjIwNyAxODQuNDQ5TDE3OS40NjggMTg0LjQ0OUwzMDAuODAzIDY2OS43MDVMMTg0LjUxNyA5MDIuMjM2TDE4NC41MTcgMTE0My4zOEwzMDAuODAzIDE2MDguNDRMMTY3IDE4NzZMNTY0LjMgMTc0My41OUw2NzkuMzk2IDE2MjguNTFMNzgxLjg2MSAxNjI4LjUxTDg2My4yNTcgMTcwOS44OUw3ODkuMzEgMTcwOS44OUw3ODEuMjY3IDE3NDMuOTZMMTAxOS43OSAxODYzLjJMMTg2My41NSAxODYzLjJMMTg2My41NSAxMzU3Ljg3WiIgZmlsbD0icmdiKDE2NCwyNCw4KSIgZmlsbC1ydWxlPSJldmVub2RkIiB0cmFuc2Zvcm09Im1hdHJpeCgwLjg2NjAyNSwwLjUsLTIuNTgwOTZlLTA4LDEsMjc0LDEwMjQpIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNSIgZD0iTTE1MjguODYgNjQyLjc3MkwxMTY4LjUgNTIyLjY2MUwxMTY4LjUgMzk2TDg4MS4zNTEgMzk2TDg4MS4zNTEgNTIyLjY2MUw1MjEgNjQyLjc3Mkw1MjEgNzg5LjUwOUw2MDcuOTM5IDg3Ni40NDNMNTIxIDg3Ni40NDNMNTIxIDEwMzQuNTFMNzUzLjIxOSAxMTUwLjYxTDYzNi4wMzIgMTM4NC45OEw3ODAuMDYyIDE1MjlMMTAyNC45MyAxNDA2LjU3TDEyNjkuNzkgMTUyOUwxNDEzLjgyIDEzODQuOThMMTI5Ni42NCAxMTUwLjYxTDE1NDUgMTAyNi40NEwxNDE4LjQ2IDg5OS45MDJMMTUyOC44NiA3ODkuNTA5TDE1MjguODYgNjQyLjc3MloiIGZpbGw9InJnYigyMzAsMzIsOCkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYwMjUsMC41LC0yLjU4MDk2ZS0wOCwxLDI3NCwxMDI0KSIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMjUiIGQ9Ik0xNTI4Ljg2IDY0Mi43NzJMMTE2OC41IDUyMi42NjFMMTE2OC41IDM5Nkw4ODEuMzUxIDM5Nkw4ODEuMzUxIDUyMi42NjFMNTIxIDY0Mi43NzJMNTIxIDc4OS41MDlMNjA3LjkzOSA4NzYuNDQzTDUyMSA4NzYuNDQzTDUyMSAxMDM0LjUxTDc1My4yMTkgMTE1MC42MUw2MzYuMDMyIDEzODQuOThMNzgwLjA2MiAxNTI5TDEwMjQuOTMgMTQwNi41N0wxMjY5Ljc5IDE1MjlMMTQxMy44MiAxMzg0Ljk4TDEyOTYuNjQgMTE1MC42MUwxNTQ1IDEwMjYuNDRMMTQxOC40NiA4OTkuOTAyTDE1MjguODYgNzg5LjUwOUwxNTI4Ljg2IDY0Mi43NzJaIiBmaWxsPSJyZ2IoMTE1LDEyLDApIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHRyYW5zZm9ybT0ibWF0cml4KDAuODY2MDI1LDAuNSwtMi41ODA5NmUtMDgsMSwyNzQsMTAyNCkiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI2IiBkPSJNMCAwTDIwNDggMEwyMDQ4IDIwNDhMMCAyMDQ4TDAgMFoiIGZpbGw9InVybCgjcGFpbnRfbGluZWFyXzApIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHRyYW5zZm9ybT0ibWF0cml4KDAuODY2MDI1LC0wLjUsMi41ODA5NmUtMDgsMSwyMDQ4LDIwNDgpIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNiIgZD0iTTEyOCAxMjhMMTkyMCAxMjhMMTkyMCAxOTIwTDEyOCAxOTIwTDEyOCAxMjhaIiBmaWxsPSJ1cmwoI3BhaW50X2xpbmVhcl8wKSIgZmlsbC1ydWxlPSJldmVub2RkIiB0cmFuc2Zvcm09Im1hdHJpeCgwLjg2NjAyNSwtMC41LDIuNTgwOTZlLTA4LDEsMjA0OCwyMDQ4KSIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMjYiIGQ9Ik0xMjggMTI4TDE5MjAgMTI4TDE5MjAgMTkyMEwxMjggMTkyMEwxMjggMTI4WiIgZmlsbD0idXJsKCNwYWludF9saW5lYXJfMSkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYwMjUsLTAuNSwyLjU4MDk2ZS0wOCwxLDIwNDgsMjA0OCkiIC8+Cjwvc3ZnPgo=';
+    img.alt = 'Tickpack';
+    img.className = 'tab-empty-logo';
+    box.append(img);
+    box.append(el('p', 'tab-empty-title', '这个标签页还是空的'));
+    box.append(el('span', 'tab-empty-hint', '在任意分栏标题的「更多」菜单里选择「移动到标签页」，把分栏移动到这里。'));
+    const reset = el('button', 'btn btn-soft btn-sm', '重置布局');
+    reset.type = 'button';
+    reset.addEventListener('click', (ev) => { ev.stopPropagation(); resetToDefaults(); });
+    box.append(reset);
+    return box;
+  }
+
+  function announceRestricted(tab) {
+    let restricted = false;
+    for (const node of walkNodes(tab.root)) {
+      if (isGroup(node) && (node.restricted || node.manualLocked)) restricted = true;
+    }
+    if (restricted && !restrictedNotified) {
+      restrictedNotified = true;
+      notify('空间不足：已自动折叠部分分栏或进入受限布局');
+    } else if (!restricted) {
+      restrictedNotified = false;
+    }
+  }
+
+  function renderWorkspace() {
+    workspaceEl.innerHTML = '';
+    nodeEls.clear();
+    const tab = activeTab();
+    if (!tab) return;
+    const root = el('div', 'pane-root');
+    root.dataset.tabId = tab.id;
+    if (panelCount(tab) === 0) {
+      root.append(emptyState());
+    } else if (tab.maximized) {
+      root.dataset.maximized = '1';
+      root.dataset.maxPlace = 'main';
+      root.style.flexDirection = tab.root.dir === 'H' ? 'row' : 'column';
+      const pane = findPaneNode(tab.root, tab.maximized);
+      if (pane) {
+        const info = findPaneInfo(tab.maximized, tab);
+        const slot = makeSlot(pane, info ? info.dir : tab.root.dir, info);
+        slot.classList.add('is-maximized');
+        slot.style.flex = '1 1 auto';
+        root.append(slot);
+      }
+    } else {
+      const { w, h } = workspaceBox();
+      lastSize = { w, h };
+      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      announceRestricted(tab);
+      root.style.flexDirection = tab.root.dir === 'H' ? 'row' : 'column';
+      root.append(renderNode(tab.root, tab.root.dir, { tab, parent: null, index: 0, dir: tab.root.dir }, tab, true));
+    }
+    workspaceEl.append(root);
+  }
+
+  function applyFrame() {
+    for (const [node, element] of nodeEls) {
+      if (isGroup(node)) {
+        if (element.parentElement && element.parentElement.classList.contains('pane-root')) continue;
+        element.style.flex = `0 0 ${Math.max(0, node.size || 0)}px`;
+      } else {
+        element.style.flex = `0 0 ${Math.max(0, node.size || 0)}px`;
+      }
+    }
+  }
+
+  function scheduleFrame() {
+    if (pendingFrame) return;
+    pendingFrame = requestAnimationFrame(() => {
+      pendingFrame = 0;
+      const tab = activeTab();
+      if (!tab) return;
+      const { w, h } = workspaceBox();
+      if (w === lastSize.w && h === lastSize.h) { applyFrame(); scheduleEmit(); return; }
+      lastSize = { w, h };
+      renderWorkspace();
+      emitChange();
+    });
+  }
+
+  function clearTabDrop() {
+    tabDropId = null;
+    tabDropAfter = false;
+    for (const tabEl of tabsEl.querySelectorAll('.tab')) {
+      tabEl.classList.remove('tab-drop-before', 'tab-drop-after', 'tab-dragging');
+    }
+  }
+
   function renderTabs() {
     tabsEl.innerHTML = '';
     for (const tab of doc.tabs) {
@@ -8754,30 +11000,154 @@ function collapseDirection(tab, panelId, pos, collapsed) {
       node.setAttribute('aria-selected', tab.id === doc.activeId ? 'true' : 'false');
       node.setAttribute('aria-current', tab.id === doc.activeId ? 'page' : 'false');
       node.title = tab.name;
-
       const label = el('span', 'tab-label', tab.name);
-      label.addEventListener('dblclick', (ev) => {
-        ev.stopPropagation();
-        startRename(node, label, tab);
-      });
+      label.addEventListener('dblclick', (ev) => { ev.stopPropagation(); startRename(node, label, tab); });
       node.append(label);
-
       if (doc.tabs.length > 1) {
         const close = el('button', 'tab-close');
         close.type = 'button';
         close.innerHTML = icon('x');
         close.title = '关闭标签页';
         close.setAttribute('aria-label', '关闭标签页');
-        close.addEventListener('click', (ev) => {
-          ev.stopPropagation();
-          closeTab(tab.id);
-        });
+        close.addEventListener('click', (ev) => { ev.stopPropagation(); closeTab(tab.id); });
         node.append(close);
       }
-
-      node.addEventListener('click', () => selectTab(tab.id));
+      node.addEventListener('click', () => {
+        if (performance.now() < tabClickSuppressedUntil) return;
+        selectTab(tab.id);
+      });
+      node.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openTabMenu(tab, node);
+      });
+      node.draggable = true;
+      node.addEventListener('pointerdown', (ev) => {
+        node._dragBlocked = !!(ev.target.closest && ev.target.closest('.tab-close, input, .tab-rename'));
+      });
+      node.addEventListener('dragstart', (ev) => {
+        if (node._dragBlocked) { ev.preventDefault(); return; }
+        tabDragId = tab.id;
+        tabDropId = null;
+        clearTabDrop();
+        node.classList.add('tab-dragging');
+        if (ev.dataTransfer) {
+          ev.dataTransfer.effectAllowed = 'move';
+          try { ev.dataTransfer.setData('text/plain', tab.id); } catch {   }
+        }
+      });
+      node.addEventListener('dragover', (ev) => {
+        if (!tabDragId || tabDragId === tab.id) return;
+        ev.preventDefault();
+        if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'move';
+        const r = node.getBoundingClientRect();
+        tabDropId = tab.id;
+        tabDropAfter = ev.clientX > r.left + r.width / 2;
+        for (const tabEl of tabsEl.querySelectorAll('.tab')) tabEl.classList.remove('tab-drop-before', 'tab-drop-after');
+        node.classList.add(tabDropAfter ? 'tab-drop-after' : 'tab-drop-before');
+      });
+      node.addEventListener('dragleave', (ev) => {
+        if (ev.relatedTarget && node.contains(ev.relatedTarget)) return;
+        node.classList.remove('tab-drop-before', 'tab-drop-after');
+      });
+      node.addEventListener('drop', (ev) => {
+        ev.preventDefault();
+        if (!tabDragId || tabDragId === tab.id) return;
+        const after = tabDropAfter;
+        const moved = reorderTabs(doc.tabs, tabDragId, tab.id, after);
+        clearTabDrop();
+        tabDragId = null;
+        tabClickSuppressedUntil = performance.now() + 250;
+        if (moved) { save(); renderTabs(); }
+      });
+      node.addEventListener('dragend', () => {
+        tabDragId = null;
+        tabClickSuppressedUntil = performance.now() + 250;
+        clearTabDrop();
+      });
       tabsEl.append(node);
     }
+  }
+
+  function activateTabForAction(tabId) {
+    if (doc.activeId === tabId) return;
+    protectedPanel = null;
+    doc.activeId = tabId;
+    save();
+    renderAll();
+  }
+
+  function renameTabById(tabId) {
+    const tab = doc.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    activateTabForAction(tabId);
+    const node = tabsEl.querySelector(`.tab[data-tab-id="${tab.id}"]`);
+    const label = node && node.querySelector('.tab-label');
+    if (node && label) startRename(node, label, tab);
+  }
+
+  function addPanelToTab(tabId, panelId) {
+    const tab = doc.tabs.find((t) => t.id === tabId);
+    if (!tab || !PANEL_DEFS.some((p) => p.id === panelId)) return false;
+    if (findPaneNode(tab.root, panelId)) return false;
+    activateTabForAction(tabId);
+    if (!addMissingPaneToTab(tab, panelId)) return false;
+    protectedPanel = panelId;
+    ensureOneExpanded(tab.root, panelId);
+    refreshLastActive(tab.root);
+    save();
+    renderAll();
+    return true;
+  }
+
+  function resetTabById(tabId) {
+    const tab = doc.tabs.find((t) => t.id === tabId);
+    if (!tab) return false;
+    activateTabForAction(tabId);
+    if (!resetTabTree(tab, defaultLayout().tabs[0].root)) return false;
+    protectedPanel = null;
+    save();
+    renderAll();
+    notify('已重置当前标签页');
+    return true;
+  }
+
+  function copyPanel(panelId, targetTabId, { newTab = false } = {}) {
+    const sourceTab = activeTab();
+    const source = findPaneInfo(panelId, sourceTab);
+    if (!source) return false;
+    let target = targetTabId ? doc.tabs.find((t) => t.id === targetTabId) : null;
+    if (!target && !newTab) return false;
+    if (target && target.id === sourceTab.id) return false;
+    if (target && findPaneNode(target.root, panelId)) return false;
+    if (!target && newTab) {
+      target = createTab({ activate: false });
+    }
+    if (!target) return false;
+    if (!addPaneToTab(target, clonePaneForCopy(source.pane))) return false;
+    ensureOneExpanded(target.root);
+    refreshLastActive(target.root);
+    save();
+    renderAll();
+    notify(`已复制「${panelTitle(panelId)}」到「${target.name}」`);
+    return true;
+  }
+
+  function openTabMenu(tab, tabNode) {
+    closeMenus();
+    const menu = el('div', 'panel-menu');
+    menu.setAttribute('role', 'menu');
+    addMenuItem(menu, '重命名', () => renameTabById(tab.id));
+    addMenuItem(menu, '添加分栏', () => {}, { heading: true });
+    const missing = PANEL_DEFS.filter((p) => !findPaneNode(tab.root, p.id));
+    if (!missing.length) addMenuItem(menu, '全部分栏已存在', () => {}, { disabled: true });
+    for (const paneDef of missing) {
+      addMenuItem(menu, paneDef.title, () => addPanelToTab(tab.id, paneDef.id));
+    }
+    menu.append(el('div', 'panel-menu-sep'));
+    addMenuItem(menu, '仅重置当前标签页', () => resetTabById(tab.id));
+    addMenuItem(menu, '关闭标签页', () => closeTab(tab.id), { disabled: doc.tabs.length <= 1 });
+    positionMenu(menu, tabNode, { align: 'left' });
   }
 
   function startRename(tabNode, label, tab) {
@@ -8795,8 +11165,10 @@ function collapseDirection(tab, panelId, pos, collapsed) {
       if (name && name !== tab.name) {
         tab.name = name;
         save();
+        renderTabs();
+      } else {
+        renderTabs();
       }
-      renderAll();
     };
     input.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter') { ev.preventDefault(); commit(false); }
@@ -8811,180 +11183,155 @@ function collapseDirection(tab, panelId, pos, collapsed) {
     if (!doc.tabs.some((t) => t.id === id)) return;
     closeMenus();
     if (doc.activeId === id) return;
+    protectedPanel = null;
     doc.activeId = id;
     save();
     renderAll();
   }
 
   function createTab({ activate = true } = {}) {
-    const n = doc.nextId || doc.tabs.length + 1;
-    doc.nextId = n + 1;
-    const tab = {
-      id: `tab-${n}`,
-      name: `标签页 ${n}`,
-      main: [],
-      dock: null,
-      collapsed: {},
-      maximized: null,
-    };
+    const id = `tab-${doc.nextId++}`;
+    const tab = { id, name: `标签页 ${doc.nextId - 1}`, root: { dir: 'H', children: [] }, maximized: null };
     doc.tabs.push(tab);
-    if (activate) doc.activeId = tab.id;
+    if (activate) { doc.activeId = tab.id; protectedPanel = null; }
     save();
     renderAll();
     return tab;
   }
 
   function closeTab(id) {
-    if (doc.tabs.length <= 1) {
-      notify('至少保留一个标签页');
-      return false;
-    }
+    if (doc.tabs.length <= 1) { notify('至少保留一个标签页'); return false; }
     const index = doc.tabs.findIndex((t) => t.id === id);
     if (index === -1) return false;
     const closing = doc.tabs[index];
     const remaining = doc.tabs.filter((_, i) => i !== index);
-    
-    
-    for (const pid of PANEL_IDS) {
-      if (!findPanelLocation(pid, closing)) continue;
-      if (remaining.some((t) => findPanelLocation(pid, t))) continue;
-      const hostTab = remaining[Math.max(0, index - 1)] || remaining[0];
-      appendPanel(hostTab, pid);
+    const hostTab = remaining[Math.max(0, index - 1)] || remaining[0];
+    for (const pane of allPanes(closing.root)) {
+      if (remaining.some((t) => findPaneNode(t.root, pane.panel))) continue;
+      appendPaneToRoot(hostTab.root, pane);
     }
     doc.tabs.splice(index, 1);
-    if (doc.activeId === id) {
-      const next = doc.tabs[Math.max(0, index - 1)] || doc.tabs[0];
-      doc.activeId = next.id;
-    }
+    if (doc.activeId === id) { doc.activeId = hostTab.id; protectedPanel = null; }
+    ensureOneExpanded(hostTab.root);
+    refreshLastActive(hostTab.root);
     save();
     renderAll();
     return true;
   }
 
-  
-   
-  function findPanelLocation(panelId, tab = activeTab()) {
-    if (!tab) return null;
-    if (tab.dock && tab.dock.panel === panelId) return { tab, where: 'dock' };
-    for (let ci = 0; ci < tab.main.length; ci++) {
-      const si = tab.main[ci].stack.findIndex((it) => it.panel === panelId);
-      if (si !== -1) return { tab, where: 'main', ci, si };
-    }
-    return null;
-  }
-
-  function tabHasPanel(tab, panelId) {
-    return !!findPanelLocation(panelId, tab);
-  }
-
-  function removePanelFromTab(panelId, tab) {
-    const loc = findPanelLocation(panelId, tab);
-    if (!loc) return false;
-    if (loc.where === 'dock') {
-      tab.dock = null;
-    } else {
-      const col = tab.main[loc.ci];
-      col.stack.splice(loc.si, 1);
-      if (col.stack.length === 0) tab.main.splice(loc.ci, 1);
-    }
-    if (tab.maximized === panelId) tab.maximized = null;
-    delete tab.collapsed[panelId];
-    return true;
-  }
-
-  function appendPanel(tab, panelId) {
-    if (panelId === 'timeline') {
-      tab.dock = { panel: 'timeline', size: tab.dock ? tab.dock.size : 150 };
-    } else {
-      tab.main.push({ grow: 30, stack: [{ panel: panelId, grow: 100 }] });
-    }
+  function ensureSourceExpandedAfterRemoval(tab) {
+    if (!tab || !allPanes(tab.root).length) return;
+    ensureOneExpanded(tab.root);
   }
 
   function movePanel(panelId, targetTabId, { toEnd = false } = {}) {
+    protectedPanel = null;
     const sourceTab = activeTab();
-    if (!findPanelLocation(panelId, sourceTab)) return false;
+    const source = findPaneInfo(panelId, sourceTab);
+    if (!source) return false;
     const target = doc.tabs.find((t) => t.id === targetTabId);
     if (!target) return false;
-
-    
-    if (tabHasPanel(target, panelId) && target !== sourceTab) {
+    if (target.id !== sourceTab.id && findPaneNode(target.root, panelId)) {
       doc.activeId = target.id;
       save();
       renderAll();
-      emitChange();
       return true;
     }
-    if (sourceTab === target && !toEnd) return false;
-
-    if (panelCount(sourceTab) <= 1) {
-      notify('每个标签页至少保留一个分栏');
-      return false;
-    }
-    removePanelFromTab(panelId, sourceTab);
-    if (sourceTab === target) {
-      appendPanel(target, panelId);
-    } else {
-      appendPanel(target, panelId);
-      doc.activeId = target.id;
-    }
+    if (target.id === sourceTab.id && !toEnd) return false;
+    const pane = source.pane;
+    if (sourceTab.maximized === panelId) sourceTab.maximized = null;
+    removePaneFromTree(sourceTab.root, panelId);
+    normalizeTree(sourceTab.root);
+    ensureSourceExpandedAfterRemoval(sourceTab);
+    appendPaneToRoot(target.root, pane);
+    normalizeTree(target.root);
+    ensureOneExpanded(target.root);
+    refreshLastActive(sourceTab.root);
+    refreshLastActive(target.root);
+    doc.activeId = target.id;
     save();
     renderAll();
-    emitChange();
     return true;
+  }
+
+  function expandWithWeight(pane, info) {
+    if (!pane) return;
+    expandPane(pane);
+    const axis = info && info.dir ? info.dir : 'H';
+    const min = nodeMin(pane, axis);
+    const target = Number.isFinite(pane.recordedSize) ? pane.recordedSize : min;
+    pane.weight = Math.max(MIN_GROW, target - min);
+    pane.preferredSize = target;
   }
 
   function toggleCollapse(panelId) {
     const tab = activeTab();
-    const loc = findPanelLocation(panelId, tab);
-    if (!loc) return;
+    const info = findPaneInfo(panelId, tab);
+    if (!info) return;
+    const pane = info.pane;
     if (tab.maximized === panelId) tab.maximized = null;
-    tab.collapsed[panelId] = !tab.collapsed[panelId];
+    markPaneActive(tab.root, panelId);
+    if (pane.collapsed) {
+      expandWithWeight(pane, info);
+      protectedPanel = panelId;
+    } else {
+      if (protectedPanel === panelId) protectedPanel = null;
+      const expanded = expandedPanes(tab.root);
+      if (expanded.length === 1) {
+        const other = allPanes(tab.root).find((p) => p !== pane);
+        if (other) {
+          const otherInfo = findPaneInfo(other.panel, tab);
+          expandWithWeight(other, otherInfo);
+        } else {
+          notify('标签页至少保留一个展开分栏');
+          return;
+        }
+      }
+      collapsePane(pane);
+    }
     save();
     renderAll();
   }
 
   function toggleMaximize(panelId) {
     const tab = activeTab();
-    const loc = findPanelLocation(panelId, tab);
-    if (!loc) return;
+    const info = findPaneInfo(panelId, tab);
+    if (!info) return;
+    if (info.pane.collapsed) {
+      expandWithWeight(info.pane, info);
+      protectedPanel = panelId;
+      ensureOneExpanded(tab.root, panelId);
+      markPaneActive(tab.root, panelId);
+      refreshLastActive(tab.root);
+    }
     tab.maximized = tab.maximized === panelId ? null : panelId;
-    if (tab.maximized) delete tab.collapsed[panelId];
     save();
     renderAll();
   }
 
-  
   function closeMenus() {
-    for (const menu of menus) {
-      if (menu.parentNode) menu.parentNode.removeChild(menu);
-    }
+    for (const menu of menus) if (menu.parentNode) menu.parentNode.removeChild(menu);
     menus = [];
   }
 
   function addMenuItem(menu, label, handler, { disabled = false, heading = false } = {}) {
-    if (heading) {
-      const h = el('div', 'panel-menu-heading', label);
-      menu.append(h);
-      return;
-    }
+    if (heading) { menu.append(el('div', 'panel-menu-heading', label)); return; }
     const item = el('button', 'panel-menu-item', label);
     item.type = 'button';
     item.disabled = !!disabled;
-    item.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      closeMenus();
-      handler();
-    });
+    item.addEventListener('click', (ev) => { ev.stopPropagation(); closeMenus(); handler(); });
     menu.append(item);
   }
 
   function openPanelMenu(button, panelId) {
     closeMenus();
     const tab = activeTab();
+    const info = findPaneInfo(panelId, tab);
+    if (!info) return;
     const menu = el('div', 'panel-menu');
     menu.setAttribute('role', 'menu');
     menu.dataset.menuFor = panelId;
-    addMenuItem(menu, tab.collapsed[panelId] ? '展开' : '折叠', () => toggleCollapse(panelId));
+    addMenuItem(menu, info.pane.collapsed ? '展开' : '折叠', () => toggleCollapse(panelId));
     addMenuItem(menu, tab.maximized === panelId ? '取消最大化' : '最大化', () => toggleMaximize(panelId));
     menu.append(el('div', 'panel-menu-sep'));
     addMenuItem(menu, '移动到标签页 →', () => {}, { heading: true });
@@ -8997,219 +11344,99 @@ function collapseDirection(tab, panelId, pos, collapsed) {
       movePanel(panelId, created.id);
     });
     addMenuItem(menu, '本页末尾', () => movePanel(panelId, tab.id, { toEnd: true }));
-
-    
-    const winW = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
-    const rect = typeof button.getBoundingClientRect === 'function'
-      ? button.getBoundingClientRect()
-      : { bottom: 40, right: winW - 12 };
-    menu.style.position = 'fixed';
-    menu.style.top = `${Math.min(rect.bottom + 5, Math.max(8, winH - 260))}px`;
-    menu.style.right = `${Math.max(8, winW - rect.right)}px`;
-    menu.style.left = 'auto';
-    document.body.appendChild(menu);
-    menus.push(menu);
+    menu.append(el('div', 'panel-menu-sep'));
+    addMenuItem(menu, '复制到标签页 →', () => {}, { heading: true });
+    for (const other of doc.tabs) {
+      if (other.id === tab.id) continue;
+      const exists = !!findPaneNode(other.root, panelId);
+      addMenuItem(menu, other.name, () => copyPanel(panelId, other.id), { disabled: exists });
+    }
+    addMenuItem(menu, '复制到新标签页', () => copyPanel(panelId, null, { newTab: true }));
+    positionMenu(menu, button);
   }
 
-  
-  function startSplitDrag(ev, kind, ci, si, tab) {
+  function startSplitDrag(ev, group, index, dir, tab) {
     if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
-    const root = workspaceEl.querySelector('.pane-root');
-    if (!root) return;
-    const mainEl = root.querySelector('.pane-main');
-    const startX = ev.clientX;
-    const startY = ev.clientY;
+    if (!group || group.manualLocked) return;
+    const left = group.children[index - 1];
+    const right = group.children[index];
+    if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return;
     const splitter = ev.currentTarget;
     splitter.classList.add('active');
-
-    let before;
-    let after;
-    let startBefore;
-    let startAfter;
-    let startDock = 0;
-    let pixelsPerGrow = 0;
-    let sumGrow = 0;
-    if (kind === 'v') {
-      before = tab.main[ci - 1];
-      after = tab.main[ci];
-      startBefore = before.grow;
-      startAfter = after.grow;
-      sumGrow = startBefore + startAfter;
-      const cols = mainEl ? mainEl.querySelectorAll(':scope > .pane-col') : [];
-      const a = cols[ci - 1];
-      const b = cols[ci];
-      if (a && b) {
-        const pa = a.getBoundingClientRect();
-        const pb = b.getBoundingClientRect();
-        const span = pa.width + pb.width;
-        if (span > 0 && sumGrow > 0) pixelsPerGrow = span / sumGrow;
-      }
-      if (!(pixelsPerGrow > 0)) {
-        const total = mainEl ? Math.max(1, mainEl.clientWidth) : 1;
-        pixelsPerGrow = total / Math.max(1, tab.main.reduce((n, col) => n + col.grow, 0));
-      }
-    } else if (kind === 'h') {
-      const col = tab.main[ci];
-      before = col.stack[si - 1];
-      after = col.stack[si];
-      startBefore = before.grow;
-      startAfter = after.grow;
-      sumGrow = startBefore + startAfter;
-      const colEl = splitter.parentElement;
-      const slots = colEl ? colEl.querySelectorAll(':scope > .pane-slot') : [];
-      const a = slots[si - 1];
-      const b = slots[si];
-      if (a && b) {
-        const pa = a.getBoundingClientRect();
-        const pb = b.getBoundingClientRect();
-        const span = pa.height + pb.height;
-        if (span > 0 && sumGrow > 0) pixelsPerGrow = span / sumGrow;
-      }
-      if (!(pixelsPerGrow > 0)) {
-        const total = colEl ? Math.max(1, colEl.clientHeight) : 1;
-        pixelsPerGrow = total / Math.max(1, col.stack.reduce((n, item) => n + item.grow, 0));
-      }
-    } else {
-      startDock = tab.dock.size;
+    document.body.classList.add('dragging-split');
+    const start = dir === 'H' ? ev.clientX : ev.clientY;
+    const startLeft = Number.isFinite(left.size) ? left.size : nodeMin(left, dir);
+    const startRight = Number.isFinite(right.size) ? right.size : nodeMin(right, dir);
+    const total = startLeft + startRight;
+    const minLeft = nodeMin(left, dir);
+    const minRight = nodeMin(right, dir);
+    let moved = false;
+    for (const child of group.children) {
+      if (!isExpandedNode(child)) continue;
+      child.preferredSize = undefined;
+      child.weight = Math.max(MIN_GROW, (Number.isFinite(child.size) ? child.size : nodeMin(child, dir)) - nodeMin(child, dir));
     }
-
     const onMove = (mv) => {
-      if (kind === 'v') {
-        const dx = mv.clientX - startX;
-        const delta = dx / pixelsPerGrow;
-        const sum = sumGrow;
-        const nextBefore = Math.max(MIN_GROW, Math.min(sum - MIN_GROW, startBefore + delta));
-        before.grow = nextBefore;
-        after.grow = sum - nextBefore;
-        const cols = mainEl.querySelectorAll(':scope > .pane-col');
-        if (cols[ci - 1]) cols[ci - 1].style.flexGrow = String(before.grow);
-        if (cols[ci]) cols[ci].style.flexGrow = String(after.grow);
-      } else if (kind === 'h') {
-        const dy = mv.clientY - startY;
-        const delta = dy / pixelsPerGrow;
-        const sum = sumGrow;
-        const nextBefore = Math.max(MIN_GROW, Math.min(sum - MIN_GROW, startBefore + delta));
-        before.grow = nextBefore;
-        after.grow = sum - nextBefore;
-        const colEl = splitter.parentElement;
-        const slots = colEl.querySelectorAll(':scope > .pane-slot');
-        if (slots[si - 1]) slots[si - 1].style.flexGrow = String(before.grow);
-        if (slots[si]) slots[si].style.flexGrow = String(after.grow);
-      } else {
-        const rootH = Math.max(1, root.clientHeight);
-        const delta = mv.clientY - startY;
-        tab.dock.size = clampDock(Math.min(rootH * 0.7, startDock - delta));
-        const dockEl = root.querySelector('.pane-dock');
-        if (dockEl) dockEl.style.flex = `0 0 ${tab.dock.size}px`;
-      }
+      const pos = dir === 'H' ? mv.clientX : mv.clientY;
+      if (Math.abs(pos - start) > 2) moved = true;
+      pendingDelta = pos - start;
+      if (moveRaf) return;
+      moveRaf = requestAnimationFrame(() => {
+        moveRaf = 0;
+        applyDelta(pendingDelta);
+      });
     };
-
+    let moveRaf = 0;
+    let pendingDelta = 0;
+    const applyDelta = (delta) => {
+      const nextLeft = Math.max(minLeft, Math.min(total - minRight, startLeft + delta));
+      const nextRight = total - nextLeft;
+      left.size = nextLeft;
+      right.size = nextRight;
+      left.weight = Math.max(MIN_GROW, nextLeft - minLeft);
+      right.weight = Math.max(MIN_GROW, nextRight - minRight);
+      const { w, h } = workspaceBox();
+      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      announceRestricted(tab);
+      applyFrame();
+    };
     const onUp = () => {
+      if (moveRaf) {
+        cancelAnimationFrame(moveRaf);
+        moveRaf = 0;
+        applyDelta(pendingDelta);
+      }
       splitter.classList.remove('active');
+      document.body.classList.remove('dragging-split');
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      document.body.classList.remove('dragging-split');
       save();
       emitChange();
       dragCleanup = null;
+      const now = performance.now();
+      if (moved) {
+        splitter._lastTap = 0;
+      } else if (splitter._lastTap && now - splitter._lastTap < 350) {
+        splitter._lastTap = 0;
+        if (group !== tab.root) {
+          rotateGroup(group);
+          refreshLastActive(tab.root);
+          save();
+          renderAll();
+        }
+      } else {
+        splitter._lastTap = now;
+      }
     };
     dragCleanup = onUp;
-    document.body.classList.add('dragging-split');
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }
 
-  
-  function makeSlot(panelId, tab, pos) {
-    const slot = el('div', 'pane-slot');
-    slot.dataset.panelId = panelId;
-    slot.dataset.slot = pos.dock ? 'dock' : `${pos.ci}:${pos.si}`;
-    const collapsed = !!tab.collapsed[panelId];
-    if (!pos.dock) {
-      const stack = tab.main[pos.ci] && tab.main[pos.ci].stack;
-      const item = stack && stack[pos.si];
-      if (item) {
-        
-        
-        
-        if (collapsed) slot.style.flexGrow = '';
-        else slot.style.flexGrow = String(item.grow);
-      }
-    }
-    if (collapsed) {
-      slot.classList.add('is-collapsed');
-      slot.style.minHeight = '0';
-    } else {
-      slot.style.minHeight = '';
-    }
-    if (tab.maximized === panelId) slot.classList.add('is-maximized');
-    const panel = panelNodes[panelId];
-    if (!panel) {
-      slot.append(el('div', 'panel-missing', '分栏不可用'));
-      return slot;
-    }
-    panel.dataset.panelId = panelId;
-    panel.classList.toggle('collapsed', collapsed);
-    panel.classList.toggle('maximized', tab.maximized === panelId);
-    const title = PANEL_TITLES.get(panelId) || panelId;
-    const collapseBtn = panel.querySelector && panel.querySelector('[data-action="collapse"]');
-    if (collapseBtn) {
-      setIcon(collapseBtn, collapseDirection(tab, panelId, pos, collapsed));
-      collapseBtn.title = `${collapsed ? '展开' : '折叠'} ${title}`;
-      collapseBtn.setAttribute('aria-label', `${collapsed ? '展开' : '折叠'} ${title}`);
-      collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    }
-    const maximizeBtn = panel.querySelector && panel.querySelector('[data-action="maximize"]');
-    if (maximizeBtn) {
-      const maximized = tab.maximized === panelId;
-      setIcon(maximizeBtn, maximized ? 'minimize' : 'maximize');
-      maximizeBtn.title = maximized ? '还原' : '最大化';
-      maximizeBtn.setAttribute('aria-label', maximized ? '还原' : '最大化');
-      maximizeBtn.setAttribute('aria-pressed', maximized ? 'true' : 'false');
-    }
-    const menuBtn = panel.querySelector && panel.querySelector('[data-action="menu"]');
-    if (menuBtn) {
-      setIcon(menuBtn, 'more-horizontal');
-      menuBtn.title = '更多操作';
-      menuBtn.setAttribute('aria-label', '更多操作');
-      menuBtn.setAttribute('aria-haspopup', 'menu');
-    }
-    slot.append(panel);
-    return slot;
-  }
-
-  function makeSplitter(kind, ci, si, tab) {
-    const splitter = el('div', `split split-${kind === 'dock' ? 'dock' : kind === 'v' ? 'v' : 'h'}`);
-    splitter.dataset.split = kind;
-    splitter.setAttribute('role', 'separator');
-    splitter.setAttribute('aria-orientation', kind === 'v' ? 'vertical' : 'horizontal');
-    splitter.addEventListener('pointerdown', (ev) => startSplitDrag(ev, kind, ci, si, tab));
-    return splitter;
-  }
-
-  function emptyState() {
-    const box = el('div', 'tab-empty');
-    const img = document.createElement('img');
-    img.src = 'data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNDA5NiA0MDk2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iNDA5Ni4wMDAwMDAiIGhlaWdodD0iNDA5Ni4wMDAwMDAiIGZpbGw9Im5vbmUiPgoJPGRlZnM+CgkJPGxpbmVhckdyYWRpZW50IGlkPSJwYWludF9saW5lYXJfMCIgeDE9IjAuMDAwMzY2MjEwOTM4IiB4Mj0iMjA0OCIgeTE9Ii0wLjAwMDI0NDE0MDYyNSIgeTI9IjIwNDgiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KCQkJPHN0b3Agc3RvcC1jb2xvcj0icmdiKDI0OCwyMTQsNTEpIiBvZmZzZXQ9IjAuNDAwMDAwMDA2IiBzdG9wLW9wYWNpdHk9IjEiIC8+CgkJCTxzdG9wIHN0b3AtY29sb3I9InJnYigyMDcsMTQ2LDUxKSIgb2Zmc2V0PSIwLjYwMDAwMDAyNCIgc3RvcC1vcGFjaXR5PSIxIiAvPgoJCTwvbGluZWFyR3JhZGllbnQ+CgkJPGxpbmVhckdyYWRpZW50IGlkPSJwYWludF9saW5lYXJfMSIgeDE9IjAuMDAwMTIyMDcwMzEyIiB4Mj0iMjA0Ny45OTk1MSIgeTE9Ii0wLjAwMDMwNTE3NTc4MSIgeTI9IjIwNDguMDAwNDkiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KCQkJPHN0b3Agc3RvcC1jb2xvcj0icmdiKDI1MSwyMzMsMTg5KSIgb2Zmc2V0PSIwIiBzdG9wLW9wYWNpdHk9IjEiIC8+CgkJCTxzdG9wIHN0b3AtY29sb3I9InJnYigyNDgsMjE0LDUxKSIgb2Zmc2V0PSIxIiBzdG9wLW9wYWNpdHk9IjEiIC8+CgkJPC9saW5lYXJHcmFkaWVudD4KCTwvZGVmcz4KCTxyZWN0IGlkPSJsb2dvLW1pZGRsZSIgd2lkdGg9IjQwOTYuMDAwMDAwIiBoZWlnaHQ9IjQwOTYuMDAwMDAwIiB4PSIwLjAwMDAwMCIgeT0iMC4wMDAwMDAiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNMjc0IDEwMjRMMjA0Ny41IDBMMzgyMSAxMDI0TDIwNDcuNSAyMDQ4TDI3NCAxMDI0WiIgZmlsbD0icmdiKDEwNiw3OSwxOTkpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNNjYxLjk1MyA4MDBMNjYxLjk1MyAxMjQ4TDEzMjcuMDIgMTI0OEwxNjU5LjU1IDE0NDBMMTY1OS41NSAxODI0TDI0MzUuNDUgMTgyNEwyNDM1LjQ1IDE0NDBMMjc2Ny45OCAxMjQ4TDM0MzMuMDUgMTI0OEwzNDMzLjA1IDgwMEwyNzY3Ljk4IDgwMEwyNDM1LjQ1IDYwOEwyNDM1LjQ1IDIyNEwxNjU5LjU1IDIyNEwxNjU5LjU1IDYwOEwxMzI3LjAyIDgwMEw2NjEuOTUzIDgwMFoiIGZpbGw9InJnYigxMDYsNzksMTk5KSIgZmlsbC1ydWxlPSJldmVub2RkIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNyIgZD0iTTY2MS45NTMgODAwTDY2MS45NTMgMTI0OEwxMzI3LjAyIDEyNDhMMTY1OS41NSAxNDQwTDE2NTkuNTUgMTgyNEwyNDM1LjQ1IDE4MjRMMjQzNS40NSAxNDQwTDI3NjcuOTggMTI0OEwzNDMzLjA1IDEyNDhMMzQzMy4wNSA4MDBMMjc2Ny45OCA4MDBMMjQzNS40NSA2MDhMMjQzNS40NSAyMjRMMTY1OS41NSAyMjRMMTY1OS41NSA2MDhMMTMyNy4wMiA4MDBMNjYxLjk1MyA4MDBaIiBmaWxsPSJyZ2IoMTU1LDEzOSwyMDcpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNMTMyNy4wMiA4MDBMMTY1OS41NSA2MDhMMjQzNS40NSA2MDhMMjc2Ny45OCA4MDBMMjc2Ny45OCAxMjQ4TDI0MzUuNDUgMTQ0MEwxNjU5LjU1IDE0NDBMMTMyNy4wMiAxMjQ4TDEzMjcuMDIgODAwWiIgZmlsbD0icmdiKDEwNiw3OSwxOTkpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI3IiBkPSJNMTMyNy4wMiA4MDBMMTY1OS41NSA2MDhMMjQzNS40NSA2MDhMMjc2Ny45OCA4MDBMMjc2Ny45OCAxMjQ4TDI0MzUuNDUgMTQ0MEwxNjU5LjU1IDE0NDBMMTMyNy4wMiAxMjQ4TDEzMjcuMDIgODAwWiIgZmlsbD0icmdiKDE3OSwxNzYsMTg1KSIgZmlsbC1ydWxlPSJldmVub2RkIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNSIgZD0iTTAgMjA0OEwwIDBMMjA0OCAwTDIwNDggMjA0OEwwIDIwNDhaIiBmaWxsPSJyZ2IoMjMwLDMyLDgpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHRyYW5zZm9ybT0ibWF0cml4KDAuODY2MDI1LDAuNSwtMi41ODA5NmUtMDgsMSwyNzQsMTAyNCkiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI1IiBkPSJNMTg2My41NSAxMzU3Ljg3TDE3NDYuMTkgMTM1Ny44N0wxNzQ2LjE5IDEyNjIuNzVMMTg2My41NSAxMDI4LjA3TDE4NjMuNTUgOTAyLjIzNkwxNzM5LjMyIDY1My44MTdMMTYyOC44MyA2NTMuODE3TDE2MjguODMgNTcyLjQzNUwxNzQxLjE3IDU3Mi40MzVMMTg3NCAxNzRMMTQ5MC41NiAzMDEuNzkxTDEzODAuMzYgMzAxLjc5MUwxMTQ1LjY0IDE4NC40NDlMNzg1LjA2NCAxODQuNDQ5TDUzNi42MDMgMzA4LjY1OEw1MzYuNjAzIDQxOS4xMzNMNDU1LjIwNyA0MTkuMTMzTDQ1NS4yMDcgMTg0LjQ0OUwxNzkuNDY4IDE4NC40NDlMMzAwLjgwMyA2NjkuNzA1TDE4NC41MTcgOTAyLjIzNkwxODQuNTE3IDExNDMuMzhMMzAwLjgwMyAxNjA4LjQ0TDE2NyAxODc2TDU2NC4zIDE3NDMuNTlMNjc5LjM5NiAxNjI4LjUxTDc4MS44NjEgMTYyOC41MUw4NjMuMjU3IDE3MDkuODlMNzg5LjMxIDE3MDkuODlMNzgxLjI2NyAxNzQzLjk2TDEwMTkuNzkgMTg2My4yTDE4NjMuNTUgMTg2My4yTDE4NjMuNTUgMTM1Ny44N1oiIGZpbGw9InJnYigyMzAsMzIsOCkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYwMjUsMC41LC0yLjU4MDk2ZS0wOCwxLDI3NCwxMDI0KSIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMjUiIGQ9Ik0xODYzLjU1IDEzNTcuODdMMTc0Ni4xOSAxMzU3Ljg3TDE3NDYuMTkgMTI2Mi43NUwxODYzLjU1IDEwMjguMDdMMTg2My41NSA5MDIuMjM2TDE3MzkuMzIgNjUzLjgxN0wxNjI4LjgzIDY1My44MTdMMTYyOC44MyA1NzIuNDM1TDE3NDEuMTcgNTcyLjQzNUwxODc0IDE3NEwxNDkwLjU2IDMwMS43OTFMMTM4MC4zNiAzMDEuNzkxTDExNDUuNjQgMTg0LjQ0OUw3ODUuMDY0IDE4NC40NDlMNTM2LjYwMyAzMDguNjU4TDUzNi42MDMgNDE5LjEzM0w0NTUuMjA3IDQxOS4xMzNMNDU1LjIwNyAxODQuNDQ5TDE3OS40NjggMTg0LjQ0OUwzMDAuODAzIDY2OS43MDVMMTg0LjUxNyA5MDIuMjM2TDE4NC41MTcgMTE0My4zOEwzMDAuODAzIDE2MDguNDRMMTY3IDE4NzZMNTY0LjMgMTc0My41OUw2NzkuMzk2IDE2MjguNTFMNzgxLjg2MSAxNjI4LjUxTDg2My4yNTcgMTcwOS44OUw3ODkuMzEgMTcwOS44OUw3ODEuMjY3IDE3NDMuOTZMMTAxOS43OSAxODYzLjJMMTg2My41NSAxODYzLjJMMTg2My41NSAxMzU3Ljg3WiIgZmlsbD0icmdiKDE2NCwyNCw4KSIgZmlsbC1ydWxlPSJldmVub2RkIiB0cmFuc2Zvcm09Im1hdHJpeCgwLjg2NjAyNSwwLjUsLTIuNTgwOTZlLTA4LDEsMjc0LDEwMjQpIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNSIgZD0iTTE1MjguODYgNjQyLjc3MkwxMTY4LjUgNTIyLjY2MUwxMTY4LjUgMzk2TDg4MS4zNTEgMzk2TDg4MS4zNTEgNTIyLjY2MUw1MjEgNjQyLjc3Mkw1MjEgNzg5LjUwOUw2MDcuOTM5IDg3Ni40NDNMNTIxIDg3Ni40NDNMNTIxIDEwMzQuNTFMNzUzLjIxOSAxMTUwLjYxTDYzNi4wMzIgMTM4NC45OEw3ODAuMDYyIDE1MjlMMTAyNC45MyAxNDA2LjU3TDEyNjkuNzkgMTUyOUwxNDEzLjgyIDEzODQuOThMMTI5Ni42NCAxMTUwLjYxTDE1NDUgMTAyNi40NEwxNDE4LjQ2IDg5OS45MDJMMTUyOC44NiA3ODkuNTA5TDE1MjguODYgNjQyLjc3MloiIGZpbGw9InJnYigyMzAsMzIsOCkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYwMjUsMC41LC0yLjU4MDk2ZS0wOCwxLDI3NCwxMDI0KSIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMjUiIGQ9Ik0xNTI4Ljg2IDY0Mi43NzJMMTE2OC41IDUyMi42NjFMMTE2OC41IDM5Nkw4ODEuMzUxIDM5Nkw4ODEuMzUxIDUyMi42NjFMNTIxIDY0Mi43NzJMNTIxIDc4OS41MDlMNjA3LjkzOSA4NzYuNDQzTDUyMSA4NzYuNDQzTDUyMSAxMDM0LjUxTDc1My4yMTkgMTE1MC42MUw2MzYuMDMyIDEzODQuOThMNzgwLjA2MiAxNTI5TDEwMjQuOTMgMTQwNi41N0wxMjY5Ljc5IDE1MjlMMTQxMy44MiAxMzg0Ljk4TDEyOTYuNjQgMTE1MC42MUwxNTQ1IDEwMjYuNDRMMTQxOC40NiA4OTkuOTAyTDE1MjguODYgNzg5LjUwOUwxNTI4Ljg2IDY0Mi43NzJaIiBmaWxsPSJyZ2IoMTE1LDEyLDApIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHRyYW5zZm9ybT0ibWF0cml4KDAuODY2MDI1LDAuNSwtMi41ODA5NmUtMDgsMSwyNzQsMTAyNCkiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDI2IiBkPSJNMCAwTDIwNDggMEwyMDQ4IDIwNDhMMCAyMDQ4TDAgMFoiIGZpbGw9InVybCgjcGFpbnRfbGluZWFyXzApIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHRyYW5zZm9ybT0ibWF0cml4KDAuODY2MDI1LC0wLjUsMi41ODA5NmUtMDgsMSwyMDQ4LDIwNDgpIiAvPgoJPHBhdGggaWQ9IuefoumHjyAyNiIgZD0iTTEyOCAxMjhMMTkyMCAxMjhMMTkyMCAxOTIwTDEyOCAxOTIwTDEyOCAxMjhaIiBmaWxsPSJ1cmwoI3BhaW50X2xpbmVhcl8wKSIgZmlsbC1ydWxlPSJldmVub2RkIiB0cmFuc2Zvcm09Im1hdHJpeCgwLjg2NjAyNSwtMC41LDIuNTgwOTZlLTA4LDEsMjA0OCwyMDQ4KSIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMjYiIGQ9Ik0xMjggMTI4TDE5MjAgMTI4TDE5MjAgMTkyMEwxMjggMTkyMEwxMjggMTI4WiIgZmlsbD0idXJsKCNwYWludF9saW5lYXJfMSkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdHJhbnNmb3JtPSJtYXRyaXgoMC44NjYwMjUsLTAuNSwyLjU4MDk2ZS0wOCwxLDIwNDgsMjA0OCkiIC8+Cjwvc3ZnPgo=';
-    img.alt = 'Tickpack';
-    img.className = 'tab-empty-logo';
-    box.append(img);
-    box.append(el('p', 'tab-empty-title', '这个标签页还是空的'));
-    box.append(el('span', 'tab-empty-hint', '在任意分栏标题的「更多」菜单里选择「移动到标签页」，把分栏移动到这里。'));
-    const reset = el('button', 'btn btn-soft btn-sm', '重置布局');
-    reset.type = 'button';
-    reset.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      resetToDefaults();
-    });
-    box.append(reset);
-    return box;
-  }
-
   function resetToDefaults() {
-    const previous = clone(doc);
+    const previous = cloneTree(doc);
+    protectedPanel = null;
     doc = defaultLayout();
     if (typeof host.storageRemove === 'function') {
       try { host.storageRemove(LAYOUT_KEY); } catch {   }
@@ -9220,63 +11447,25 @@ function collapseDirection(tab, panelId, pos, collapsed) {
     else notify('已重置为默认布局');
   }
 
-  function renderWorkspace() {
-    workspaceEl.innerHTML = '';
-    const tab = activeTab();
-    if (!tab) return;
-    const root = el('div', 'pane-root');
-    root.dataset.tabId = tab.id;
-    if (tab.maximized) {
-      root.dataset.maximized = '1';
-      root.dataset.maxPlace = tab.dock && tab.dock.panel === tab.maximized ? 'dock' : 'main';
-    }
-
-    if (panelCount(tab) === 0) {
-      root.append(emptyState());
-    } else {
-      const main = el('div', 'pane-main');
-      tab.main.forEach((col, ci) => {
-        if (ci > 0) main.append(makeSplitter('v', ci, 0, tab));
-        const colEl = el('div', 'pane-col');
-        colEl.style.flexGrow = String(col.grow);
-        if (col.stack.length === 1 && tab.collapsed[col.stack[0].panel]) colEl.classList.add('col-collapsed');
-        if (tab.maximized && col.stack.some((it) => it.panel === tab.maximized)) colEl.classList.add('col-max');
-        col.stack.forEach((item, si) => {
-          if (si > 0) colEl.append(makeSplitter('h', ci, si, tab));
-          colEl.append(makeSlot(item.panel, tab, { ci, si }));
-        });
-        main.append(colEl);
-      });
-      root.append(main);
-      if (tab.dock) {
-        root.append(makeSplitter('dock', 0, 0, tab));
-        const dock = el('div', 'pane-dock');
-        if (tab.collapsed[tab.dock.panel]) {
-          dock.classList.add('dock-collapsed');
-          dock.style.flex = '0 0 auto';
-        } else {
-          dock.style.flex = `0 0 ${tab.dock.size}px`;
-        }
-        dock.append(makeSlot(tab.dock.panel, tab, { dock: true }));
-        root.append(dock);
-      }
-    }
-
-    workspaceEl.append(root);
-    
-    for (const [pid, node] of Object.entries(panelNodes)) {
-      node.classList.toggle('collapsed', !!(tab.collapsed && tab.collapsed[pid]));
-      node.classList.toggle('maximized', tab.maximized === pid);
-    }
-  }
-
   function renderAll() {
     renderTabs();
     renderWorkspace();
     emitChange();
   }
 
-  
+  workspaceEl.addEventListener('pointerdown', (ev) => {
+    if (ev.button != null && ev.button !== 0) return;
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .group-capsule, .split, .tab')) return;
+    const head = target.closest('.panel-head');
+    if (!head || !workspaceEl.contains(head)) return;
+    if (activeTab() && activeTab().maximized) return;
+    const panel = head.closest('.panel');
+    if (!panel || !panel.dataset.panelId) return;
+    startHeaderDrag(ev, panel.dataset.panelId);
+  });
+
   workspaceEl.addEventListener('click', (ev) => {
     const actionBtn = ev.target.closest ? ev.target.closest('[data-action]') : null;
     if (!actionBtn) {
@@ -9296,23 +11485,24 @@ function collapseDirection(tab, panelId, pos, collapsed) {
     }
   });
 
-  
   document.addEventListener('click', (ev) => {
     const t = ev.target;
     if (t && t.closest && (t.closest('.panel-menu') || t.closest('[data-action]'))) return;
     if (menus.length) closeMenus();
   });
 
-  if (newTabBtn) {
-    newTabBtn.addEventListener('click', () => {
-      createTab({ activate: true });
-    });
+  if (newTabBtn) newTabBtn.addEventListener('click', () => createTab({ activate: true }));
+  if (resetBtn) resetBtn.addEventListener('click', () => resetToDefaults());
+
+  let resizeObserver = null;
+  if (typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(() => scheduleFrame());
+    resizeObserver.observe(workspaceEl);
   }
-  if (resetBtn) {
-    resetBtn.addEventListener('click', () => resetToDefaults());
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('resize', scheduleFrame);
   }
 
-  
   const api = {
     init(requestedTab) {
       load(requestedTab);
@@ -9325,27 +11515,37 @@ function collapseDirection(tab, panelId, pos, collapsed) {
     createTab,
     closeTab,
     movePanel,
+    copyPanel,
+    addPanelToTab,
+    resetTab: resetTabById,
+    moveTab(draggedId, targetId, after = false) {
+      const moved = reorderTabs(doc.tabs, draggedId, targetId, after);
+      if (moved) { save(); renderTabs(); }
+      return moved;
+    },
     toggleCollapse,
     toggleMaximize,
-     
     restoreLayout(raw) {
       const next = sanitizeLayout(raw);
       if (!next) return false;
       doc = next;
+      protectedPanel = null;
       save();
       renderAll();
       return true;
     },
-    resetLayout() {
-      resetToDefaults();
-      return doc;
-    },
+    resetLayout() { resetToDefaults(); return doc; },
     visiblePanels() { return visiblePanels(activeTab()); },
+    panelsOfTab,
+    serialize: () => cloneTree(doc),
     save,
-    serialize: () => clone(doc),
-     
     cancelDrag() {
       if (dragCleanup) dragCleanup();
+      dragCleanup = null;
+    },
+    dispose() {
+      if (resizeObserver) resizeObserver.disconnect();
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') window.removeEventListener('resize', scheduleFrame);
     },
   };
   return api;
@@ -9354,7 +11554,6 @@ function collapseDirection(tab, panelId, pos, collapsed) {
 exports.LAYOUT_KEY = LAYOUT_KEY;
 exports.LAYOUT_VERSION = LAYOUT_VERSION;
 exports.PANEL_DEFS = PANEL_DEFS;
-exports.defaultLayout = defaultLayout;
 exports.createLayout = createLayout;
   };
 
@@ -9875,6 +12074,11 @@ function parseQueryInt(q, key) {
       dom.sampleSelect.appendChild(o);
       return;
     }
+    const custom = document.createElement('option');
+    custom.value = '';
+    custom.textContent = '自定义程序';
+    custom.disabled = true;
+    dom.sampleSelect.appendChild(custom);
     for (const s of SAMPLES) {
       const o = document.createElement('option');
       o.value = s.id;
@@ -9983,6 +12187,8 @@ function parseQueryInt(q, key) {
       dom.sampleSelect.value = sample.id;
       applySampleDescription(sample);
     } else {
+      lastSampleValue = '';
+      dom.sampleSelect.value = '';
       applySampleDescription(null);
     }
     editor.setValue(draft.source, { silent: true });
@@ -10397,8 +12603,8 @@ function parseQueryInt(q, key) {
     }
     dom.penReadout.innerHTML =
       `<span class="pen-dot"></span>` +
-      `<b>x ${pen.x.toFixed(1)}</b> <b>z ${pen.z.toFixed(1)}</b> ` +
-      `<b>${Math.round(pen.yaw)}°</b>`;
+      `<b>x ${pen.x.toFixed(1)}</b> <b>y ${(pen.y || 0).toFixed(1)}</b> <b>z ${pen.z.toFixed(1)}</b> ` +
+      `<b>${Math.round(pen.yaw)}° / ${Math.round(pen.pitch || 0)}°</b>`;
   }
 
    
@@ -10407,11 +12613,14 @@ function parseQueryInt(q, key) {
     const zoom = cam.zoom >= 10 ? cam.zoom.toFixed(0) : (Math.round(cam.zoom * 10) / 10).toFixed(1);
     const cx = Math.round(cam.cx - 0.5);
     const cz = Math.round(cam.cz - 0.5);
-    dom.viewReadout.textContent = `y=0 · ×${zoom} · (${cx}, ${cz})`;
+    const y = cam.y != null ? cam.y : (cam.mode === '3d' ? cam.cy : 0);
+    dom.viewReadout.textContent = `y=${Math.round(y * 10) / 10} · ×${zoom} · (${cx}, ${cz})`;
     dom.viewReadout.dataset.auto = cam.autoFit ? '1' : '0';
-    dom.viewReadout.title = cam.autoFit
+    dom.viewReadout.dataset.mode = cam.mode || '2d';
+    dom.viewReadout.title = (cam.autoFit
       ? '视口：自动适配 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配'
-      : '视口：手动控制 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配';
+      : '视口：手动控制 · 滚轮缩放 · 拖动平移 · 双击 / F 重新适配')
+      + (cam.mode === '3d' ? ' · 正交 3D' : '');
     if (dom.fit) dom.fit.classList.toggle('is-auto', !!cam.autoFit);
   }
 
@@ -10542,6 +12751,10 @@ function parseQueryInt(q, key) {
 
   function onSourceChange() {
     state.dirty = true;
+    state.sampleId = null;
+    lastSampleValue = '';
+    if (dom.sampleSelect) dom.sampleSelect.value = '';
+    applySampleDescription(null);
     dom.dirtyBadge.hidden = false;
     scheduleDraftSave();
     if (actionToastKind === 'draft') hideActionToast();
@@ -10671,6 +12884,7 @@ function parseQueryInt(q, key) {
       if (!ok) return;
     }
     state.sampleId = null;
+    if (dom.sampleSelect) dom.sampleSelect.value = '';
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
     applySampleDescription(null);
@@ -10753,32 +12967,41 @@ function parseQueryInt(q, key) {
   }
 
   function tabHas(tab, panelId) {
-    return !!tab && tab.main.some((col) => col.stack.some((item) => item.panel === panelId));
+    return !!(tab && layout && typeof layout.panelsOfTab === 'function' && layout.panelsOfTab(tab).includes(panelId));
   }
 
    
   function ensureTheaterTab() {
     if (!isTheater || !layout || !layout.document) return;
     const tabs = layout.document.tabs;
-    const active = tabs.find((t) => t.id === layout.activeTabId);
+    let active = tabs.find((t) => t.id === layout.activeTabId);
+    
+    
+    if (active && active.maximized) {
+      layout.toggleMaximize(active.maximized);
+      active = tabs.find((t) => t.id === layout.activeTabId);
+    }
     if (tabHas(active, 'source') && tabHas(active, 'world')) return;
     const best = tabs.find((t) => tabHas(t, 'source') && tabHas(t, 'world'))
       || tabs.find((t) => tabHas(t, 'source'))
       || tabs.find((t) => tabHas(t, 'world'));
     if (best && best.id !== layout.activeTabId) layout.selectTab(best.id);
+    const chosen = layout.document.tabs.find((t) => t.id === layout.activeTabId);
+    if (chosen && chosen.maximized) layout.toggleMaximize(chosen.maximized);
   }
 
    
+   
   function syncTheaterClasses() {
     if (!isTheater) return;
-    let found = false;
-    const cols = dom.workspace.querySelectorAll('.pane-col');
-    for (const col of cols) {
-      const hasWorld = !!col.querySelector('.panel-world');
-      col.classList.toggle('theater-main', hasWorld);
-      if (hasWorld) found = true;
+    const world = dom.workspace.querySelector('.panel-world');
+    const source = dom.workspace.querySelector('.panel-source');
+    const groups = dom.workspace.querySelectorAll('.pane-group');
+    for (const group of groups) {
+      group.classList.toggle('theater-world-path', !!(world && group.contains(world)));
+      group.classList.toggle('theater-source-path', !!(source && group.contains(source)));
     }
-    document.documentElement.classList.toggle('theater-no-world', !found);
+    document.documentElement.classList.toggle('theater-no-world', !world);
   }
 
   let theaterOpen = false;
@@ -11001,6 +13224,7 @@ function parseQueryInt(q, key) {
   if (srcOverride != null) {
     editor.setValue(srcOverride, { silent: true });
     state.sampleId = null;
+    dom.sampleSelect.value = '';
     applySampleDescription(null);
   } else {
     editor.setValue(initial.source || '', { silent: true });

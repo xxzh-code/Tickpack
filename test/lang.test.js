@@ -695,6 +695,31 @@ test('decimal macro arguments stay macro text and never become expression litera
   assert.ok(mainStatePaths(out).length > 0);
 });
 
+test('the 3D prelude macros emit relative y and relative pitch tp commands', () => {
+  // up(n) / down(n) move along relative y; pitch(deg) uses the 6th tp rotation
+  // token (yaw `~`, pitch `~$deg`) instead of swapping axes.
+  for (const [source, expected] of [
+    ['up(1)\n', 'execute as @e[tag=pen] at @s run tp @s ~ ~1 ~'],
+    ['down(1)\n', 'execute as @e[tag=pen] at @s run tp @s ~ ~-1 ~'],
+    ['pitch(45)\n', 'execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~ ~45'],
+  ]) {
+    const out = compileOk(source);
+    const lines = mainStatePaths(out).flatMap((path) => commands(out, path));
+    assert.ok(lines.includes(expected), `${JSON.stringify(source)} -> ${JSON.stringify(lines)}`);
+    // Parameterised stdlib functions are macros: no standalone fn file.
+    const fnName = source.slice(0, source.indexOf('('));
+    assert.equal(out.files[`data/tp/function/fn/${fnName}.mcfunction`], undefined);
+  }
+
+  // Same command shape inside a tick block, with a negative pitch argument.
+  const tickOut = compileOk('tick {\n  down(2)\n  pitch(-30)\n}\n');
+  const tick = commands(tickOut, 'data/tp/function/tick/body.mcfunction');
+  assert.ok(tick.includes('execute as @e[tag=pen] at @s run tp @s ~ ~-2 ~'), JSON.stringify(tick));
+  assert.ok(tick.includes('execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~ ~-30'), JSON.stringify(tick));
+  // `pitch` must not put the pitch into the yaw slot.
+  assert.ok(!tick.includes('tp @s ~ ~ ~ ~-30 ~'), JSON.stringify(tick));
+});
+
 test('meta reports user state, state count and generated function count', () => {
   const out = compileOk('state arm = 1\nstate count = 0\nover 2 as i {\n  count = count + 1\n}\n');
   assert.deepEqual(out.meta.variables, [
@@ -2078,6 +2103,58 @@ test('the square sample generates a loop-as-clock state machine with the runtime
   assert.match(allStates, /function tp:fn\/paint/);
   assert.match(allStates, /execute as @e\[tag=pen\] at @s run tp @s ~ ~ ~ ~90 ~/);
   assert.match(out.files['data/tp/function/fn/paint.mcfunction'], /setblock ~ ~ ~ stone/);
+});
+
+test('the helix3d sample is the one 3D sample and compiles to 3D commands', () => {
+  const helix = SAMPLES.filter((candidate) => candidate.id === 'helix3d');
+  assert.equal(helix.length, 1, 'helix3d must exist exactly once');
+  assert.equal(helix[0].title, '3D 螺旋 · Helix 3D');
+  // Minecraft positive pitch looks down, so the upward helix uses pitch(-35).
+  assert.match(helix[0].description, /pitch\(-35\)/);
+  assert.match(helix[0].source, /^brush\(emerald_block\)\npitch\(-35\)\n/);
+
+  const out = compileOk(helix[0].source);
+  const all = Object.values(out.files).join('\n');
+  // Minecraft positive pitch looks down, so the upward helix uses pitch(-35):
+  // relative pitch `~-35`; turn(30) -> relative yaw; walk stays local-forward.
+  assert.match(all, /execute as @e\[tag=pen\] at @s run tp @s ~ ~ ~ ~ ~-35/);
+  assert.match(all, /execute as @e\[tag=pen\] at @s run tp @s ~ ~ ~ ~30 ~/);
+  assert.match(all, /execute as @e\[tag=pen\] at @s run tp @s \^ \^ \^1/);
+  // brush(emerald_block) is palette index 3; paint dispatches through tp:fn/paint.
+  assert.match(all, /scoreboard players set #__brush tp 3/);
+  assert.match(all, /function tp:fn\/paint/);
+  assert.match(out.files['data/tp/function/fn/paint.mcfunction'], /setblock ~ ~ ~ emerald_block/);
+
+  // Adding a sample must not replace or reorder the existing ones.
+  for (const id of ['square', 'remix', 'spiral', 'star', 'circle', 'rainbow', 'endless', 'magic', 'metronome', 'hello']) {
+    assert.ok(SAMPLES.some((candidate) => candidate.id === id), `missing sample ${id}`);
+  }
+});
+
+test('2D programs and the square sample stay flat after the 3D prelude additions', () => {
+  const square = SAMPLES.find((candidate) => candidate.id === 'square');
+  assert.ok(square, 'the square sample exists');
+  const out = compileOk(square.source);
+  const all = Object.values(out.files).join('\n');
+  // The 2D sample uses no up/down/pitch calls, so it must not gain vertical
+  // moves or relative-pitch tp tokens.
+  assert.ok(!all.includes('tp @s ~ ~ ~ ~ ~'), 'square must not gain 3D pitch moves');
+  assert.ok(!all.includes('tp @s ~ ~1 ~'), 'square must not gain upward moves');
+  assert.ok(!all.includes('tp @s ~ ~-1 ~'), 'square must not gain downward moves');
+
+  // Behaviour is unchanged: 40 ticks still draw the 32-block square on y=0.
+  const sim = new MiniSim(out.files);
+  sim.reset();
+  for (let tick = 0; tick < 40; tick += 1) sim.step();
+  const blocks = sim.getBlocks();
+  assert.equal(blocks.length, 32, 'square still draws 32 blocks');
+  for (const block of blocks) assert.equal(block.y, 0, 'square stays on the y=0 plane');
+  assert.equal(sim.findPen().y, 0, 'pen stays on the y=0 plane');
+
+  // The 2D stdlib command is byte-identical.
+  assert.deepEqual(commands(out, 'data/tp/function/fn/walk.mcfunction'), [
+    'execute as @e[tag=pen] at @s run tp @s ^ ^ ^1',
+  ]);
 });
 
 test('the samples execute 40 ticks with no MiniSim error', () => {

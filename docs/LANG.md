@@ -340,9 +340,10 @@ say Tickpack: 已暂停（/function tp:start 重新开始；/function tp:status 
 `未运行（等玩家，或 /function tp:start 开始）` / `已暂停（/function tp:start 继续）` /
 `运行中（/function tp:start 可重画）`，外加当前画笔，以及笔是否存在。
 
-关于世界：浏览器把世界渲染成一个俯视平面：笔和方块都画在 y=0 这一层，
-绘制范围可以延伸到任意坐标（具体视口/缩放属于外壳的渲染细节）。
-笔就是那只乌龟实体（armor stand，tag `pen`，yaw 0 = 朝向 +Z）。
+关于世界：浏览器现在支持 `x,y,z` 三维，默认的 2D 示例仍按 y=0 的俯视平面渲染；
+3D 示例（如 `helix3d`）使用正交投影的正等轴视图，绘制范围可以延伸到任意坐标
+（具体视口/缩放属于外壳的渲染细节）。笔就是那只乌龟实体（armor stand，
+ tag `pen`，yaw 0 = 朝向 +Z；pitch 为 Minecraft 角度，正值低头、负值抬头）。
 在真实的 Minecraft 里，笔会锚定在最近玩家脚下那块方块上
 （`execute at @p` 之后的 `~ ~-1 ~`），于是图案出现在玩家周围的地面上，
 而不是某个固定的世界坐标；`tp:start` 会重新锚定并重绕，
@@ -377,6 +378,9 @@ fn particle(type)         # 在笔的位置放指定粒子（宏；type 是原�
 fn sound(name, pitch)     # 在笔的位置播放声音（宏；name 是原版声音 id，pitch 是音高）
 fn clear_ground()         # 把玩家周围 33x33 的地面层填回 air
 fn home()                 # 把笔送回玩家脚下的方块，yaw 归 0
+fn up(n)                  # 笔的 y 增加 n 格（宏，例如 up(1)、up(3)）
+fn down(n)                # 笔的 y 减少 n 格（宏）
+fn pitch(deg)             # 笔的 pitch 增加 deg 度（宏；负值抬头、正值低头）
 ```
 
 `brush(<block>)` 和 `paint` 是编译器内置（§1.7），不是 prelude 函数：
@@ -394,6 +398,10 @@ fn home()                 # 把笔送回玩家脚下的方块，yaw 归 0
 - `sound(name, pitch)`：`execute at @e[tag=pen] run playsound $name master @a ~ ~ ~ 0.8 $pitch`
 - `clear_ground`：`run execute at @p run fill ~-16 ~-1 ~-16 ~16 ~-1 ~16 air`
 - `home`：`run execute at @p run tp @e[tag=pen] ~ ~-1 ~ 0 0`
+- `up(n)`：`execute as @e[tag=pen] at @s run tp @s ~ ~$n ~`
+- `down(n)`：`execute as @e[tag=pen] at @s run tp @s ~ ~-$n ~`
+- `pitch(deg)`：`execute as @e[tag=pen] at @s run tp @s ~ ~ ~ ~ ~$deg`
+  （7 个 token：yaw 为 `~`，pitch 为相对 `~$deg`，没有把 pitch 塞进 yaw 槽）
 
 这两个函数（`clear_ground`、`home`）刻意做成相对于玩家的：在真实世界里
 `(0.5, 0, 0.5)` 通常位于很深的地下或很高的空中。在模拟器里，虚拟玩家站在
@@ -431,6 +439,9 @@ sim.restore(snapshot);              // 恢复状态（不重新加载 tag）
 `say` / `particle` / `sound` 事件也可能附带 `file`/`line`/`fn` 这些定位字段。
 `getWorld()` 里的方块只包含非空气方块；坐标是整数。
 `snapshot()` 必须能通过 `structuredClone`（纯对象/数组/字符串/数字）。
+`^` 局部坐标使用完整的 yaw+pitch 基（forward/left/up），与 Minecraft 一致；
+pitch 为 0 时退化为旧的平面 2D 行为。`restore()` 兼容旧的 `[x,z,block]` /
+`{x,z,block}` 快照，缺失的 y 按 0 处理。
 
 `reset()` 还会创建一个**虚拟宿主玩家**：`{type:'player', x:0.5, y:1.0,
 z:0.5, yaw:0, pitch:0, tags:[]}`（实体 id 为 1）。选择器遵循原版语义：

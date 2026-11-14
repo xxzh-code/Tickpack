@@ -42,17 +42,40 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
   let palette = CANVAS_THEMES.dark.timeline;
   let themeName = 'dark';
 
-  const ro = new ResizeObserver(() => {
-    const rect = canvas.getBoundingClientRect();
-    w = Math.max(80, Math.floor(rect.width));
-    h = Math.max(40, Math.floor(rect.height));
-    dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    dirty = true;
-  });
+  const ro = new ResizeObserver(() => scheduleResize());
   ro.observe(canvas);
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const nextW = Math.max(80, Math.floor(rect.width));
+    const nextH = Math.max(40, Math.floor(rect.height));
+    const nextDpr = Math.min(2, window.devicePixelRatio || 1);
+    const changed = nextW !== w || nextH !== h || nextDpr !== dpr;
+    w = nextW;
+    h = nextH;
+    dpr = nextDpr;
+    if (changed) {
+      const bw = Math.round(w * dpr);
+      const bh = Math.round(h * dpr);
+      if (canvas.width !== bw) canvas.width = bw;
+      if (canvas.height !== bh) canvas.height = bh;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    dirty = true;
+  }
+
+  let resizeRaf = 0;
+  function scheduleResize() {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      resize();
+      // Draw immediately after a backing-store resize so dragging never shows
+      // an empty/white timeline frame.
+      draw();
+    });
+  }
+  scheduleResize();
 
   const domain = () => domainFor(total);
   const xOf = (t) => PAD + (t / domain()) * (w - PAD * 2);

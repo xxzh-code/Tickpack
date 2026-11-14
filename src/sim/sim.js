@@ -372,11 +372,40 @@ export class Simulator {
 
     if (Array.isArray(snap.blocks)) {
       for (const entry of snap.blocks) {
-        if (!Array.isArray(entry) || entry.length < 4) continue;
-        const x = Math.floor(Number(entry[0]));
-        const y = Math.floor(Number(entry[1]));
-        const z = Math.floor(Number(entry[2]));
-        const block = canonicalBlock(entry[3]);
+        // Accepted block shapes:
+        //   [x, y, z, block]    current 3D snapshot
+        //   [x, z, block]       old 2D snapshot (y defaults to 0)
+        //   { x, y?, z, block } defensive/object form (y defaults to 0)
+        let x;
+        let y;
+        let z;
+        let block;
+        if (Array.isArray(entry)) {
+          if (entry.length >= 4) {
+            x = Number(entry[0]);
+            y = Number(entry[1]);
+            z = Number(entry[2]);
+            block = entry[3];
+          } else if (entry.length === 3) {
+            x = Number(entry[0]);
+            y = 0;
+            z = Number(entry[1]);
+            block = entry[2];
+          } else {
+            continue;
+          }
+        } else if (entry && typeof entry === 'object' && entry.block !== undefined) {
+          x = Number(entry.x);
+          y = entry.y === undefined ? 0 : Number(entry.y);
+          z = Number(entry.z);
+          block = entry.block;
+        } else {
+          continue;
+        }
+        x = Math.floor(x);
+        y = Math.floor(y);
+        z = Math.floor(z);
+        block = canonicalBlock(block);
         if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
         if (block === 'air') continue;
         state.blocks.set(blockKey(x, y, z), block);

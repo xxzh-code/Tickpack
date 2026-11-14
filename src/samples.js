@@ -160,6 +160,20 @@ stamp
 `,
   },
   {
+    id: 'helix3d',
+    title: '3D 螺旋 · Helix 3D',
+    description: 'pitch(-35) 让笔抬头（Minecraft 里负 pitch 向上），walk 沿视线方向前进：12 步边走边转，画出向上螺旋的三维螺旋。浏览器与 Minecraft 里形状一致。',
+    source: `brush(emerald_block)
+pitch(-35)
+over 12 as i {
+  walk
+  paint
+  turn(30)
+}
+stamp
+`,
+  },
+  {
     id: 'metronome',
     title: '节拍器 · Metronome',
     description: '每 20 tick 响一声、闪一次；按 press 让笔掉头。浏览器里会听到短促的节拍。',
