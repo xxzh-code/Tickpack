@@ -5,6 +5,7 @@
 import { clamp } from './util.js';
 import { shade, withAlpha } from './blocks.js';
 import { CANVAS_THEMES } from './theme.js';
+import { sliderKey, sliderValue } from './a11y.js';
 
 // The ruler never starts below 40 ticks, then grows in readable steps so the
 // playhead does not jump every frame while a run is in progress.
@@ -91,7 +92,26 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       `<span class="tl-cursor">${cursor}</span> ` +
       `<span class="tl-sep">/</span> ` +
       `<span class="tl-total">${total}</span>`;
+    updateAria();
   }
+
+  function updateAria() {
+    canvas.setAttribute('role', 'slider');
+    canvas.setAttribute('aria-label', '时间轴');
+    canvas.setAttribute('aria-valuemin', '0');
+    canvas.setAttribute('aria-valuemax', String(total));
+    canvas.setAttribute('aria-valuenow', String(cursor));
+    canvas.setAttribute('aria-valuetext', `tick ${cursor}，共 ${total}`);
+  }
+
+  canvas.tabIndex = 0;
+  canvas.addEventListener('keydown', (ev) => {
+    if (!sliderKey(ev.key)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const next = sliderValue(cursor, total, ev.key, 10);
+    if (next !== cursor) onSeek && onSeek(next);
+  });
 
   function roundRect(x, y, rw, rh, r) {
     const rr = Math.min(r, rw / 2, rh / 2);
@@ -259,6 +279,7 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
   }
 
   canvas.addEventListener('pointerdown', (e) => {
+    canvas.focus({ preventScroll: true });
     if (total <= 0) return;
     dragging = true;
     canvas.setPointerCapture(e.pointerId);

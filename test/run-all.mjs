@@ -12,4 +12,5 @@ import './ui-assets.test.js';
 import './layout.test.js';
 import './layout-drag.test.js';
 import './world3d.test.js';
+import './ui-keyboard.test.js';
 

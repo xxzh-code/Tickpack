@@ -1327,7 +1327,9 @@ export function startApp(api) {
     const active = document.activeElement;
     const tag = active && active.tagName;
     const typing = tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || (active && active.isContentEditable);
-    if (typing) return;
+    const interactive = active && active.closest
+      && active.closest('button, a, input, textarea, select, [contenteditable="true"], [role="tab"], [role="slider"], [role="menuitem"], .panel-menu, .tab');
+    if (typing || interactive) return;
     if (e.code === 'Space') {
       e.preventDefault();
       togglePlay();
