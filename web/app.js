@@ -16,7 +16,7 @@ import { createLayout, PANEL_DEFS } from './layout.js';
 import { createWebHost } from './host-web.js';
 import { resolveInitialTheme, applyTheme, persistTheme } from './theme.js';
 import { blockColor } from './blocks.js';
-import { clamp, esc, fmtInt, flashButtonLabel, icon, prefersReducedMotion, showToast } from './util.js';
+import { clamp, documentTitle, esc, fmtInt, flashButtonLabel, icon, applyTruncationTitles, prefersReducedMotion, showToast } from './util.js';
 import { importableName, normalizeSpeed, seekTick, speedStorageValue } from './a11y.js';
 
 const DEFAULT_SPEED = 10;
@@ -141,12 +141,18 @@ export function startApp(api) {
     lastSay: '',
     scoreRows: [],
     sampleId: null,
+    titleSampleId: null,
     logCount: 0,
     logFollow: true,
+    themeAuto: false,
     theme: 'dark',
     sound: true,
     lastSoundTick: -1,
   };
+
+  // Declared before layout initialization: layout.init() -> renderAll() ->
+  // onLayoutChange may schedule a title pass before the startup section.
+  let truncateRaf = 0;
 
   const q = new URLSearchParams(location.search);
   const isTheater = q.get('view') === 'theater';
@@ -161,7 +167,17 @@ export function startApp(api) {
   // Theme first (before any panel paints): URL override wins, then persisted
   // preference, then prefers-color-scheme. Only user toggles persist.
   const initialTheme = resolveInitialTheme(host, q.get('theme'));
+  state.themeAuto = !!initialTheme.auto;
   state.theme = applyTheme(initialTheme.theme);
+  if (initialTheme.auto && typeof window.matchMedia === 'function') {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onSystemTheme = (ev) => {
+      if (!state.themeAuto) return;
+      setTheme(ev.matches ? 'dark' : 'light', { auto: true });
+    };
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onSystemTheme);
+    else if (typeof mq.addListener === 'function') mq.addListener(onSystemTheme);
+  }
 
   // --------------------------------------------------------------- modules
   const world = createWorld(dom.canvas, { onCamera: updateViewReadout });
@@ -307,6 +323,7 @@ export function startApp(api) {
       version: 1,
       source: editor.getValue(),
       sampleId: state.sampleId,
+      titleSampleId: state.titleSampleId,
       cursor: session.ok ? session.cursor : 0,
       savedAt: Date.now(),
     };
@@ -352,7 +369,11 @@ export function startApp(api) {
     hideActionToast();
     clearDraft();
     const sample = draft.sampleId ? SAMPLES.find((s) => s.id === draft.sampleId) : null;
+    const titleSample = draft.titleSampleId
+      ? SAMPLES.find((s) => s.id === draft.titleSampleId)
+      : sample;
     state.sampleId = sample ? sample.id : null;
+    state.titleSampleId = titleSample ? titleSample.id : null;
     if (sample) {
       lastSampleValue = sample.id;
       dom.sampleSelect.value = sample.id;
@@ -389,6 +410,7 @@ export function startApp(api) {
     state.scoreRows = [];
     state.dirty = true;
     dom.dirtyBadge.hidden = false;
+    updateDocumentTitle();
     dom.editorMeta.textContent = '';
     dom.scoresGrid.innerHTML = '<div class="scores-empty">编译失败 — 没有可显示的结果</div>';
     dom.scoresFoot.innerHTML = '<span class="muted">修复源码后重新运行</span>';
@@ -441,6 +463,7 @@ export function startApp(api) {
     state.compiledSource = source;
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
+    updateDocumentTitle();
 
     datapack.setFiles(loaded.files || {}, loaded.meta);
     if (PRELUDE) datapack.setPrelude(PRELUDE);
@@ -510,6 +533,7 @@ export function startApp(api) {
     syncTheaterControls();
     world.requestFit(0, !state.playing);
     updateWorldChip();
+    scheduleTruncationTitles();
   }
 
   // ------------------------------------------------------------ one tick
@@ -995,12 +1019,33 @@ export function startApp(api) {
     if (actionToastKind === 'draft') hideActionToast();
   }
 
+  function updateDocumentTitle() {
+    const sample = state.titleSampleId ? SAMPLES.find((s) => s.id === state.titleSampleId) : null;
+    document.title = documentTitle({
+      sampleTitle: sample ? sample.title : null,
+      dirty: state.dirty,
+      theater: isTheater,
+    });
+  }
+
+  function scheduleTruncationTitles() {
+    if (truncateRaf) return;
+    truncateRaf = requestAnimationFrame(() => {
+      truncateRaf = 0;
+      applyTruncationTitles();
+    });
+  }
+  window.addEventListener('resize', scheduleTruncationTitles, { passive: true });
+
   function applySampleDescription(sample) {
+    updateDocumentTitle();
     if (!dom.sampleDesc || !dom.sampleDescText) return;
     const text = (sample && sample.description) || '';
     dom.sampleDesc.hidden = !text;
     dom.sampleDescText.textContent = text;
-    dom.sampleDesc.title = text;
+    dom.sampleDesc.dataset.fullText = text;
+    dom.sampleDesc.removeAttribute('title');
+    scheduleTruncationTitles();
   }
 
   let pressHintTimer = 0;
@@ -1075,7 +1120,8 @@ export function startApp(api) {
     }
   }
 
-  function setTheme(theme, { persist = false } = {}) {
+  function setTheme(theme, { persist = false, auto = false } = {}) {
+    state.themeAuto = !!auto;
     state.theme = applyTheme(theme);
     if (persist) persistTheme(host, state.theme);
     world.setTheme(state.theme);
@@ -1096,6 +1142,7 @@ export function startApp(api) {
     }
     if (info.visiblePanels.has('timeline')) timeline.markDirty();
     timeline.render();
+    scheduleTruncationTitles();
   }
 
   // ---------------------------------------------------- .tpk import / export
@@ -1111,6 +1158,7 @@ export function startApp(api) {
       if (!ok) return false;
     }
     state.sampleId = null;
+    state.titleSampleId = null;
     if (dom.sampleSelect) dom.sampleSelect.value = '';
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
@@ -1565,6 +1613,7 @@ export function startApp(api) {
     hideActionToast();
     clearDraft();
     state.sampleId = s.id;
+    state.titleSampleId = s.id;
     lastSampleValue = s.id;
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
@@ -1654,6 +1703,7 @@ export function startApp(api) {
   } catch { storedSpeed = null; }
   initSpeed(speedQuery != null ? speedQuery : (storedSpeed != null ? storedSpeed : DEFAULT_SPEED));
   syncTheaterControls();
+  scheduleTruncationTitles();
 
   const wanted = q.get('sample');
   const autoTicks = parseQueryInt(q, 'auto');
@@ -1671,6 +1721,7 @@ export function startApp(api) {
 
   const initial = pickSample(wanted);
   state.sampleId = initial.id;
+  state.titleSampleId = initial.id;
   lastSampleValue = initial.id;
   dom.sampleSelect.value = initial.id;
   // Debug aid for screenshots: ?src=<url-encoded Tickpack source> runs any program.
@@ -1678,6 +1729,7 @@ export function startApp(api) {
   if (srcOverride != null) {
     editor.setValue(srcOverride, { silent: true });
     state.sampleId = null;
+    state.titleSampleId = null;
     dom.sampleSelect.value = '';
     applySampleDescription(null);
   } else {

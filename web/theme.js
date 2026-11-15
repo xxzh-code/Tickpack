@@ -6,24 +6,34 @@
 
 export const THEME_KEY = 'tickpack.theme';
 export const THEMES = ['light', 'dark'];
+export const THEME_COLORS = { light: '#eef1f4', dark: '#0b0f14' };
+
+export function themeColor(theme) {
+  return THEME_COLORS[theme === 'light' ? 'light' : 'dark'];
+}
+
+/** True when neither a stored preference nor ?theme= decides the theme. */
+export function shouldFollowSystem(initial) {
+  return !!(initial && initial.auto);
+}
 
 /**
  * @param {{storageGet:Function}} host
  * @param {string|null} forced  debug `?theme=light|dark` (never persisted)
  */
 export function resolveInitialTheme(host, forced) {
-  if (forced === 'light' || forced === 'dark') return { theme: forced, forced: true };
+  if (forced === 'light' || forced === 'dark') return { theme: forced, forced: true, auto: false };
   let saved = null;
   try {
     saved = host && typeof host.storageGet === 'function' ? host.storageGet(THEME_KEY) : null;
   } catch {
     saved = null;
   }
-  if (saved === 'light' || saved === 'dark') return { theme: saved, forced: false };
+  if (saved === 'light' || saved === 'dark') return { theme: saved, forced: false, auto: false };
   const prefersLight = typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-color-scheme: light)').matches;
-  return { theme: prefersLight ? 'light' : 'dark', forced: false };
+  return { theme: prefersLight ? 'light' : 'dark', forced: false, auto: true };
 }
 
 export function applyTheme(theme) {
@@ -31,6 +41,8 @@ export function applyTheme(theme) {
   const root = document.documentElement;
   root.dataset.theme = next;
   root.style.colorScheme = next;
+  const meta = document.querySelector && document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', themeColor(next));
   return next;
 }
 

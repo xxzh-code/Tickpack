@@ -14,6 +14,8 @@ import {
   seekTick,
   importableName,
 } from '../web/a11y.js';
+import { documentTitle } from '../web/util.js';
+import { themeColor } from '../web/theme.js';
 
 test('tab roving index wraps and supports Home/End', () => {
   assert.equal(rovingIndex(0, 3, 'ArrowRight'), 1);
@@ -80,4 +82,13 @@ test('log tick and drop filename helpers accept only valid targets', () => {
   assert.equal(importableName('demo.tp'), true);
   assert.equal(importableName('demo.mcfunction'), false);
   assert.equal(importableName('demo'), false);
+});
+
+test('document title and theme-color helpers stay in sync', () => {
+  assert.equal(documentTitle({ sampleTitle: '螺旋' }), 'Tickpack · 螺旋');
+  assert.equal(documentTitle({ sampleTitle: '螺旋', dirty: true }), 'Tickpack · 螺旋 •');
+  assert.equal(documentTitle({ sampleTitle: '螺旋', dirty: true, theater: true }), 'Tickpack · 剧场 •');
+  assert.equal(documentTitle({}), 'Tickpack');
+  assert.equal(themeColor('light'), '#eef1f4');
+  assert.equal(themeColor('dark'), '#0b0f14');
 });

@@ -88,3 +88,32 @@ export function fmtInt(n) {
 export function prefersReducedMotion() {
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
+
+export function documentTitle({ sampleTitle = null, dirty = false, theater = false } = {}) {
+  const base = theater ? 'Tickpack · 剧场' : (sampleTitle ? `Tickpack · ${sampleTitle}` : 'Tickpack');
+  return dirty ? `${base} •` : base;
+}
+
+const TRUNCATE_SELECTOR = [
+  '.tab-label', '.panel-title', '.head-meta', '.file-path', '.tname',
+  '.chip-name', '.sample-desc-text', '#sample-desc',
+].join(', ');
+
+/** Native title only while the visible text is actually clipped. */
+export function applyTruncationTitles(root = document) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  for (const el of root.querySelectorAll(TRUNCATE_SELECTOR)) {
+    const full = (el.dataset.fullText || el.textContent || '').trim();
+    if (!full) continue;
+    const hasOriginal = Object.prototype.hasOwnProperty.call(el.dataset, 'truncateTitle');
+    if (el.scrollWidth > el.clientWidth + 1) {
+      if (!hasOriginal) el.dataset.truncateTitle = el.getAttribute('title') || '';
+      el.title = full;
+    } else if (hasOriginal) {
+      const original = el.dataset.truncateTitle;
+      if (original) el.title = original;
+      else el.removeAttribute('title');
+      delete el.dataset.truncateTitle;
+    }
+  }
+}

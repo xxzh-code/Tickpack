@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0b0f14">
   <title>Tickpack — 循环就是时钟</title>
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNDA5NiA0MDk2IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iNDA5Ni4wMDAwMDAiIGhlaWdodD0iNDA5Ni4wMDAwMDAiIGZpbGw9Im5vbmUiPgoJPHJlY3QgaWQ9ImxvZ28tbWluaW1hbCIgd2lkdGg9IjQwOTYuMDAwMDAwIiBoZWlnaHQ9IjQwOTYuMDAwMDAwIiB4PSIwLjAwMDAwMCIgeT0iMC4wMDAwMDAiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDE4IiBkPSJNMzgyMi4yNCAxMDI0TDM4MjIuMjQgMzA3MkwyMDQ4LjYyIDQwOTZMMjA0OC42MiAyMDQ4TDM4MjIuMjQgMTAyNFoiIGZpbGw9InJnYigyNTAsMjQyLDk0KSIgZmlsbC1ydWxlPSJldmVub2RkIiAvPgoJPHBhdGggaWQ9IuefoumHjyAxOCIgZD0iTTIwNDguNjIgMjA0OEwyNzUgMTAyNEwyNzUgMzA3MkwyMDQ4LjYyIDQwOTZMMjA0OC42MiAyMDQ4WiIgZmlsbD0icmdiKDI1MCwyNDIsOTQpIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIC8+Cgk8cGF0aCBpZD0i55+i6YePIDE4IiBkPSJNMjA0OC42MiAyMDQ4TDI3NSAxMDI0TDI3NSAzMDcyTDIwNDguNjIgNDA5NkwyMDQ4LjYyIDIwNDhaIiBmaWxsPSJyZ2IoMjU1LDAsMCkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMTgiIGQ9Ik0yMDQ4LjYyIDBMMzgyMi4yNCAxMDI0TDIwNDguNjIgMjA0OEwyNzUgMTAyNEwyMDQ4LjYyIDBaIiBmaWxsPSJyZ2IoMjUwLDI0Miw5NCkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgLz4KCTxwYXRoIGlkPSLnn6Lph48gMTgiIGQ9Ik0yMDQ4LjYyIDBMMzgyMi4yNCAxMDI0TDIwNDguNjIgMjA0OEwyNzUgMTAyNEwyMDQ4LjYyIDBaIiBmaWxsPSJyZ2IoMTI3LDYzLDE3OCkiIGZpbGwtcnVsZT0iZXZlbm9kZCIgLz4KPC9zdmc+Cg==" type="image/svg+xml">
   <link rel="icon" href="data:image/png;base64,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" type="image/png">
@@ -1522,8 +1523,17 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
     // Runtime reads/writes still go through web/host-web.js storage helpers.
     (function () {
       try {
-        var saved = localStorage.getItem('tickpack.theme');
-        if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+        var qs = new URLSearchParams(location.search);
+        var forced = qs.get('theme');
+        var saved = null;
+        try { saved = localStorage.getItem('tickpack.theme'); } catch (e) { /* ignore */ }
+        var theme = forced === 'light' || forced === 'dark' ? forced
+          : (saved === 'light' || saved === 'dark' ? saved
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', theme === 'light' ? '#eef1f4' : '#0b0f14');
       } catch (e) { /* storage may be unavailable */ }
       try {
         var view = new URLSearchParams(location.search).get('view');
@@ -6964,6 +6974,35 @@ let toastTimer = 0;
   return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
+ function documentTitle({ sampleTitle = null, dirty = false, theater = false } = {}) {
+  const base = theater ? 'Tickpack · 剧场' : (sampleTitle ? `Tickpack · ${sampleTitle}` : 'Tickpack');
+  return dirty ? `${base} •` : base;
+}
+
+const TRUNCATE_SELECTOR = [
+  '.tab-label', '.panel-title', '.head-meta', '.file-path', '.tname',
+  '.chip-name', '.sample-desc-text', '#sample-desc',
+].join(', ');
+
+ 
+ function applyTruncationTitles(root = document) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  for (const el of root.querySelectorAll(TRUNCATE_SELECTOR)) {
+    const full = (el.dataset.fullText || el.textContent || '').trim();
+    if (!full) continue;
+    const hasOriginal = Object.prototype.hasOwnProperty.call(el.dataset, 'truncateTitle');
+    if (el.scrollWidth > el.clientWidth + 1) {
+      if (!hasOriginal) el.dataset.truncateTitle = el.getAttribute('title') || '';
+      el.title = full;
+    } else if (hasOriginal) {
+      const original = el.dataset.truncateTitle;
+      if (original) el.title = original;
+      else el.removeAttribute('title');
+      delete el.dataset.truncateTitle;
+    }
+  }
+}
+
 exports.$ = $;
 exports.clamp = clamp;
 exports.esc = esc;
@@ -6973,6 +7012,8 @@ exports.flashButtonLabel = flashButtonLabel;
 exports.showToast = showToast;
 exports.fmtInt = fmtInt;
 exports.prefersReducedMotion = prefersReducedMotion;
+exports.documentTitle = documentTitle;
+exports.applyTruncationTitles = applyTruncationTitles;
   };
 
   // ---- web/editor.js ----
@@ -7414,21 +7455,31 @@ exports.isGlass = isGlass;
 
  const THEME_KEY = 'tickpack.theme';
  const THEMES = ['light', 'dark'];
+ const THEME_COLORS = { light: '#eef1f4', dark: '#0b0f14' };
+
+ function themeColor(theme) {
+  return THEME_COLORS[theme === 'light' ? 'light' : 'dark'];
+}
+
+ 
+ function shouldFollowSystem(initial) {
+  return !!(initial && initial.auto);
+}
 
  
  function resolveInitialTheme(host, forced) {
-  if (forced === 'light' || forced === 'dark') return { theme: forced, forced: true };
+  if (forced === 'light' || forced === 'dark') return { theme: forced, forced: true, auto: false };
   let saved = null;
   try {
     saved = host && typeof host.storageGet === 'function' ? host.storageGet(THEME_KEY) : null;
   } catch {
     saved = null;
   }
-  if (saved === 'light' || saved === 'dark') return { theme: saved, forced: false };
+  if (saved === 'light' || saved === 'dark') return { theme: saved, forced: false, auto: false };
   const prefersLight = typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-color-scheme: light)').matches;
-  return { theme: prefersLight ? 'light' : 'dark', forced: false };
+  return { theme: prefersLight ? 'light' : 'dark', forced: false, auto: true };
 }
 
  function applyTheme(theme) {
@@ -7436,6 +7487,8 @@ exports.isGlass = isGlass;
   const root = document.documentElement;
   root.dataset.theme = next;
   root.style.colorScheme = next;
+  const meta = document.querySelector && document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', themeColor(next));
   return next;
 }
 
@@ -7523,6 +7576,9 @@ exports.isGlass = isGlass;
 
 exports.THEME_KEY = THEME_KEY;
 exports.THEMES = THEMES;
+exports.THEME_COLORS = THEME_COLORS;
+exports.themeColor = themeColor;
+exports.shouldFollowSystem = shouldFollowSystem;
 exports.resolveInitialTheme = resolveInitialTheme;
 exports.applyTheme = applyTheme;
 exports.persistTheme = persistTheme;
@@ -10567,7 +10623,7 @@ exports.defaultLayout = defaultLayout;
 
 
 
-const { icon } = __tpb_require("web/util.js");
+const { icon, applyTruncationTitles } = __tpb_require("web/util.js");
 const { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } = __tpb_require("web/a11y.js");
 const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clearTabTree, resetTabVariant, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
 
@@ -11667,6 +11723,15 @@ function collapseIcon(dir, index, count, collapsed) {
     focusTab(doc.tabs[next].id);
   }
 
+  let tabsTruncateRaf = 0;
+  function scheduleTabTruncationTitles() {
+    if (tabsTruncateRaf) return;
+    tabsTruncateRaf = requestAnimationFrame(() => {
+      tabsTruncateRaf = 0;
+      applyTruncationTitles(tabsEl);
+    });
+  }
+
   function renderTabs() {
     tabsEl.innerHTML = '';
     for (const tab of doc.tabs) {
@@ -11748,6 +11813,7 @@ function collapseIcon(dir, index, count, collapsed) {
       });
       tabsEl.append(node);
     }
+    scheduleTabTruncationTitles();
   }
 
   function activateTabForAction(tabId) {
@@ -12768,7 +12834,7 @@ const { createLayout, PANEL_DEFS } = __tpb_require("web/layout.js");
 const { createWebHost } = __tpb_require("web/host-web.js");
 const { resolveInitialTheme, applyTheme, persistTheme } = __tpb_require("web/theme.js");
 const { blockColor } = __tpb_require("web/blocks.js");
-const { clamp, esc, fmtInt, flashButtonLabel, icon, prefersReducedMotion, showToast } = __tpb_require("web/util.js");
+const { clamp, documentTitle, esc, fmtInt, flashButtonLabel, icon, applyTruncationTitles, prefersReducedMotion, showToast } = __tpb_require("web/util.js");
 const { importableName, normalizeSpeed, seekTick, speedStorageValue } = __tpb_require("web/a11y.js");
 
 const DEFAULT_SPEED = 10;
@@ -12893,12 +12959,18 @@ function parseQueryInt(q, key) {
     lastSay: '',
     scoreRows: [],
     sampleId: null,
+    titleSampleId: null,
     logCount: 0,
     logFollow: true,
+    themeAuto: false,
     theme: 'dark',
     sound: true,
     lastSoundTick: -1,
   };
+
+  
+  
+  let truncateRaf = 0;
 
   const q = new URLSearchParams(location.search);
   const isTheater = q.get('view') === 'theater';
@@ -12913,7 +12985,17 @@ function parseQueryInt(q, key) {
   
   
   const initialTheme = resolveInitialTheme(host, q.get('theme'));
+  state.themeAuto = !!initialTheme.auto;
   state.theme = applyTheme(initialTheme.theme);
+  if (initialTheme.auto && typeof window.matchMedia === 'function') {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onSystemTheme = (ev) => {
+      if (!state.themeAuto) return;
+      setTheme(ev.matches ? 'dark' : 'light', { auto: true });
+    };
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onSystemTheme);
+    else if (typeof mq.addListener === 'function') mq.addListener(onSystemTheme);
+  }
 
   
   const world = createWorld(dom.canvas, { onCamera: updateViewReadout });
@@ -13059,6 +13141,7 @@ function parseQueryInt(q, key) {
       version: 1,
       source: editor.getValue(),
       sampleId: state.sampleId,
+      titleSampleId: state.titleSampleId,
       cursor: session.ok ? session.cursor : 0,
       savedAt: Date.now(),
     };
@@ -13104,7 +13187,11 @@ function parseQueryInt(q, key) {
     hideActionToast();
     clearDraft();
     const sample = draft.sampleId ? SAMPLES.find((s) => s.id === draft.sampleId) : null;
+    const titleSample = draft.titleSampleId
+      ? SAMPLES.find((s) => s.id === draft.titleSampleId)
+      : sample;
     state.sampleId = sample ? sample.id : null;
+    state.titleSampleId = titleSample ? titleSample.id : null;
     if (sample) {
       lastSampleValue = sample.id;
       dom.sampleSelect.value = sample.id;
@@ -13141,6 +13228,7 @@ function parseQueryInt(q, key) {
     state.scoreRows = [];
     state.dirty = true;
     dom.dirtyBadge.hidden = false;
+    updateDocumentTitle();
     dom.editorMeta.textContent = '';
     dom.scoresGrid.innerHTML = '<div class="scores-empty">编译失败 — 没有可显示的结果</div>';
     dom.scoresFoot.innerHTML = '<span class="muted">修复源码后重新运行</span>';
@@ -13193,6 +13281,7 @@ function parseQueryInt(q, key) {
     state.compiledSource = source;
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
+    updateDocumentTitle();
 
     datapack.setFiles(loaded.files || {}, loaded.meta);
     if (PRELUDE) datapack.setPrelude(PRELUDE);
@@ -13258,6 +13347,7 @@ function parseQueryInt(q, key) {
     syncTheaterControls();
     world.requestFit(0, !state.playing);
     updateWorldChip();
+    scheduleTruncationTitles();
   }
 
   
@@ -13743,12 +13833,33 @@ function parseQueryInt(q, key) {
     if (actionToastKind === 'draft') hideActionToast();
   }
 
+  function updateDocumentTitle() {
+    const sample = state.titleSampleId ? SAMPLES.find((s) => s.id === state.titleSampleId) : null;
+    document.title = documentTitle({
+      sampleTitle: sample ? sample.title : null,
+      dirty: state.dirty,
+      theater: isTheater,
+    });
+  }
+
+  function scheduleTruncationTitles() {
+    if (truncateRaf) return;
+    truncateRaf = requestAnimationFrame(() => {
+      truncateRaf = 0;
+      applyTruncationTitles();
+    });
+  }
+  window.addEventListener('resize', scheduleTruncationTitles, { passive: true });
+
   function applySampleDescription(sample) {
+    updateDocumentTitle();
     if (!dom.sampleDesc || !dom.sampleDescText) return;
     const text = (sample && sample.description) || '';
     dom.sampleDesc.hidden = !text;
     dom.sampleDescText.textContent = text;
-    dom.sampleDesc.title = text;
+    dom.sampleDesc.dataset.fullText = text;
+    dom.sampleDesc.removeAttribute('title');
+    scheduleTruncationTitles();
   }
 
   let pressHintTimer = 0;
@@ -13823,7 +13934,8 @@ function parseQueryInt(q, key) {
     }
   }
 
-  function setTheme(theme, { persist = false } = {}) {
+  function setTheme(theme, { persist = false, auto = false } = {}) {
+    state.themeAuto = !!auto;
     state.theme = applyTheme(theme);
     if (persist) persistTheme(host, state.theme);
     world.setTheme(state.theme);
@@ -13844,6 +13956,7 @@ function parseQueryInt(q, key) {
     }
     if (info.visiblePanels.has('timeline')) timeline.markDirty();
     timeline.render();
+    scheduleTruncationTitles();
   }
 
   
@@ -13859,6 +13972,7 @@ function parseQueryInt(q, key) {
       if (!ok) return false;
     }
     state.sampleId = null;
+    state.titleSampleId = null;
     if (dom.sampleSelect) dom.sampleSelect.value = '';
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
@@ -14313,6 +14427,7 @@ function parseQueryInt(q, key) {
     hideActionToast();
     clearDraft();
     state.sampleId = s.id;
+    state.titleSampleId = s.id;
     lastSampleValue = s.id;
     state.dirty = false;
     dom.dirtyBadge.hidden = true;
@@ -14402,6 +14517,7 @@ function parseQueryInt(q, key) {
   } catch { storedSpeed = null; }
   initSpeed(speedQuery != null ? speedQuery : (storedSpeed != null ? storedSpeed : DEFAULT_SPEED));
   syncTheaterControls();
+  scheduleTruncationTitles();
 
   const wanted = q.get('sample');
   const autoTicks = parseQueryInt(q, 'auto');
@@ -14419,6 +14535,7 @@ function parseQueryInt(q, key) {
 
   const initial = pickSample(wanted);
   state.sampleId = initial.id;
+  state.titleSampleId = initial.id;
   lastSampleValue = initial.id;
   dom.sampleSelect.value = initial.id;
   
@@ -14426,6 +14543,7 @@ function parseQueryInt(q, key) {
   if (srcOverride != null) {
     editor.setValue(srcOverride, { silent: true });
     state.sampleId = null;
+    state.titleSampleId = null;
     dom.sampleSelect.value = '';
     applySampleDescription(null);
   } else {

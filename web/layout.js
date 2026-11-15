@@ -2,7 +2,7 @@
 // Pure model/solver lives in layout-tree.js; this module renders it and owns DOM
 // interaction only. Platform persistence goes through the host adapter.
 
-import { icon } from './util.js';
+import { icon, applyTruncationTitles } from './util.js';
 import { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } from './a11y.js';
 import {
   LAYOUT_VERSION,
@@ -1140,6 +1140,15 @@ export function createLayout({
     focusTab(doc.tabs[next].id);
   }
 
+  let tabsTruncateRaf = 0;
+  function scheduleTabTruncationTitles() {
+    if (tabsTruncateRaf) return;
+    tabsTruncateRaf = requestAnimationFrame(() => {
+      tabsTruncateRaf = 0;
+      applyTruncationTitles(tabsEl);
+    });
+  }
+
   function renderTabs() {
     tabsEl.innerHTML = '';
     for (const tab of doc.tabs) {
@@ -1221,6 +1230,7 @@ export function createLayout({
       });
       tabsEl.append(node);
     }
+    scheduleTabTruncationTitles();
   }
 
   function activateTabForAction(tabId) {
