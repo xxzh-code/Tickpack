@@ -328,10 +328,17 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .stat-phase { flex-direction: row; align-items: center; gap: 6px; min-width: 62px; }
 .phase { font-size: 11.5px; color: var(--muted); }
 .led { width: 7px; height: 7px; border-radius: 50%; background: var(--led-idle); flex: 0 0 auto; }
-.led[data-phase="running"] { background: var(--led-running); }
+.led[data-phase="running"] { background: var(--led-running); animation: led-breathe 2.4s ease-in-out infinite; }
 .led[data-phase="paused"] { background: var(--led-paused); }
 .led[data-phase="finished"] { background: var(--led-finished); }
 .led[data-phase="error"] { background: var(--led-error); }
+@keyframes led-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .led[data-phase="running"] { animation: none; opacity: 1; }
+}
 
 /* ------------------------------------------------------------ tab bar --- */
 .tab-bar {

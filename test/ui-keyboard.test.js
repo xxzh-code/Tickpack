@@ -16,6 +16,7 @@ import {
   diagnosticStep,
   toggleLineComment,
   runButtonLabel,
+  shouldContinueFrame,
 } from '../web/a11y.js';
 import { documentTitle } from '../web/util.js';
 import { themeColor } from '../web/theme.js';
@@ -115,4 +116,12 @@ test('diagnostic F8 steps wrap and run label follows session', () => {
   assert.equal(diagnosticStep(0, 0, 1), -1);
   assert.equal(runButtonLabel(false), '运行');
   assert.equal(runButtonLabel(true), '重跑');
+});
+
+test('frame scheduler continues only for playing/world/timeline work', () => {
+  assert.equal(shouldContinueFrame({}), false);
+  assert.equal(shouldContinueFrame({ playing: true }), true);
+  assert.equal(shouldContinueFrame({ world: true }), true);
+  assert.equal(shouldContinueFrame({ timeline: true }), true);
+  assert.equal(shouldContinueFrame({ playing: false, world: false, timeline: false }), false);
 });

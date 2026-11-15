@@ -350,6 +350,7 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
       dirty = false;
       draw();
     },
+    needsFrame() { return dirty; },
     markDirty() { dirty = true; },
     markCount() { return marks.size; },
     /** Switch the flat canvas palette with the UI theme ('light' | 'dark'). */

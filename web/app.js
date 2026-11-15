@@ -7,7 +7,6 @@
 // (src/session.js), reached here through src/api.js only. Platform side effects
 // (download / import / clipboard / persistence) go through the web host adapter
 // (./host-web.js), never directly from here.
-
 import { createEditor } from './editor.js';
 import { createWorld } from './world.js';
 import { createDatapack } from './datapack.js';
@@ -17,7 +16,7 @@ import { createWebHost } from './host-web.js';
 import { resolveInitialTheme, applyTheme, persistTheme } from './theme.js';
 import { blockColor } from './blocks.js';
 import { clamp, documentTitle, esc, fmtInt, flashButtonLabel, icon, applyTruncationTitles, prefersReducedMotion, showToast } from './util.js';
-import { importableName, normalizeSpeed, runButtonLabel, seekTick, speedStorageValue } from './a11y.js';
+import { importableName, normalizeSpeed, runButtonLabel, seekTick, shouldContinueFrame, speedStorageValue } from './a11y.js';
 
 const DEFAULT_SPEED = 10;
 const SPEED_KEY = 'tickpack.speed';
@@ -42,15 +41,15 @@ function parseQueryInt(q, key) {
   return Number.isFinite(n) ? n : null;
 }
 
-export function startApp(api) {
+ export function startApp(api) {
   const TickpackSession = api.TickpackSession;
   const SAMPLES = Array.isArray(api.SAMPLES) ? api.SAMPLES : [];
   const PRELUDE = typeof api.PRELUDE === 'string' ? api.PRELUDE : '';
   const MAX_SNAPSHOTS = Number.isFinite(api.MAX_SNAPSHOTS) ? api.MAX_SNAPSHOTS : 2000;
-  // Core owns the onboarding-chatter rule; the shell only asks it.
+  
   const isOnboardingSay = typeof api.isOnboardingSay === 'function' ? api.isOnboardingSay : () => false;
 
-  // ------------------------------------------------------------------ DOM
+  
   const byId = (id) => document.getElementById(id);
   const dom = {
     sampleSelect: byId('sample-select'),
@@ -127,8 +126,8 @@ export function startApp(api) {
     actionToastActions: byId('action-toast-actions'),
   };
 
-  // ---------------------------------------------------------------- state
-  // Shell-only state. Anything about "the run" lives in `session`.
+  
+  
   const state = {
     source: '',
     compiledSource: '',
@@ -150,9 +149,10 @@ export function startApp(api) {
     lastSoundTick: -1,
   };
 
-  // Declared before layout initialization: layout.init() -> renderAll() ->
-  // onLayoutChange may schedule a title pass before the startup section.
+  
+  
   let truncateRaf = 0;
+  let frameRaf = 0;
 
   const q = new URLSearchParams(location.search);
   const isTheater = q.get('view') === 'theater';
@@ -164,8 +164,8 @@ export function startApp(api) {
   try { state.sound = host.storageGet('tickpack.sound') !== '0'; } catch { state.sound = true; }
   if (host.sound !== true) state.sound = false;
 
-  // Theme first (before any panel paints): URL override wins, then persisted
-  // preference, then prefers-color-scheme. Only user toggles persist.
+  
+  
   const initialTheme = resolveInitialTheme(host, q.get('theme'));
   state.themeAuto = !!initialTheme.auto;
   state.theme = applyTheme(initialTheme.theme);
@@ -179,7 +179,7 @@ export function startApp(api) {
     else if (typeof mq.addListener === 'function') mq.addListener(onSystemTheme);
   }
 
-  // --------------------------------------------------------------- modules
+  
   const world = createWorld(dom.canvas, { onCamera: updateViewReadout });
   world.setTheme(state.theme);
   const editor = createEditor({
@@ -200,7 +200,7 @@ export function startApp(api) {
     packMetaEl: dom.packMeta,
     copyBtn: dom.copy,
     copyText: (text) => host.copyText(text),
-    // keep the editor cursor still, but let the author's eye follow the tick
+    
     onSourceLine: (line) => editor.setSourceLine(line, { scroll: state.playing }),
   });
   const timeline = createTimeline({
@@ -210,6 +210,11 @@ export function startApp(api) {
   });
   timeline.setTheme(state.theme);
 
+  for (const eventName of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerleave', 'wheel']) {
+    dom.canvas.addEventListener(eventName, requestFrame, { passive: true });
+    dom.timelineCanvas.addEventListener(eventName, requestFrame, { passive: true });
+  }
+
   function jumpToExec() {
     const exec = datapack.getExecuting();
     if (!exec) return;
@@ -218,7 +223,7 @@ export function startApp(api) {
   }
   if (dom.execBadge) dom.execBadge.addEventListener('click', jumpToExec);
 
-  // ------------------------------------------------------------- workspace
+  
   const panelNodes = {};
   for (const def of PANEL_DEFS) {
     const node = dom.panelBank.querySelector(`.panel[data-panel-id="${def.id}"]`);
@@ -239,8 +244,8 @@ export function startApp(api) {
           label: '撤销',
           action: () => {
             layout.restoreLayout(previous);
-            // The toast button disappears with the toast; keep keyboard focus
-            // on a stable, visible control instead of dropping it to <body>.
+            
+            
             if (dom.resetLayout && typeof dom.resetLayout.focus === 'function') dom.resetLayout.focus();
           },
         },
@@ -253,7 +258,7 @@ export function startApp(api) {
     syncTheaterClasses();
   }
 
-  // ------------------------------------------------------------ sample list
+  
   function fillSamples() {
     dom.sampleSelect.innerHTML = '';
     if (!SAMPLES.length) {
@@ -283,7 +288,7 @@ export function startApp(api) {
       || SAMPLES[0];
   }
 
-  // ------------------------------------------------- kind toast (non-blocking)
+  
   let actionToastTimer = 0;
   let actionToastKind = '';
   function hideActionToast() {
@@ -315,7 +320,7 @@ export function startApp(api) {
     if (timeout > 0) actionToastTimer = setTimeout(hideActionToast, timeout);
   }
 
-  // -------------------------------------------------------- source drafts
+  
   let draftTimer = 0;
   let draftPending = false;
   let lastSampleValue = '';
@@ -336,7 +341,7 @@ export function startApp(api) {
     draftTimer = 0;
     draftPending = false;
     if (!host || typeof host.storageSet !== 'function') return;
-    try { host.storageSet(DRAFT_KEY, JSON.stringify(draftPayload())); } catch { /* best effort */ }
+    try { host.storageSet(DRAFT_KEY, JSON.stringify(draftPayload())); } catch {   }
   }
 
   function scheduleDraftSave() {
@@ -350,7 +355,7 @@ export function startApp(api) {
     draftTimer = 0;
     draftPending = false;
     if (!host || typeof host.storageRemove !== 'function') return;
-    try { host.storageRemove(DRAFT_KEY); } catch { /* best effort */ }
+    try { host.storageRemove(DRAFT_KEY); } catch {   }
   }
 
   function readDraft() {
@@ -403,8 +408,8 @@ export function startApp(api) {
     ], 12000);
   }
 
-  // ------------------------------------------------------------------ run
-  /** Compile failed: make every run-related panel unmistakably empty. */
+  
+   
   function clearRunForCompileError(source, errorHtml) {
     state.source = source;
     state.playing = false;
@@ -478,7 +483,7 @@ export function startApp(api) {
     }
 
     beginSessionView();
-    // a fresh compile always lands in a clean, paused-at-zero state
+    
     state.playing = false;
     setPhase('paused');
 
@@ -501,7 +506,7 @@ export function startApp(api) {
     return true;
   }
 
-  /** Reset every panel to the session's current (tick 0) view. */
+   
   function beginSessionView() {
     state.acc = 0;
     state.lastSoundTick = -1;
@@ -515,11 +520,7 @@ export function startApp(api) {
     updateWorldChip();
   }
 
-  /**
-   * Paint a non-advancing session view (tick 0, seek/restore, replay frame).
-   * `instant` skips pop/particle animation and snaps the fit; `follow` lets the
-   * datapack panel switch files (used while replaying).
-   */
+   
   function applyView(result, { instant = false, follow = false } = {}) {
     if (!result) return;
     world.setWorld(result.world, { instant });
@@ -536,9 +537,10 @@ export function startApp(api) {
     world.requestFit(0, !state.playing);
     updateWorldChip();
     scheduleTruncationTitles();
+    requestFrame();
   }
 
-  // ------------------------------------------------------------ one tick
+  
   function stepCore({ instant = false, playSounds = false } = {}) {
     if (!session.ok) return false;
 
@@ -554,8 +556,8 @@ export function startApp(api) {
       return false;
     }
     if (!result) {
-      // session.step() returns null when the snapshot cap is reached (or there
-      // is no live run): stop driving playback and keep the existing cap toast.
+      
+      
       state.playing = false;
       if (session.capped) showToast(`已达到快照上限（${MAX_SNAPSHOTS} 个 tick）`, 'error');
       setPhase(session.finished ? 'finished' : 'paused');
@@ -610,11 +612,11 @@ export function startApp(api) {
     return true;
   }
 
-  // ------------------------------------------------------------- playback
+  
   function play() {
     if (!session.ok || state.phase === 'error') return;
     if (session.finished && session.cursor >= session.snapshotsCount - 1) {
-      // Replay recorded time from the beginning: the world rewinds, then redraws.
+      
       restoreIndex(0, { follow: false });
     }
     state.playing = true;
@@ -640,7 +642,7 @@ export function startApp(api) {
   function advancePlayback() {
     if (!session.ok) return;
     if (session.cursor < session.snapshotsCount - 1) {
-      // replaying existing history
+      
       restoreIndex(session.cursor + 1, { follow: true });
       if (session.finished && session.cursor >= session.snapshotsCount - 1) {
         state.playing = false;
@@ -658,7 +660,7 @@ export function startApp(api) {
     stepCore({ instant: false, playSounds: true });
   }
 
-  /** Restore snapshot `index` through the session and repaint. */
+   
   function restoreIndex(index, { follow = false } = {}) {
     const result = session.seek(index);
     if (!result) return false;
@@ -708,8 +710,14 @@ export function startApp(api) {
     setPhase('paused');
   }
 
-  // ---------------------------------------------------------------- frame
+  
+  function requestFrame() {
+    if (frameRaf) return;
+    frameRaf = requestAnimationFrame(frame);
+  }
+
   function frame(ts) {
+    frameRaf = 0;
     const dt = state.lastTs ? Math.min(0.25, (ts - state.lastTs) / 1000) : 0;
     state.lastTs = ts;
 
@@ -725,10 +733,16 @@ export function startApp(api) {
 
     world.render(ts);
     timeline.render();
-    requestAnimationFrame(frame);
+    if (shouldContinueFrame({
+      playing: state.playing && session.ok,
+      world: world.needsFrame(),
+      timeline: timeline.needsFrame(),
+    })) {
+      requestFrame();
+    }
   }
 
-  // --------------------------------------------------------------- panels
+  
   function buildScorePanel(meta) {
     const vars = Array.isArray(meta && meta.variables) ? meta.variables : [];
     const loopNames = [];
@@ -783,7 +797,7 @@ export function startApp(api) {
     dom.scoresFoot.innerHTML = html || '<span class="muted">计分板空闲</span>';
   }
 
-  /** Pause / single-step only: <=140ms text-color feedback, >=150ms per chip. */
+   
   function pulseScoreValues() {
     if (prefersReducedMotion()) return;
     const now = performance.now();
@@ -809,7 +823,7 @@ export function startApp(api) {
       `<b>${Math.round(pen.yaw)}° / ${Math.round(pen.pitch || 0)}°</b>`;
   }
 
-  /** Viewport readout: y · ×zoom · (x, z); 3D isometric when content goes vertical. */
+   
   function updateViewReadout(cam) {
     if (!dom.viewReadout || !cam) return;
     const zoom = cam.zoom >= 10 ? cam.zoom.toFixed(0) : (Math.round(cam.zoom * 10) / 10).toFixed(1);
@@ -869,7 +883,7 @@ export function startApp(api) {
     chip.hidden = true;
   }
 
-  // --------------------------------------------------------------- run log
+  
   function resetConsole(hint = '按「运行」开始 —— 每个 tick 输出一行') {
     if (!dom.consoleLines) return;
     dom.consoleLines.innerHTML = `<div class="log-empty">${esc(hint)}</div>`;
@@ -952,9 +966,9 @@ export function startApp(api) {
 
   function logTick(events, changes, elapsedTick) {
     if (!dom.consoleLines) return;
-    // Trace events carry the 0-based tick they executed on; the timeline and
-    // top bar count elapsed ticks. The log follows the trace so it agrees with
-    // the datapack badge and the source-line mapping.
+    
+    
+    
     const tickEv = events.find((e) => e && typeof e.tick === 'number');
     const tNo = tickEv ? tickEv.tick : Math.max(0, elapsedTick - 1);
     const cmds = events.filter((e) => e && e.type === 'command');
@@ -981,7 +995,7 @@ export function startApp(api) {
     for (const ev of events) {
       if (!ev) continue;
       if (ev.type === 'say') {
-        // core knows which chat lines are Minecraft-only onboarding
+        
         if (isOnboardingSay(ev.file)) continue;
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line', tNo);
       } else if (ev.type === 'error') {
@@ -1015,10 +1029,11 @@ export function startApp(api) {
     dom.pause.disabled = !canRun;
     dom.step.disabled = !canRun;
     dom.reset.disabled = !canRun;
-    // settling frames / scrubbing should end with the whole drawing visible
+    
     if ((phase === 'paused' || phase === 'finished') && session.ok) world.requestFit(0, true);
     syncTheaterControls();
     updateWorldChip();
+    requestFrame();
   }
 
   function onSourceChange() {
@@ -1093,11 +1108,11 @@ export function startApp(api) {
     }
   }
 
-  // ------------------------------------------------------- theme + layout
+  
   function updateThemeButton() {
     if (!dom.theme) return;
     const light = document.documentElement.dataset.theme === 'light';
-    // the sun/moon SVGs are toggled by CSS on :root[data-theme]
+    
     dom.theme.title = light ? '切换到深色模式' : '切换到明亮模式';
     dom.theme.setAttribute('aria-label', dom.theme.title);
   }
@@ -1115,7 +1130,7 @@ export function startApp(api) {
     dom.sound.setAttribute('aria-label', label);
   }
 
-  /** Live forward ticks and manual single-step only; seeks/scrubs never call this. */
+   
   function playSoundEvents(events, tick) {
     if (!state.sound || host.sound !== true || typeof host.playSound !== 'function') return;
     const sounds = (events || []).filter((ev) => ev && ev.type === 'sound');
@@ -1129,7 +1144,7 @@ export function startApp(api) {
           pitch: ev.pitch,
           volume: ev.volume,
         });
-      } catch { /* sound is best effort */ }
+      } catch {   }
     }
   }
 
@@ -1142,23 +1157,25 @@ export function startApp(api) {
     timeline.markDirty();
     world.render(performance.now());
     updateThemeButton();
+    requestFrame();
   }
 
-  /** Called by layout.js after every tab/panel change. */
+   
   function handleLayoutChange(info) {
     if (!info) return;
     if (isTheater) syncTheaterClasses();
     if (info.visiblePanels.has('world')) {
-      // a hidden canvas has zero size; when it reappears, refit + repaint
+      
       world.requestFit(0, true);
       world.render(performance.now());
     }
     if (info.visiblePanels.has('timeline')) timeline.markDirty();
     timeline.render();
     scheduleTruncationTitles();
+    requestFrame();
   }
 
-  // ---------------------------------------------------- .tpk import / export
+  
   function importText(text, name = '程序') {
     if (typeof text !== 'string' || !text.trim()) {
       showToast('导入失败：文件是空的', 'error');
@@ -1290,7 +1307,7 @@ export function startApp(api) {
     }
   }
 
-  // ------------------------------------------------------- share / theater
+  
   function showShareNotice(message) {
     if (!dom.shareNotice || !dom.shareNoticeText) return;
     dom.shareNoticeText.textContent = message;
@@ -1303,7 +1320,7 @@ export function startApp(api) {
 
   function maybeWarnShareVersion() {
     if (SHARE_V == null) {
-      // A share link without v= predates the version field (old links).
+      
       if (isTheater && q.has('src')) {
         const msg = '这是旧版本分享链接（没有版本号），行为可能不同';
         showToast(msg, 'error');
@@ -1318,7 +1335,7 @@ export function startApp(api) {
     }
   }
 
-  /** Build a theatre share URL from the current editor text (relative base). */
+   
   function buildShareUrl(text) {
     const base = (location.origin && location.origin !== 'null')
       ? `${location.origin}${location.pathname}`
@@ -1352,7 +1369,7 @@ export function startApp(api) {
     return !!(tab && layout && typeof layout.panelsOfTab === 'function' && layout.panelsOfTab(tab).includes(panelId));
   }
 
-  /** Theatre needs one tab that has both 世界 and 源码 (defaults: 工作台). */
+   
   function ensureTheaterTab() {
     if (!isTheater || !layout || !layout.document) return;
     const tabs = layout.document.tabs;
@@ -1364,7 +1381,7 @@ export function startApp(api) {
     if (best && best.id !== layout.activeTabId) layout.selectTab(best.id);
   }
 
-  /** Give the column that holds 世界 the full theater width (presentation only). */
+   
   let theaterIdleTimer = 0;
   function wakeTheaterControls() {
     if (!isTheater || !dom.theaterControls) return;
@@ -1412,7 +1429,7 @@ export function startApp(api) {
     }
   }
 
-  /** Presentation-only classes for the recursive group tree in theater mode. */
+   
   function syncTheaterClasses() {
     if (!isTheater) return;
     const world = dom.workspace.querySelector('.panel-world');
@@ -1434,9 +1451,9 @@ export function startApp(api) {
     if (dom.theaterBackdrop) dom.theaterBackdrop.hidden = !theaterOpen;
     if (dom.theaterEdit) dom.theaterEdit.textContent = theaterOpen ? '收起源码' : '编辑 / 改编';
     if (theaterOpen) {
-      // pause for comfortable editing, but keep the session/cursor untouched
+      
       pause();
-      if (focus) requestAnimationFrame(() => { try { editor.focus(); } catch { /* noop */ } });
+      if (focus) requestAnimationFrame(() => { try { editor.focus(); } catch {   } });
     } else if (dom.source && typeof dom.source.blur === 'function') {
       dom.source.blur();
     }
@@ -1453,7 +1470,7 @@ export function startApp(api) {
   if (dom.sourceCollapse) dom.sourceCollapse.addEventListener('click', () => setTheaterDrawer(false));
   if (dom.shareNoticeClose) dom.shareNoticeClose.addEventListener('click', () => hideShareNotice());
 
-  // ---------------------------------------------------------- shortcuts help
+  
   let shortcutReturnFocus = null;
   function shortcutFocusables() {
     if (!dom.shortcutDialog) return [];
@@ -1511,7 +1528,7 @@ export function startApp(api) {
   }
   if (dom.shortcutClose) dom.shortcutClose.addEventListener('click', closeShortcuts);
 
-  // ------------------------------------------------------------------ init
+  
   function initSpeed(value, { persist = false } = {}) {
     const speed = normalizeSpeed(value, DEFAULT_SPEED);
     state.speed = speed;
@@ -1521,7 +1538,7 @@ export function startApp(api) {
     const pct = ((speed - 1) / 59) * 100;
     dom.speed.style.setProperty('--fill', `${pct}%`);
     if (persist && host && typeof host.storageSet === 'function') {
-      try { host.storageSet(SPEED_KEY, speedStorageValue(speed)); } catch { /* best effort */ }
+      try { host.storageSet(SPEED_KEY, speedStorageValue(speed)); } catch {   }
     }
   }
 
@@ -1539,21 +1556,22 @@ export function startApp(api) {
   dom.fwd.addEventListener('click', () => stepForward());
   dom.press.addEventListener('click', () => {
     if (!session.ok) return;
-    // Host input belongs to the session; the web shell never touches the simulator.
+    
     if (session.press() === false) return;
     pulsePress();
     showToast('已发送触发 → #__press + 1', 'ok');
   });
 
-  // world viewport controls (auto-fit / manual zoom / pan)
+  
   dom.fit.addEventListener('click', () => {
     world.fit();
+    requestFrame();
     showToast('已适配内容 · 自动适配开启', 'ok');
   });
-  dom.zoomIn.addEventListener('click', () => world.zoomBy(1.25));
-  dom.zoomOut.addEventListener('click', () => world.zoomBy(1 / 1.25));
+  dom.zoomIn.addEventListener('click', () => { world.zoomBy(1.25); requestFrame(); });
+  dom.zoomOut.addEventListener('click', () => { world.zoomBy(1 / 1.25); requestFrame(); });
 
-  // theme toggle (persisted through the host adapter only)
+  
   if (dom.theme) {
     updateThemeButton();
     dom.theme.addEventListener('click', () => {
@@ -1567,16 +1585,16 @@ export function startApp(api) {
     dom.sound.addEventListener('click', () => {
       if (host.sound !== true) return;
       state.sound = !state.sound;
-      try { host.storageSet('tickpack.sound', state.sound ? '1' : '0'); } catch { /* best effort */ }
+      try { host.storageSet('tickpack.sound', state.sound ? '1' : '0'); } catch {   }
       updateSoundButton();
       if (state.sound) {
-        try { host.playSound({ name: 'block.note_block.pling', pitch: 1, volume: 0.3 }); } catch { /* best effort */ }
+        try { host.playSound({ name: 'block.note_block.pling', pitch: 1, volume: 0.3 }); } catch {   }
       }
       showToast(state.sound ? '声音已开启' : '已静音', 'ok');
     });
   }
 
-  // .tpk import / export (platform file access only through the host adapter)
+  
   if (dom.importBtn) {
     if (host.canImport === false) {
       dom.importBtn.disabled = true;
@@ -1592,7 +1610,7 @@ export function startApp(api) {
     dom.exportBtn.addEventListener('click', () => exportProgram());
   }
 
-  // "send it to a friend": the core builds files+zip, the web host delivers it.
+  
   dom.zip.addEventListener('click', async () => {
     if (!session.ok) {
       showToast('先运行程序 —— 现在还没有可打包的数据包', 'error');
@@ -1703,7 +1721,7 @@ export function startApp(api) {
     showToast(`页面脚本错误：${e.message}`, 'error');
   });
 
-  // --------------------------------------------------------------- startup
+  
   fillSamples();
   world.applyQuery(location.search);
   updateViewReadout(world.getCamera());
@@ -1727,7 +1745,7 @@ export function startApp(api) {
     editor.setDiagnostics([{ severity: 'warning', line: 1, message: 'src/api.js 没有导出 SAMPLES' }]);
     setPhase('idle');
     updateWorldChip();
-    requestAnimationFrame(frame);
+    requestFrame();
     document.documentElement.dataset.ready = '1';
     return;
   }
@@ -1737,7 +1755,7 @@ export function startApp(api) {
   state.titleSampleId = initial.id;
   lastSampleValue = initial.id;
   dom.sampleSelect.value = initial.id;
-  // Debug aid for screenshots: ?src=<url-encoded Tickpack source> runs any program.
+  
   const srcOverride = q.has('src') ? q.get('src') : null;
   if (srcOverride != null) {
     editor.setValue(srcOverride, { silent: true });
@@ -1750,7 +1768,7 @@ export function startApp(api) {
     applySampleDescription(initial);
   }
 
-  // Drafts are offered, never forced; explicit ?src (share/debug) wins.
+  
   const bootDraft = srcOverride == null ? readDraft() : null;
 
   if (autoTicks != null) {
@@ -1768,10 +1786,10 @@ export function startApp(api) {
     else offerDraftRestore(bootDraft);
   }
 
-  // QA/screenshot helper: `?snap=1` shows the *final* auto-fit framing in the
-  // very first paint (headless Edge only renders ~1 rAF frame, so it would
-  // otherwise photograph a half-eased camera). Explicit debug framing
-  // (`?zoom/?cx/?cz/?fit=0`) still wins, so pinned-camera shots stay pinned.
+  
+  
+  
+  
   const cameraPinned = q.has('zoom') || q.has('cx') || q.has('cz') || q.get('fit') === '0';
   if (q.get('snap') === '1' && !cameraPinned) {
     world.fit();
@@ -1782,10 +1800,10 @@ export function startApp(api) {
   if (isTheater) setTheaterDrawer(false, { focus: false });
   maybeWarnShareVersion();
 
-  requestAnimationFrame(frame);
+  requestFrame();
   document.documentElement.dataset.ready = '1';
 
-  // Small QA/debug hook (used by scripts and by the Lead's screenshot workflow).
+  
   window.__tickpack = {
     api,
     state,
@@ -1816,6 +1834,9 @@ export function startApp(api) {
     timeline,
     datapack,
     world,
+    requestFrame,
+    get frameScheduled() { return !!frameRaf; },
     get snapshotsCount() { return session.snapshotsCount; },
   };
 }
+

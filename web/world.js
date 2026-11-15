@@ -997,6 +997,20 @@ export function createWorld(canvas, options = {}) {
     blockCount: () => blockCount,
     particleCount: () => particles.length,
 
+    /** True while a render would visibly advance (camera ease, fit, pop, fx). */
+    needsFrame() {
+      if (fitPending) return true;
+      if (pops.size || particles.length) return true;
+      if (camTarget.mode && camTarget.mode !== mode) return true;
+      return Math.abs(cam.span - camTarget.span) > 0.003
+        || Math.abs(cam.cx - camTarget.cx) > 0.003
+        || Math.abs(cam.cy - camTarget.cy) > 0.003
+        || Math.abs(cam.cz - camTarget.cz) > 0.003
+        || Math.abs(cam.zoom - camTarget.zoom) > 0.003
+        || Math.abs(cam.yaw - camTarget.yaw) > 0.01
+        || Math.abs(cam.pitch - camTarget.pitch) > 0.01;
+    },
+
     render(now = performance.now()) {
       const dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0;
       lastNow = now;

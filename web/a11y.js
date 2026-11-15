@@ -138,3 +138,7 @@ export function toggleLineComment(text, start = 0, end = start) {
 export function runButtonLabel(hasSession) {
   return hasSession ? '重跑' : '运行';
 }
+
+export function shouldContinueFrame({ playing = false, world = false, timeline = false } = {}) {
+  return !!(playing || world || timeline);
+}

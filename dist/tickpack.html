@@ -339,10 +339,17 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .stat-phase { flex-direction: row; align-items: center; gap: 6px; min-width: 62px; }
 .phase { font-size: 11.5px; color: var(--muted); }
 .led { width: 7px; height: 7px; border-radius: 50%; background: var(--led-idle); flex: 0 0 auto; }
-.led[data-phase="running"] { background: var(--led-running); }
+.led[data-phase="running"] { background: var(--led-running); animation: led-breathe 2.4s ease-in-out infinite; }
 .led[data-phase="paused"] { background: var(--led-paused); }
 .led[data-phase="finished"] { background: var(--led-finished); }
 .led[data-phase="error"] { background: var(--led-error); }
+@keyframes led-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .led[data-phase="running"] { animation: none; opacity: 1; }
+}
 
 /* ------------------------------------------------------------ tab bar --- */
 .tab-bar {
@@ -7163,6 +7170,10 @@ exports.applyTruncationTitles = applyTruncationTitles;
   return hasSession ? '重跑' : '运行';
 }
 
+ function shouldContinueFrame({ playing = false, world = false, timeline = false } = {}) {
+  return !!(playing || world || timeline);
+}
+
 exports.rovingIndex = rovingIndex;
 exports.menuIndex = menuIndex;
 exports.sliderValue = sliderValue;
@@ -7177,6 +7188,7 @@ exports.importableName = importableName;
 exports.diagnosticStep = diagnosticStep;
 exports.toggleLineComment = toggleLineComment;
 exports.runButtonLabel = runButtonLabel;
+exports.shouldContinueFrame = shouldContinueFrame;
   };
 
   // ---- web/editor.js ----
@@ -9016,6 +9028,20 @@ function formatZoom(zoom) {
     blockCount: () => blockCount,
     particleCount: () => particles.length,
 
+     
+    needsFrame() {
+      if (fitPending) return true;
+      if (pops.size || particles.length) return true;
+      if (camTarget.mode && camTarget.mode !== mode) return true;
+      return Math.abs(cam.span - camTarget.span) > 0.003
+        || Math.abs(cam.cx - camTarget.cx) > 0.003
+        || Math.abs(cam.cy - camTarget.cy) > 0.003
+        || Math.abs(cam.cz - camTarget.cz) > 0.003
+        || Math.abs(cam.zoom - camTarget.zoom) > 0.003
+        || Math.abs(cam.yaw - camTarget.yaw) > 0.01
+        || Math.abs(cam.pitch - camTarget.pitch) > 0.01;
+    },
+
     render(now = performance.now()) {
       const dt = lastNow ? Math.min(0.05, (now - lastNow) / 1000) : 0;
       lastNow = now;
@@ -9838,6 +9864,7 @@ function niceStep(pxPerTick) {
       dirty = false;
       draw();
     },
+    needsFrame() { return dirty; },
     markDirty() { dirty = true; },
     markCount() { return marks.size; },
      
@@ -12948,7 +12975,6 @@ exports.createWebHost = createWebHost;
 
 
 
-
 const { createEditor } = __tpb_require("web/editor.js");
 const { createWorld } = __tpb_require("web/world.js");
 const { createDatapack } = __tpb_require("web/datapack.js");
@@ -12958,7 +12984,7 @@ const { createWebHost } = __tpb_require("web/host-web.js");
 const { resolveInitialTheme, applyTheme, persistTheme } = __tpb_require("web/theme.js");
 const { blockColor } = __tpb_require("web/blocks.js");
 const { clamp, documentTitle, esc, fmtInt, flashButtonLabel, icon, applyTruncationTitles, prefersReducedMotion, showToast } = __tpb_require("web/util.js");
-const { importableName, normalizeSpeed, runButtonLabel, seekTick, speedStorageValue } = __tpb_require("web/a11y.js");
+const { importableName, normalizeSpeed, runButtonLabel, seekTick, shouldContinueFrame, speedStorageValue } = __tpb_require("web/a11y.js");
 
 const DEFAULT_SPEED = 10;
 const SPEED_KEY = 'tickpack.speed';
@@ -12983,7 +13009,7 @@ function parseQueryInt(q, key) {
   return Number.isFinite(n) ? n : null;
 }
 
- function startApp(api) {
+  function startApp(api) {
   const TickpackSession = api.TickpackSession;
   const SAMPLES = Array.isArray(api.SAMPLES) ? api.SAMPLES : [];
   const PRELUDE = typeof api.PRELUDE === 'string' ? api.PRELUDE : '';
@@ -13094,6 +13120,7 @@ function parseQueryInt(q, key) {
   
   
   let truncateRaf = 0;
+  let frameRaf = 0;
 
   const q = new URLSearchParams(location.search);
   const isTheater = q.get('view') === 'theater';
@@ -13150,6 +13177,11 @@ function parseQueryInt(q, key) {
     onSeek: seekTo,
   });
   timeline.setTheme(state.theme);
+
+  for (const eventName of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'pointerleave', 'wheel']) {
+    dom.canvas.addEventListener(eventName, requestFrame, { passive: true });
+    dom.timelineCanvas.addEventListener(eventName, requestFrame, { passive: true });
+  }
 
   function jumpToExec() {
     const exec = datapack.getExecuting();
@@ -13473,6 +13505,7 @@ function parseQueryInt(q, key) {
     world.requestFit(0, !state.playing);
     updateWorldChip();
     scheduleTruncationTitles();
+    requestFrame();
   }
 
   
@@ -13646,7 +13679,13 @@ function parseQueryInt(q, key) {
   }
 
   
+  function requestFrame() {
+    if (frameRaf) return;
+    frameRaf = requestAnimationFrame(frame);
+  }
+
   function frame(ts) {
+    frameRaf = 0;
     const dt = state.lastTs ? Math.min(0.25, (ts - state.lastTs) / 1000) : 0;
     state.lastTs = ts;
 
@@ -13662,7 +13701,13 @@ function parseQueryInt(q, key) {
 
     world.render(ts);
     timeline.render();
-    requestAnimationFrame(frame);
+    if (shouldContinueFrame({
+      playing: state.playing && session.ok,
+      world: world.needsFrame(),
+      timeline: timeline.needsFrame(),
+    })) {
+      requestFrame();
+    }
   }
 
   
@@ -13956,6 +14001,7 @@ function parseQueryInt(q, key) {
     if ((phase === 'paused' || phase === 'finished') && session.ok) world.requestFit(0, true);
     syncTheaterControls();
     updateWorldChip();
+    requestFrame();
   }
 
   function onSourceChange() {
@@ -14079,6 +14125,7 @@ function parseQueryInt(q, key) {
     timeline.markDirty();
     world.render(performance.now());
     updateThemeButton();
+    requestFrame();
   }
 
    
@@ -14093,6 +14140,7 @@ function parseQueryInt(q, key) {
     if (info.visiblePanels.has('timeline')) timeline.markDirty();
     timeline.render();
     scheduleTruncationTitles();
+    requestFrame();
   }
 
   
@@ -14485,10 +14533,11 @@ function parseQueryInt(q, key) {
   
   dom.fit.addEventListener('click', () => {
     world.fit();
+    requestFrame();
     showToast('已适配内容 · 自动适配开启', 'ok');
   });
-  dom.zoomIn.addEventListener('click', () => world.zoomBy(1.25));
-  dom.zoomOut.addEventListener('click', () => world.zoomBy(1 / 1.25));
+  dom.zoomIn.addEventListener('click', () => { world.zoomBy(1.25); requestFrame(); });
+  dom.zoomOut.addEventListener('click', () => { world.zoomBy(1 / 1.25); requestFrame(); });
 
   
   if (dom.theme) {
@@ -14664,7 +14713,7 @@ function parseQueryInt(q, key) {
     editor.setDiagnostics([{ severity: 'warning', line: 1, message: 'src/api.js 没有导出 SAMPLES' }]);
     setPhase('idle');
     updateWorldChip();
-    requestAnimationFrame(frame);
+    requestFrame();
     document.documentElement.dataset.ready = '1';
     return;
   }
@@ -14719,7 +14768,7 @@ function parseQueryInt(q, key) {
   if (isTheater) setTheaterDrawer(false, { focus: false });
   maybeWarnShareVersion();
 
-  requestAnimationFrame(frame);
+  requestFrame();
   document.documentElement.dataset.ready = '1';
 
   
@@ -14753,9 +14802,12 @@ function parseQueryInt(q, key) {
     timeline,
     datapack,
     world,
+    requestFrame,
+    get frameScheduled() { return !!frameRaf; },
     get snapshotsCount() { return session.snapshotsCount; },
   };
 }
+
 
 exports.startApp = startApp;
   };
