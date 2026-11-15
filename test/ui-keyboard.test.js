@@ -13,6 +13,9 @@ import {
   speedStorageValue,
   seekTick,
   importableName,
+  diagnosticStep,
+  toggleLineComment,
+  runButtonLabel,
 } from '../web/a11y.js';
 import { documentTitle } from '../web/util.js';
 import { themeColor } from '../web/theme.js';
@@ -91,4 +94,25 @@ test('document title and theme-color helpers stay in sync', () => {
   assert.equal(documentTitle({}), 'Tickpack');
   assert.equal(themeColor('light'), '#eef1f4');
   assert.equal(themeColor('dark'), '#0b0f14');
+});
+
+test('Ctrl+/ line comment toggles indented selections', () => {
+  const added = toggleLineComment('walk\n  jump', 0, 11);
+  assert.equal(added.text, '# walk\n  # jump');
+  const removed = toggleLineComment(added.text, 0, added.text.length);
+  assert.equal(removed.text, 'walk\n  jump');
+  const single = toggleLineComment('  say hi', 2, 2);
+  assert.equal(single.text, '  # say hi');
+  assert.equal(toggleLineComment('  # say hi', single.start, single.end).text, '  say hi');
+});
+
+test('diagnostic F8 steps wrap and run label follows session', () => {
+  assert.equal(diagnosticStep(-1, 3, 1), 0);
+  assert.equal(diagnosticStep(0, 3, 1), 1);
+  assert.equal(diagnosticStep(2, 3, 1), 0);
+  assert.equal(diagnosticStep(-1, 3, -1), 2);
+  assert.equal(diagnosticStep(0, 3, -1), 2);
+  assert.equal(diagnosticStep(0, 0, 1), -1);
+  assert.equal(runButtonLabel(false), '运行');
+  assert.equal(runButtonLabel(true), '重跑');
 });

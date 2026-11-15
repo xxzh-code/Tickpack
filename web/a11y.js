@@ -77,3 +77,64 @@ export function seekTick(value, total) {
 export function importableName(name) {
   return /\.(tpk|tp|txt)$/i.test(String(name || ''));
 }
+
+export function diagnosticStep(current, length, delta = 1) {
+  if (length <= 0) return -1;
+  if (current < 0) return delta < 0 ? length - 1 : 0;
+  return (current + delta + length) % length;
+}
+
+export function toggleLineComment(text, start = 0, end = start) {
+  const src = String(text || '');
+  const a = Math.max(0, Math.min(start, end));
+  const b = Math.max(start, end);
+  const firstStart = src.lastIndexOf('\n', Math.max(0, a - 1)) + 1;
+  const endProbe = Math.max(a, b - 1);
+  let lastEnd = src.indexOf('\n', endProbe);
+  if (lastEnd < 0) lastEnd = src.length;
+  const lines = src.slice(firstStart, lastEnd).split('\n');
+  const nonEmpty = lines.filter((line) => line.trim() !== '');
+  const canUncomment = nonEmpty.length > 0
+    && nonEmpty.every((line) => /^[ \t]*#(?: |$)/.test(line));
+  const removed = [];
+  const added = [];
+  let offset = firstStart;
+  const output = [];
+  for (const line of lines) {
+    const indent = (line.match(/^[ \t]*/) || [''])[0];
+    const body = line.slice(indent.length);
+    if (canUncomment) {
+      if (body.startsWith('# ')) {
+        output.push(indent + body.slice(2));
+        removed.push(offset + indent.length);
+      } else if (body === '#') {
+        output.push(indent);
+        removed.push(offset + indent.length);
+      } else {
+        output.push(line);
+      }
+    } else {
+      output.push(indent + '# ' + body);
+      added.push(offset + indent.length);
+    }
+    offset += line.length + 1;
+  }
+  if (!canUncomment && lines.length === 0) return { text: src, start: a, end: b };
+  const nextText = src.slice(0, firstStart) + output.join('\n') + src.slice(lastEnd);
+  let nextStart = a;
+  let nextEnd = b;
+  for (const pos of added) {
+    if (a >= pos) nextStart += 2;
+    if (b >= pos) nextEnd += 2;
+  }
+  for (const pos of removed) {
+    const delta = src[pos] === '#' && src[pos + 1] === ' ' ? 2 : 1;
+    if (a >= pos + delta) nextStart -= delta;
+    if (b >= pos + delta) nextEnd -= delta;
+  }
+  return { text: nextText, start: nextStart, end: nextEnd };
+}
+
+export function runButtonLabel(hasSession) {
+  return hasSession ? '重跑' : '运行';
+}

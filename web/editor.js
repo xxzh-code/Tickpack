@@ -1,7 +1,8 @@
 // main.tpk source editor: transparent textarea over a syntax-highlighted <pre>.
 // Line numbers, error markers, smart Enter indentation, Tab = 2 spaces, Ctrl+Enter run.
 
-import { clamp, esc } from './util.js';
+import { clamp, esc, showToast } from './util.js';
+import { diagnosticStep, toggleLineComment } from './a11y.js';
 
 const KEYWORDS = new Set([
   'state', 'fn', 'tick', 'when', 'press', 'over', 'wait', 'if', 'else',
@@ -74,9 +75,10 @@ function tokenizeLine(line, decl) {
   return out;
 }
 
-export function createEditor({ textarea, highlight, gutter, diagEl, onChange, onRun }) {
+export function createEditor({ textarea, highlight, gutter, diagEl, onChange, onRun, onImport, onExport }) {
   let value = '';
   let diagnostics = [];
+  let diagnosticIndex = -1;
   let lineEls = [];
   let gutterEls = [];
   let activeLine = 1;
@@ -181,6 +183,29 @@ export function createEditor({ textarea, highlight, gutter, diagEl, onChange, on
     setActiveLine(idx + 1);
   }
 
+  function toggleComment() {
+    const next = toggleLineComment(value, textarea.selectionStart, textarea.selectionEnd);
+    if (next.text === value) return;
+    value = next.text;
+    textarea.value = next.text;
+    textarea.setSelectionRange(next.start, next.end);
+    activeLine = caretLine();
+    render();
+    onChange && onChange(value);
+  }
+
+  function jumpDiagnostic(delta) {
+    if (!diagnostics.length) {
+      showToast('没有诊断信息', 'info');
+      return false;
+    }
+    diagnosticIndex = diagnosticStep(diagnosticIndex, diagnostics.length, delta);
+    const diag = diagnostics[diagnosticIndex];
+    if (diag && Number.isFinite(diag.line)) revealLine(diag.line);
+    else textarea.focus();
+    return true;
+  }
+
   function insertText(text, cursorBack = 0) {
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
@@ -201,6 +226,35 @@ export function createEditor({ textarea, highlight, gutter, diagEl, onChange, on
   textarea.addEventListener('scroll', syncScroll, { passive: true });
 
   textarea.addEventListener('keydown', (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.altKey) {
+      const key = e.key.toLowerCase();
+      if (key === 'o') {
+        e.preventDefault();
+        onImport && onImport();
+        return;
+      }
+      if (key === 's') {
+        e.preventDefault();
+        onExport && onExport();
+        return;
+      }
+      if (e.key === '/' || (e.code === 'Slash' && mod)) {
+        e.preventDefault();
+        toggleComment();
+        return;
+      }
+    }
+    if (e.key === 'F8') {
+      if (!diagnostics.length) {
+        showToast('没有诊断信息', 'info');
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      jumpDiagnostic(e.shiftKey ? -1 : 1);
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -263,6 +317,7 @@ export function createEditor({ textarea, highlight, gutter, diagEl, onChange, on
     },
     setDiagnostics(list) {
       diagnostics = Array.isArray(list) ? list : [];
+      diagnosticIndex = -1;
       render();
     },
     /**

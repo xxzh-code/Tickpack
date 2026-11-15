@@ -17,7 +17,7 @@ import { createWebHost } from './host-web.js';
 import { resolveInitialTheme, applyTheme, persistTheme } from './theme.js';
 import { blockColor } from './blocks.js';
 import { clamp, documentTitle, esc, fmtInt, flashButtonLabel, icon, applyTruncationTitles, prefersReducedMotion, showToast } from './util.js';
-import { importableName, normalizeSpeed, seekTick, speedStorageValue } from './a11y.js';
+import { importableName, normalizeSpeed, runButtonLabel, seekTick, speedStorageValue } from './a11y.js';
 
 const DEFAULT_SPEED = 10;
 const SPEED_KEY = 'tickpack.speed';
@@ -189,6 +189,8 @@ export function startApp(api) {
     diagEl: dom.diagnostics,
     onChange: onSourceChange,
     onRun: () => startRun({ autoPlay: true }),
+    onImport: () => importProgram(),
+    onExport: () => exportProgram(),
   });
   const datapack = createDatapack({
     treeEl: dom.tree,
@@ -861,7 +863,7 @@ export function startApp(api) {
     if (state.phase === 'paused') {
       chip.hidden = false;
       chip.dataset.kind = 'paused';
-      chip.textContent = `已暂停 · 已运行 ${session.cursor}`;
+      chip.textContent = '已暂停 · 按空格继续';
       return;
     }
     chip.hidden = true;
@@ -989,11 +991,22 @@ export function startApp(api) {
     if (dom.consoleMeta) dom.consoleMeta.textContent = `t ${tNo}`;
   }
 
+  function updateRunButton() {
+    if (!dom.run) return;
+    const hasSession = session.ok && state.phase !== 'error';
+    const label = runButtonLabel(hasSession);
+    const iconName = hasSession ? 'replay' : 'play';
+    dom.run.innerHTML = `${icon(iconName)}<span class="btn-label">${label}</span>`;
+    dom.run.setAttribute('aria-label', label);
+    dom.run.title = hasSession ? '重新编译并运行（Ctrl+Enter）' : '编译并运行（Ctrl+Enter）';
+  }
+
   function setPhase(phase) {
     if (!phase) return;
     state.phase = phase;
     dom.statPhase.textContent = PHASE_LABEL[phase] || phase;
     dom.stateLed.dataset.phase = phase;
+    updateRunButton();
     const pauseIcon = phase === 'running' ? 'pause' : (phase === 'finished' ? 'replay' : 'play');
     const pauseLabel = phase === 'running' ? '暂停' : (phase === 'finished' ? '重播' : '继续');
     dom.pause.innerHTML = `${icon(pauseIcon)}<span class="btn-label">${pauseLabel}</span>`;

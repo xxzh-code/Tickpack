@@ -2043,7 +2043,11 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
       <div class="shortcut-row"><kbd class="kbd-hint">← / →</kbd><span>上一步 / 下一步</span></div>
       <div class="shortcut-row"><kbd class="kbd-hint">F</kbd><span>适应视图</span></div>
       <div class="shortcut-row"><kbd class="kbd-hint">R</kbd><span>重置到第 0 tick</span></div>
-      <div class="shortcut-row"><kbd class="kbd-hint">Ctrl+Enter</kbd><span>编译并运行</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">Ctrl+Enter</kbd><span>编译并运行 / 重跑</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">Ctrl+O</kbd><span>导入 .tpk</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">Ctrl+S</kbd><span>导出 .tpk</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">F8 / Shift+F8</kbd><span>下一个 / 上一个诊断</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">Ctrl+/</kbd><span>注释 / 取消注释当前行或选中行</span></div>
       <div class="shortcut-row"><kbd class="kbd-hint">Esc</kbd><span>关闭面板 / 收起源码抽屉 / 还原最大化的分栏</span></div>
       <div class="shortcut-row"><kbd class="kbd-hint">?</kbd><span>打开 / 关闭本面板</span></div>
       <div class="shortcut-row"><kbd class="kbd-hint">剧场</kbd><span>「编辑 / 改编」打开源码抽屉，Esc 收起</span></div>
@@ -7016,12 +7020,172 @@ exports.documentTitle = documentTitle;
 exports.applyTruncationTitles = applyTruncationTitles;
   };
 
+  // ---- web/a11y.js ----
+  __tpb_modules["web/a11y.js"] = function (exports) {
+
+
+ function rovingIndex(current, length, key) {
+  if (length <= 0) return -1;
+  const cur = Math.max(0, Math.min(length - 1, current | 0));
+  if (key === 'Home') return 0;
+  if (key === 'End') return length - 1;
+  if (key === 'ArrowRight') return (cur + 1) % length;
+  if (key === 'ArrowLeft') return (cur - 1 + length) % length;
+  return cur;
+}
+
+ function menuIndex(current, length, key) {
+  if (length <= 0) return -1;
+  const cur = Math.max(-1, Math.min(length - 1, current | 0));
+  if (key === 'Home') return 0;
+  if (key === 'End') return length - 1;
+  if (key === 'ArrowDown') return cur < 0 ? 0 : (cur + 1) % length;
+  if (key === 'ArrowUp') return cur <= 0 ? length - 1 : cur - 1;
+  return cur;
+}
+
+ function sliderValue(current, total, key, page = 10) {
+  const max = Math.max(0, total | 0);
+  const cur = Math.max(0, Math.min(max, current | 0));
+  if (key === 'Home') return 0;
+  if (key === 'End') return max;
+  const step = Math.max(1, page | 0);
+  if (key === 'ArrowLeft' || key === 'ArrowDown') return Math.max(0, cur - 1);
+  if (key === 'ArrowRight' || key === 'ArrowUp') return Math.min(max, cur + 1);
+  if (key === 'PageUp') return Math.max(0, cur - step);
+  if (key === 'PageDown') return Math.min(max, cur + step);
+  return cur;
+}
+
+ function sliderKey(key) {
+  return ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(key);
+}
+
+ function focusSelector(key) {
+  if (!key) return '';
+  return `[data-focus-key="${String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
+}
+
+ function splitterPercent(left, right) {
+  const l = Math.max(0, Number(left) || 0);
+  const r = Math.max(0, Number(right) || 0);
+  const total = l + r;
+  return total > 0 ? Math.round((l / total) * 100) : 50;
+}
+
+ function resetPairSizes(total, minLeft, minRight) {
+  const t = Math.max(0, Number(total) || 0);
+  const minL = Math.max(0, Number(minLeft) || 0);
+  const minR = Math.max(0, Number(minRight) || 0);
+  if (t < minL + minR) return { left: minL, right: minR };
+  const left = Math.max(minL, Math.min(t - minR, t / 2));
+  return { left, right: t - left };
+}
+
+ function normalizeSpeed(value, fallback = 10) {
+  const n = Number(value);
+  const base = Number.isFinite(n) ? n : fallback;
+  return Math.min(60, Math.max(1, Math.round(base)));
+}
+
+ function speedStorageValue(value, fallback = 10) {
+  return String(normalizeSpeed(value, fallback));
+}
+
+ function seekTick(value, total) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) return null;
+  return Math.min(n, Math.max(0, Number(total) | 0));
+}
+
+ function importableName(name) {
+  return /\.(tpk|tp|txt)$/i.test(String(name || ''));
+}
+
+ function diagnosticStep(current, length, delta = 1) {
+  if (length <= 0) return -1;
+  if (current < 0) return delta < 0 ? length - 1 : 0;
+  return (current + delta + length) % length;
+}
+
+ function toggleLineComment(text, start = 0, end = start) {
+  const src = String(text || '');
+  const a = Math.max(0, Math.min(start, end));
+  const b = Math.max(start, end);
+  const firstStart = src.lastIndexOf('\n', Math.max(0, a - 1)) + 1;
+  const endProbe = Math.max(a, b - 1);
+  let lastEnd = src.indexOf('\n', endProbe);
+  if (lastEnd < 0) lastEnd = src.length;
+  const lines = src.slice(firstStart, lastEnd).split('\n');
+  const nonEmpty = lines.filter((line) => line.trim() !== '');
+  const canUncomment = nonEmpty.length > 0
+    && nonEmpty.every((line) => /^[ \t]*#(?: |$)/.test(line));
+  const removed = [];
+  const added = [];
+  let offset = firstStart;
+  const output = [];
+  for (const line of lines) {
+    const indent = (line.match(/^[ \t]*/) || [''])[0];
+    const body = line.slice(indent.length);
+    if (canUncomment) {
+      if (body.startsWith('# ')) {
+        output.push(indent + body.slice(2));
+        removed.push(offset + indent.length);
+      } else if (body === '#') {
+        output.push(indent);
+        removed.push(offset + indent.length);
+      } else {
+        output.push(line);
+      }
+    } else {
+      output.push(indent + '# ' + body);
+      added.push(offset + indent.length);
+    }
+    offset += line.length + 1;
+  }
+  if (!canUncomment && lines.length === 0) return { text: src, start: a, end: b };
+  const nextText = src.slice(0, firstStart) + output.join('\n') + src.slice(lastEnd);
+  let nextStart = a;
+  let nextEnd = b;
+  for (const pos of added) {
+    if (a >= pos) nextStart += 2;
+    if (b >= pos) nextEnd += 2;
+  }
+  for (const pos of removed) {
+    const delta = src[pos] === '#' && src[pos + 1] === ' ' ? 2 : 1;
+    if (a >= pos + delta) nextStart -= delta;
+    if (b >= pos + delta) nextEnd -= delta;
+  }
+  return { text: nextText, start: nextStart, end: nextEnd };
+}
+
+ function runButtonLabel(hasSession) {
+  return hasSession ? '重跑' : '运行';
+}
+
+exports.rovingIndex = rovingIndex;
+exports.menuIndex = menuIndex;
+exports.sliderValue = sliderValue;
+exports.sliderKey = sliderKey;
+exports.focusSelector = focusSelector;
+exports.splitterPercent = splitterPercent;
+exports.resetPairSizes = resetPairSizes;
+exports.normalizeSpeed = normalizeSpeed;
+exports.speedStorageValue = speedStorageValue;
+exports.seekTick = seekTick;
+exports.importableName = importableName;
+exports.diagnosticStep = diagnosticStep;
+exports.toggleLineComment = toggleLineComment;
+exports.runButtonLabel = runButtonLabel;
+  };
+
   // ---- web/editor.js ----
   __tpb_modules["web/editor.js"] = function (exports) {
 
 
 
-const { clamp, esc } = __tpb_require("web/util.js");
+const { clamp, esc, showToast } = __tpb_require("web/util.js");
+const { diagnosticStep, toggleLineComment } = __tpb_require("web/a11y.js");
 
 const KEYWORDS = new Set([
   'state', 'fn', 'tick', 'when', 'press', 'over', 'wait', 'if', 'else',
@@ -7094,9 +7258,10 @@ function tokenizeLine(line, decl) {
   return out;
 }
 
- function createEditor({ textarea, highlight, gutter, diagEl, onChange, onRun }) {
+ function createEditor({ textarea, highlight, gutter, diagEl, onChange, onRun, onImport, onExport }) {
   let value = '';
   let diagnostics = [];
+  let diagnosticIndex = -1;
   let lineEls = [];
   let gutterEls = [];
   let activeLine = 1;
@@ -7201,6 +7366,29 @@ function tokenizeLine(line, decl) {
     setActiveLine(idx + 1);
   }
 
+  function toggleComment() {
+    const next = toggleLineComment(value, textarea.selectionStart, textarea.selectionEnd);
+    if (next.text === value) return;
+    value = next.text;
+    textarea.value = next.text;
+    textarea.setSelectionRange(next.start, next.end);
+    activeLine = caretLine();
+    render();
+    onChange && onChange(value);
+  }
+
+  function jumpDiagnostic(delta) {
+    if (!diagnostics.length) {
+      showToast('没有诊断信息', 'info');
+      return false;
+    }
+    diagnosticIndex = diagnosticStep(diagnosticIndex, diagnostics.length, delta);
+    const diag = diagnostics[diagnosticIndex];
+    if (diag && Number.isFinite(diag.line)) revealLine(diag.line);
+    else textarea.focus();
+    return true;
+  }
+
   function insertText(text, cursorBack = 0) {
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
@@ -7221,6 +7409,35 @@ function tokenizeLine(line, decl) {
   textarea.addEventListener('scroll', syncScroll, { passive: true });
 
   textarea.addEventListener('keydown', (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.altKey) {
+      const key = e.key.toLowerCase();
+      if (key === 'o') {
+        e.preventDefault();
+        onImport && onImport();
+        return;
+      }
+      if (key === 's') {
+        e.preventDefault();
+        onExport && onExport();
+        return;
+      }
+      if (e.key === '/' || (e.code === 'Slash' && mod)) {
+        e.preventDefault();
+        toggleComment();
+        return;
+      }
+    }
+    if (e.key === 'F8') {
+      if (!diagnostics.length) {
+        showToast('没有诊断信息', 'info');
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      jumpDiagnostic(e.shiftKey ? -1 : 1);
+      return;
+    }
     if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -7283,6 +7500,7 @@ function tokenizeLine(line, decl) {
     },
     setDiagnostics(list) {
       diagnostics = Array.isArray(list) ? list : [];
+      diagnosticIndex = -1;
       render();
     },
      
@@ -9264,101 +9482,6 @@ function buildTree(files) {
 }
 
 exports.createDatapack = createDatapack;
-  };
-
-  // ---- web/a11y.js ----
-  __tpb_modules["web/a11y.js"] = function (exports) {
-
-
- function rovingIndex(current, length, key) {
-  if (length <= 0) return -1;
-  const cur = Math.max(0, Math.min(length - 1, current | 0));
-  if (key === 'Home') return 0;
-  if (key === 'End') return length - 1;
-  if (key === 'ArrowRight') return (cur + 1) % length;
-  if (key === 'ArrowLeft') return (cur - 1 + length) % length;
-  return cur;
-}
-
- function menuIndex(current, length, key) {
-  if (length <= 0) return -1;
-  const cur = Math.max(-1, Math.min(length - 1, current | 0));
-  if (key === 'Home') return 0;
-  if (key === 'End') return length - 1;
-  if (key === 'ArrowDown') return cur < 0 ? 0 : (cur + 1) % length;
-  if (key === 'ArrowUp') return cur <= 0 ? length - 1 : cur - 1;
-  return cur;
-}
-
- function sliderValue(current, total, key, page = 10) {
-  const max = Math.max(0, total | 0);
-  const cur = Math.max(0, Math.min(max, current | 0));
-  if (key === 'Home') return 0;
-  if (key === 'End') return max;
-  const step = Math.max(1, page | 0);
-  if (key === 'ArrowLeft' || key === 'ArrowDown') return Math.max(0, cur - 1);
-  if (key === 'ArrowRight' || key === 'ArrowUp') return Math.min(max, cur + 1);
-  if (key === 'PageUp') return Math.max(0, cur - step);
-  if (key === 'PageDown') return Math.min(max, cur + step);
-  return cur;
-}
-
- function sliderKey(key) {
-  return ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(key);
-}
-
- function focusSelector(key) {
-  if (!key) return '';
-  return `[data-focus-key="${String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
-}
-
- function splitterPercent(left, right) {
-  const l = Math.max(0, Number(left) || 0);
-  const r = Math.max(0, Number(right) || 0);
-  const total = l + r;
-  return total > 0 ? Math.round((l / total) * 100) : 50;
-}
-
- function resetPairSizes(total, minLeft, minRight) {
-  const t = Math.max(0, Number(total) || 0);
-  const minL = Math.max(0, Number(minLeft) || 0);
-  const minR = Math.max(0, Number(minRight) || 0);
-  if (t < minL + minR) return { left: minL, right: minR };
-  const left = Math.max(minL, Math.min(t - minR, t / 2));
-  return { left, right: t - left };
-}
-
- function normalizeSpeed(value, fallback = 10) {
-  const n = Number(value);
-  const base = Number.isFinite(n) ? n : fallback;
-  return Math.min(60, Math.max(1, Math.round(base)));
-}
-
- function speedStorageValue(value, fallback = 10) {
-  return String(normalizeSpeed(value, fallback));
-}
-
- function seekTick(value, total) {
-  const n = Number(value);
-  if (!Number.isInteger(n) || n < 0) return null;
-  return Math.min(n, Math.max(0, Number(total) | 0));
-}
-
- function importableName(name) {
-  return /\.(tpk|tp|txt)$/i.test(String(name || ''));
-}
-
-exports.rovingIndex = rovingIndex;
-exports.menuIndex = menuIndex;
-exports.sliderValue = sliderValue;
-exports.sliderKey = sliderKey;
-exports.focusSelector = focusSelector;
-exports.splitterPercent = splitterPercent;
-exports.resetPairSizes = resetPairSizes;
-exports.normalizeSpeed = normalizeSpeed;
-exports.speedStorageValue = speedStorageValue;
-exports.seekTick = seekTick;
-exports.importableName = importableName;
   };
 
   // ---- web/timeline.js ----
@@ -12835,7 +12958,7 @@ const { createWebHost } = __tpb_require("web/host-web.js");
 const { resolveInitialTheme, applyTheme, persistTheme } = __tpb_require("web/theme.js");
 const { blockColor } = __tpb_require("web/blocks.js");
 const { clamp, documentTitle, esc, fmtInt, flashButtonLabel, icon, applyTruncationTitles, prefersReducedMotion, showToast } = __tpb_require("web/util.js");
-const { importableName, normalizeSpeed, seekTick, speedStorageValue } = __tpb_require("web/a11y.js");
+const { importableName, normalizeSpeed, runButtonLabel, seekTick, speedStorageValue } = __tpb_require("web/a11y.js");
 
 const DEFAULT_SPEED = 10;
 const SPEED_KEY = 'tickpack.speed';
@@ -13007,6 +13130,8 @@ function parseQueryInt(q, key) {
     diagEl: dom.diagnostics,
     onChange: onSourceChange,
     onRun: () => startRun({ autoPlay: true }),
+    onImport: () => importProgram(),
+    onExport: () => exportProgram(),
   });
   const datapack = createDatapack({
     treeEl: dom.tree,
@@ -13675,7 +13800,7 @@ function parseQueryInt(q, key) {
     if (state.phase === 'paused') {
       chip.hidden = false;
       chip.dataset.kind = 'paused';
-      chip.textContent = `已暂停 · 已运行 ${session.cursor}`;
+      chip.textContent = '已暂停 · 按空格继续';
       return;
     }
     chip.hidden = true;
@@ -13803,11 +13928,22 @@ function parseQueryInt(q, key) {
     if (dom.consoleMeta) dom.consoleMeta.textContent = `t ${tNo}`;
   }
 
+  function updateRunButton() {
+    if (!dom.run) return;
+    const hasSession = session.ok && state.phase !== 'error';
+    const label = runButtonLabel(hasSession);
+    const iconName = hasSession ? 'replay' : 'play';
+    dom.run.innerHTML = `${icon(iconName)}<span class="btn-label">${label}</span>`;
+    dom.run.setAttribute('aria-label', label);
+    dom.run.title = hasSession ? '重新编译并运行（Ctrl+Enter）' : '编译并运行（Ctrl+Enter）';
+  }
+
   function setPhase(phase) {
     if (!phase) return;
     state.phase = phase;
     dom.statPhase.textContent = PHASE_LABEL[phase] || phase;
     dom.stateLed.dataset.phase = phase;
+    updateRunButton();
     const pauseIcon = phase === 'running' ? 'pause' : (phase === 'finished' ? 'replay' : 'play');
     const pauseLabel = phase === 'running' ? '暂停' : (phase === 'finished' ? '重播' : '继续');
     dom.pause.innerHTML = `${icon(pauseIcon)}<span class="btn-label">${pauseLabel}</span>`;
