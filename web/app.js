@@ -16,9 +16,11 @@ import { createLayout, PANEL_DEFS } from './layout.js';
 import { createWebHost } from './host-web.js';
 import { resolveInitialTheme, applyTheme, persistTheme } from './theme.js';
 import { blockColor } from './blocks.js';
-import { clamp, esc, fmtInt, icon, prefersReducedMotion, showToast } from './util.js';
+import { clamp, esc, fmtInt, flashButtonLabel, icon, prefersReducedMotion, showToast } from './util.js';
+import { normalizeSpeed, speedStorageValue } from './a11y.js';
 
 const DEFAULT_SPEED = 10;
+const SPEED_KEY = 'tickpack.speed';
 const ZIP_FILENAME = 'tickpack-datapack.zip';
 const SHARE_VERSION = '1';
 const SHARE_MAX_CHARS = 10000;
@@ -1117,8 +1119,10 @@ export function startApp(api) {
     } catch {
       copied = false;
     }
-    if (copied) showToast('分享链接已复制：打开会自动播放，可点编辑修改', 'ok');
-    else showToast('复制失败 — 请用「导出 .tpk」发文件', 'error');
+    if (copied) {
+      flashButtonLabel(dom.share, '已复制 ✓', { iconName: 'share' });
+      showToast('分享链接已复制：打开会自动播放，可点编辑修改', 'ok');
+    } else showToast('复制失败 — 请用「导出 .tpk」发文件', 'error');
   }
 
   function tabHas(tab, panelId) {
@@ -1188,16 +1192,24 @@ export function startApp(api) {
   if (dom.shareNoticeClose) dom.shareNoticeClose.addEventListener('click', () => hideShareNotice());
 
   // ------------------------------------------------------------------ init
-  function initSpeed(value) {
-    const speed = clamp(Math.round(value), 1, 60);
+  function initSpeed(value, { persist = false } = {}) {
+    const speed = normalizeSpeed(value, DEFAULT_SPEED);
     state.speed = speed;
     dom.speed.value = String(speed);
     dom.speedOut.textContent = `${speed} tick/秒`;
+    dom.speed.setAttribute('aria-valuetext', `${speed} tick/秒`);
     const pct = ((speed - 1) / 59) * 100;
     dom.speed.style.setProperty('--fill', `${pct}%`);
+    if (persist && host && typeof host.storageSet === 'function') {
+      try { host.storageSet(SPEED_KEY, speedStorageValue(speed)); } catch { /* best effort */ }
+    }
   }
 
-  dom.speed.addEventListener('input', () => initSpeed(Number(dom.speed.value)));
+  dom.speed.addEventListener('input', () => initSpeed(Number(dom.speed.value), { persist: true }));
+  dom.speed.addEventListener('dblclick', (ev) => {
+    ev.preventDefault();
+    initSpeed(DEFAULT_SPEED, { persist: true });
+  });
 
   dom.run.addEventListener('click', () => startRun({ autoPlay: true }));
   dom.pause.addEventListener('click', () => togglePlay());
@@ -1328,7 +1340,7 @@ export function startApp(api) {
     const tag = active && active.tagName;
     const typing = tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || (active && active.isContentEditable);
     const interactive = active && active.closest
-      && active.closest('button, a, input, textarea, select, [contenteditable="true"], [role="tab"], [role="slider"], [role="menuitem"], .panel-menu, .tab');
+      && active.closest('button, a, input, textarea, select, [contenteditable="true"], [role="tab"], [role="slider"], [role="menuitem"], [role="separator"], .panel-menu, .tab');
     if (typing || interactive) return;
     if (e.code === 'Space') {
       e.preventDefault();
@@ -1356,7 +1368,14 @@ export function startApp(api) {
   fillSamples();
   world.applyQuery(location.search);
   updateViewReadout(world.getCamera());
-  initSpeed(parseQueryInt(q, 'speed') != null ? parseQueryInt(q, 'speed') : DEFAULT_SPEED);
+  const speedQuery = parseQueryInt(q, 'speed');
+  let storedSpeed = null;
+  try {
+    const rawSpeed = host.storageGet(SPEED_KEY);
+    const parsedSpeed = Number(rawSpeed);
+    if (rawSpeed != null && rawSpeed !== '' && Number.isFinite(parsedSpeed) && parsedSpeed > 0) storedSpeed = parsedSpeed;
+  } catch { storedSpeed = null; }
+  initSpeed(speedQuery != null ? speedQuery : (storedSpeed != null ? storedSpeed : DEFAULT_SPEED));
 
   const wanted = q.get('sample');
   const autoTicks = parseQueryInt(q, 'auto');

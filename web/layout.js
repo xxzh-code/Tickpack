@@ -3,7 +3,7 @@
 // interaction only. Platform persistence goes through the host adapter.
 
 import { icon } from './util.js';
-import { rovingIndex, menuIndex, focusSelector } from './a11y.js';
+import { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } from './a11y.js';
 import {
   LAYOUT_VERSION,
   SPLITTER,
@@ -766,14 +766,116 @@ export function createLayout({
     return slot;
   }
 
+  function updateSplitterAria(splitter, left, right) {
+    if (!splitter || !left || !right) return;
+    const l = Math.max(0, Number(left.size) || 0);
+    const r = Math.max(0, Number(right.size) || 0);
+    const pct = splitterPercent(l, r);
+    splitter.setAttribute('aria-valuemin', '0');
+    splitter.setAttribute('aria-valuemax', '100');
+    splitter.setAttribute('aria-valuenow', String(pct));
+    splitter.setAttribute('aria-valuetext', `${pct}% / ${100 - pct}%`);
+  }
+
+  function resetSplitterPair(group, index, dir, tab) {
+    if (!group || group.manualLocked) return false;
+    const left = group.children[index - 1];
+    const right = group.children[index];
+    if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return false;
+    const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
+      + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
+    const minL = nodeMin(left, dir);
+    const minR = nodeMin(right, dir);
+    const pair = resetPairSizes(total, minL, minR);
+    const l = pair.left;
+    const r = pair.right;
+    left.size = l;
+    right.size = r;
+    left.weight = Math.max(MIN_GROW, l - minL);
+    right.weight = Math.max(MIN_GROW, r - minR);
+    const { w, h } = workspaceBox();
+    solveTab(tab, w, h, { keepExpanded: protectedPanel });
+    applyFrame();
+    const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
+    if (splitter) updateSplitterAria(splitter, left, right);
+    save();
+    emitChange();
+    return true;
+  }
+
+  function nudgeSplitter(group, index, dir, delta, tab) {
+    if (!group || group.manualLocked) return false;
+    const left = group.children[index - 1];
+    const right = group.children[index];
+    if (!left || !right) return false;
+    const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
+      + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
+    const minL = nodeMin(left, dir);
+    const minR = nodeMin(right, dir);
+    const step = Math.max(1, Math.round(total * 0.02));
+    const l = Math.max(minL, Math.min(total - minR, (Number.isFinite(left.size) ? left.size : minL) + delta * step));
+    const r = total - l;
+    left.size = l;
+    right.size = r;
+    left.weight = Math.max(MIN_GROW, l - minL);
+    right.weight = Math.max(MIN_GROW, r - minR);
+    const { w, h } = workspaceBox();
+    solveTab(tab, w, h, { keepExpanded: protectedPanel });
+    applyFrame();
+    const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
+    if (splitter) updateSplitterAria(splitter, left, right);
+    save();
+    emitChange();
+    return true;
+  }
+
+  function openSplitterMenu(splitter, group, index, dir, tab) {
+    closeMenus();
+    const menu = el('div', 'panel-menu');
+    addMenuItem(menu, '恢复 1:1', () => resetSplitterPair(group, index, dir, tab));
+    addMenuItem(menu, '切换组方向 H↔V', () => {
+      if (group === tab.root) return;
+      rotateGroup(group);
+      refreshLastActive(tab.root);
+      save();
+      renderAll();
+    }, { disabled: group === tab.root });
+    positionMenu(menu, splitter);
+  }
+
   function makeSplitter(group, index, dir, tab) {
     const splitter = el('div', `split split-${dir === 'H' ? 'v' : 'h'}`);
     splitter.dataset.split = dir === 'H' ? 'v' : 'h';
     splitter.setAttribute('role', 'separator');
     splitter.setAttribute('aria-orientation', dir === 'H' ? 'vertical' : 'horizontal');
+    splitter.tabIndex = 0;
+    splitter._splitGroup = group;
+    splitter._splitIndex = index;
     splitter.style.flex = `0 0 ${SPLITTER}px`;
-    splitter.title = group === tab.root ? '根组方向固定为 H' : '双击切换分栏方向';
+    splitter.title = '拖动调整 · 双击恢复 1:1 · 右键更多（含旋转）';
     splitter.addEventListener('pointerdown', (ev) => startSplitDrag(ev, group, index, dir, tab));
+    splitter.addEventListener('dblclick', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const now = performance.now();
+      if (splitter._lastReset && now - splitter._lastReset < 400) return;
+      splitter._lastReset = now;
+      resetSplitterPair(group, index, dir, tab);
+    });
+    splitter.addEventListener('keydown', (ev) => {
+      const dec = dir === 'H' ? 'ArrowLeft' : 'ArrowUp';
+      const inc = dir === 'H' ? 'ArrowRight' : 'ArrowDown';
+      if (ev.key !== dec && ev.key !== inc) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      nudgeSplitter(group, index, dir, ev.key === dec ? -1 : 1, tab);
+    });
+    splitter.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openSplitterMenu(splitter, group, index, dir, tab);
+    });
+    updateSplitterAria(splitter, group.children[index - 1], group.children[index]);
     return splitter;
   }
 
@@ -1351,7 +1453,7 @@ export function createLayout({
     }
   }
 
-  function positionMenu(menu, button, { align = 'right' } = {}) {
+  function positionMenu(menu, button, { align = 'right', point = null } = {}) {
     menu.setAttribute('role', 'menu');
     menu.tabIndex = -1;
     menu._trigger = button;
@@ -1369,9 +1471,11 @@ export function createLayout({
     menu.style.visibility = 'hidden';
     document.body.appendChild(menu);
     menus.push(menu);
-    const rect = typeof button.getBoundingClientRect === 'function'
-      ? button.getBoundingClientRect()
-      : { left: winW - 40, right: winW - 12, top: 28, bottom: 40 };
+    const rect = point
+      ? { left: point.x, right: point.x, top: point.y, bottom: point.y }
+      : (typeof button.getBoundingClientRect === 'function'
+        ? button.getBoundingClientRect()
+        : { left: winW - 40, right: winW - 12, top: 28, bottom: 40 });
     const mw = menu.offsetWidth || menu.getBoundingClientRect().width || 180;
     const mh = menu.offsetHeight || menu.getBoundingClientRect().height || 120;
     const pos = clampMenuPosition({
@@ -1384,7 +1488,7 @@ export function createLayout({
     focusMenuItem(menu, 0);
   }
 
-  function openPanelMenu(button, panelId) {
+  function openPanelMenu(button, panelId, { point = null } = {}) {
     closeMenus();
     const tab = activeTab();
     const info = findPaneInfo(panelId, tab);
@@ -1415,7 +1519,7 @@ export function createLayout({
       addMenuItem(menu, other.name, () => copyPanel(panelId, other.id), { disabled: exists });
     }
     addMenuItem(menu, '复制到新标签页', () => copyPanel(panelId, null, { newTab: true }));
-    positionMenu(menu, button);
+    positionMenu(menu, button, point ? { point, align: 'left' } : {});
   }
 
   function startSplitDrag(ev, group, index, dir, tab) {
@@ -1428,6 +1532,17 @@ export function createLayout({
     const splitter = ev.currentTarget;
     splitter.classList.add('active');
     document.body.classList.add('dragging-split');
+    const badge = el('span', 'split-ratio');
+    splitter.append(badge);
+    const setBadge = () => {
+      const l = Number.isFinite(left.size) ? left.size : nodeMin(left, dir);
+      const r = Number.isFinite(right.size) ? right.size : nodeMin(right, dir);
+      const totalNow = l + r;
+      const pct = totalNow > 0 ? Math.round((l / totalNow) * 100) : 50;
+      badge.textContent = `${pct}% / ${100 - pct}%`;
+      updateSplitterAria(splitter, left, right);
+    };
+    setBadge();
     const start = dir === 'H' ? ev.clientX : ev.clientY;
     const startLeft = Number.isFinite(left.size) ? left.size : nodeMin(left, dir);
     const startRight = Number.isFinite(right.size) ? right.size : nodeMin(right, dir);
@@ -1463,6 +1578,7 @@ export function createLayout({
       solveTab(tab, w, h, { keepExpanded: protectedPanel });
       announceRestricted(tab);
       applyFrame();
+      setBadge();
     };
     const onUp = () => {
       if (moveRaf) {
@@ -1472,6 +1588,7 @@ export function createLayout({
       }
       splitter.classList.remove('active');
       document.body.classList.remove('dragging-split');
+      if (badge.parentNode) badge.parentNode.removeChild(badge);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       save();
@@ -1482,12 +1599,8 @@ export function createLayout({
         splitter._lastTap = 0;
       } else if (splitter._lastTap && now - splitter._lastTap < 350) {
         splitter._lastTap = 0;
-        if (group !== tab.root) {
-          rotateGroup(group);
-          refreshLastActive(tab.root);
-          save();
-          renderAll();
-        }
+        splitter._lastReset = now;
+        resetSplitterPair(group, index, dir, tab);
       } else {
         splitter._lastTap = now;
       }
@@ -1519,6 +1632,24 @@ export function createLayout({
   }
 
   tabsEl.addEventListener('keydown', tabKeydown);
+  tabsEl.addEventListener('auxclick', (ev) => {
+    if (ev.button !== 1) return;
+    const tab = ev.target.closest && ev.target.closest('.tab');
+    if (!tab || doc.tabs.length <= 1) return;
+    ev.preventDefault();
+    closeTab(tab.dataset.tabId);
+  });
+  tabsEl.addEventListener('wheel', (ev) => {
+    if (tabsEl.scrollWidth <= tabsEl.clientWidth) return;
+    const delta = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
+    if (!delta) return;
+    ev.preventDefault();
+    tabsEl.scrollLeft += delta;
+  }, { passive: false });
+  tabsEl.addEventListener('dblclick', (ev) => {
+    if (ev.target.closest && ev.target.closest('.tab, button, input')) return;
+    createTab({ activate: true });
+  });
   document.addEventListener('keydown', globalTabKeys);
 
   workspaceEl.addEventListener('pointerdown', (ev) => {
@@ -1532,6 +1663,46 @@ export function createLayout({
     const panel = head.closest('.panel');
     if (!panel || !panel.dataset.panelId) return;
     startHeaderDrag(ev, panel.dataset.panelId);
+  });
+
+  workspaceEl.addEventListener('dblclick', (ev) => {
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split')) return;
+    const head = target.closest('.panel-head');
+    if (!head) return;
+    const panel = head.closest('.panel');
+    if (!panel || !panel.dataset.panelId) return;
+    ev.preventDefault();
+    toggleMaximize(panel.dataset.panelId);
+  });
+
+  workspaceEl.addEventListener('contextmenu', (ev) => {
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split, .group-capsule')) return;
+    const head = target.closest('.panel-head');
+    if (!head) return;
+    const panel = head.closest('.panel');
+    if (!panel || !panel.dataset.panelId) return;
+    ev.preventDefault();
+    const menuBtn = panel.querySelector('[data-action="menu"]');
+    if (menuBtn) openPanelMenu(menuBtn, panel.dataset.panelId, { point: { x: ev.clientX, y: ev.clientY } });
+  });
+
+  workspaceEl.addEventListener('click', (ev) => {
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split')) return;
+    const slot = target.closest('.pane-slot.is-collapsed');
+    if (!slot) return;
+    const panel = slot.querySelector('.panel');
+    if (!panel || !panel.dataset.panelId) return;
+    const info = findPaneInfo(panel.dataset.panelId);
+    if (info && info.pane.collapsed) {
+      ev.preventDefault();
+      toggleCollapse(panel.dataset.panelId);
+    }
   });
 
   workspaceEl.addEventListener('click', (ev) => {

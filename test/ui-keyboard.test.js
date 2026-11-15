@@ -7,6 +7,10 @@ import {
   sliderValue,
   sliderKey,
   focusSelector,
+  splitterPercent,
+  resetPairSizes,
+  normalizeSpeed,
+  speedStorageValue,
 } from '../web/a11y.js';
 
 test('tab roving index wraps and supports Home/End', () => {
@@ -43,4 +47,22 @@ test('focus selectors escape quotes and backslashes', () => {
   assert.equal(focusSelector('tab:a'), '[data-focus-key="tab:a"]');
   assert.equal(focusSelector('a"b'), '[data-focus-key="a\\"b"]');
   assert.equal(focusSelector(''), '');
+});
+
+test('splitter ratio and 1:1 reset honour both minima', () => {
+  assert.equal(splitterPercent(75, 25), 75);
+  assert.equal(splitterPercent(0, 0), 50);
+  assert.deepEqual(resetPairSizes(100, 20, 20), { left: 50, right: 50 });
+  assert.deepEqual(resetPairSizes(100, 70, 20), { left: 70, right: 30 });
+  assert.deepEqual(resetPairSizes(50, 40, 30), { left: 40, right: 30 });
+});
+
+test('speed normalization clamps to 1..60 and persists a rounded value', () => {
+  assert.equal(normalizeSpeed(10), 10);
+  assert.equal(normalizeSpeed(0), 1);
+  assert.equal(normalizeSpeed(-5), 1);
+  assert.equal(normalizeSpeed(100), 60);
+  assert.equal(normalizeSpeed(12.6), 13);
+  assert.equal(speedStorageValue(12.6), '13');
+  assert.equal(speedStorageValue('bad'), '10');
 });

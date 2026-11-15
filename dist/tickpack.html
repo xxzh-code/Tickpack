@@ -227,6 +227,22 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--dim); }
 .btn:active:not(:disabled) { background: var(--active); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn-feedback {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: inherit;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.btn-feedback .icon { width: 14px; height: 14px; }
 .btn:disabled { opacity: 0.45; cursor: default; }
 /* one-shot input feedback (600ms), class removed by app.js */
 .btn.press-hint, .btn.press-flash { animation: pressFeedback 600ms ease-out; }
@@ -454,13 +470,68 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .pane-dock.dock-collapsed .pane-slot.is-collapsed { flex: 1 1 auto; width: 100%; min-height: 0; }
 .pane-dock.dock-collapsed .pane-slot > .panel { width: 100%; height: auto; }
 
-/* splitters */
+/* splitters: 6px visual, 12px hit band */
 .split { flex: 0 0 6px; position: relative; background: transparent; touch-action: none; z-index: 2; }
-.split::after { content: ""; position: absolute; inset: 0; border-radius: 3px; background: transparent; transition: background 0.12s; }
-.split-v { cursor: col-resize; }
-.split-h, .split-dock { cursor: row-resize; }
+.split::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 1;
+}
+.split-h::before { left: 0; right: 0; top: -3px; bottom: -3px; }
+.split::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 0.12s;
+  z-index: 2;
+}
+.split-v {
+  cursor: col-resize;
+  background-image:
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px);
+  background-size: 3px 3px;
+  background-position: center calc(50% - 5px), center 50%, center calc(50% + 5px);
+  background-repeat: no-repeat;
+}
+.split-h, .split-dock {
+  cursor: row-resize;
+  background-image:
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px);
+  background-size: 3px 3px;
+  background-position: calc(50% - 5px) center, 50% center, calc(50% + 5px) center;
+  background-repeat: no-repeat;
+}
 .split:hover::after, .split.active::after { background: var(--accent-weak); }
+.split:not(:hover):not(:focus-visible):not(.active) { background-image: none; }
 .split.active::after { background: var(--accent); }
+.split:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.split-ratio {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  padding: 2px 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+.split-v .split-ratio { left: 9px; top: 50%; transform: translateY(-50%); }
+.split-h .split-ratio { top: 9px; left: 50%; transform: translateX(-50%); }
 body.dragging-split { cursor: col-resize; user-select: none; }
 
 /* maximize (no :has — layout adds col-max / is-maximized / data-max-place) */
@@ -6701,6 +6772,41 @@ exports.looseSourceLine = __tpb_reexport_5.looseSourceLine;
   return `<svg class="icon${extra ? ` ${extra}` : ''}" aria-hidden="true" focusable="false"><use href="#i-${name}"></use></svg>`;
 }
 
+ 
+ function flashButtonLabel(button, label, { iconName = 'copy', duration = 1200 } = {}) {
+  if (!button) return;
+  const original = button._feedbackOriginal || {
+    aria: button.getAttribute('aria-label'),
+    title: button.getAttribute('title'),
+    position: button.style.position,
+  };
+  button._feedbackOriginal = original;
+  const originalAria = original.aria;
+  const originalTitle = original.title;
+  const originalPosition = original.position;
+  if (button._feedbackTimer) clearTimeout(button._feedbackTimer);
+  if (button._feedbackEl && button._feedbackEl.parentNode) button._feedbackEl.parentNode.removeChild(button._feedbackEl);
+  if (!button.style.position || button.style.position === 'static') button.style.position = 'relative';
+  const feedback = document.createElement('span');
+  feedback.className = 'btn-feedback';
+  feedback.innerHTML = `${icon(iconName)}<span>${esc(label)}</span>`;
+  button.appendChild(feedback);
+  button._feedbackEl = feedback;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button._feedbackTimer = setTimeout(() => {
+    button._feedbackTimer = 0;
+    if (button._feedbackEl && button._feedbackEl.parentNode) button._feedbackEl.parentNode.removeChild(button._feedbackEl);
+    button._feedbackEl = null;
+    button._feedbackOriginal = null;
+    button.style.position = originalPosition;
+    if (originalAria == null) button.removeAttribute('aria-label');
+    else button.setAttribute('aria-label', originalAria);
+    if (originalTitle == null) button.removeAttribute('title');
+    else button.setAttribute('title', originalTitle);
+  }, duration);
+}
+
 let toastEl = null;
 let toastTimer = 0;
 
@@ -6737,6 +6843,7 @@ exports.clamp = clamp;
 exports.esc = esc;
 exports.el = el;
 exports.icon = icon;
+exports.flashButtonLabel = flashButtonLabel;
 exports.showToast = showToast;
 exports.fmtInt = fmtInt;
 exports.prefersReducedMotion = prefersReducedMotion;
@@ -8665,7 +8772,7 @@ exports.createWorld = createWorld;
 
 
 
-const { esc, icon } = __tpb_require("web/util.js");
+const { esc, flashButtonLabel, icon } = __tpb_require("web/util.js");
 
  
 function treePath(path) {
@@ -8952,8 +9059,7 @@ function buildTree(files) {
       } catch {
         delivered = false;
       }
-      copyBtn.innerHTML = `${icon('copy')}<span class="btn-label">${delivered ? '已复制' : '复制失败'}</span>`;
-      setTimeout(() => { copyBtn.innerHTML = `${icon('copy')}<span class="btn-label">复制</span>`; }, 1200);
+      flashButtonLabel(copyBtn, delivered ? '已复制 ✓' : '复制失败', { iconName: 'copy' });
     });
   }
 
@@ -9010,11 +9116,41 @@ exports.createDatapack = createDatapack;
   return `[data-focus-key="${String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
 }
 
+ function splitterPercent(left, right) {
+  const l = Math.max(0, Number(left) || 0);
+  const r = Math.max(0, Number(right) || 0);
+  const total = l + r;
+  return total > 0 ? Math.round((l / total) * 100) : 50;
+}
+
+ function resetPairSizes(total, minLeft, minRight) {
+  const t = Math.max(0, Number(total) || 0);
+  const minL = Math.max(0, Number(minLeft) || 0);
+  const minR = Math.max(0, Number(minRight) || 0);
+  if (t < minL + minR) return { left: minL, right: minR };
+  const left = Math.max(minL, Math.min(t - minR, t / 2));
+  return { left, right: t - left };
+}
+
+ function normalizeSpeed(value, fallback = 10) {
+  const n = Number(value);
+  const base = Number.isFinite(n) ? n : fallback;
+  return Math.min(60, Math.max(1, Math.round(base)));
+}
+
+ function speedStorageValue(value, fallback = 10) {
+  return String(normalizeSpeed(value, fallback));
+}
+
 exports.rovingIndex = rovingIndex;
 exports.menuIndex = menuIndex;
 exports.sliderValue = sliderValue;
 exports.sliderKey = sliderKey;
 exports.focusSelector = focusSelector;
+exports.splitterPercent = splitterPercent;
+exports.resetPairSizes = resetPairSizes;
+exports.normalizeSpeed = normalizeSpeed;
+exports.speedStorageValue = speedStorageValue;
   };
 
   // ---- web/timeline.js ----
@@ -10260,7 +10396,7 @@ exports.defaultLayout = defaultLayout;
 
 
 const { icon } = __tpb_require("web/util.js");
-const { rovingIndex, menuIndex, focusSelector } = __tpb_require("web/a11y.js");
+const { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } = __tpb_require("web/a11y.js");
 const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
 
  const LAYOUT_KEY = 'tickpack.layout.v2';
@@ -10987,14 +11123,116 @@ function collapseIcon(dir, index, count, collapsed) {
     return slot;
   }
 
+  function updateSplitterAria(splitter, left, right) {
+    if (!splitter || !left || !right) return;
+    const l = Math.max(0, Number(left.size) || 0);
+    const r = Math.max(0, Number(right.size) || 0);
+    const pct = splitterPercent(l, r);
+    splitter.setAttribute('aria-valuemin', '0');
+    splitter.setAttribute('aria-valuemax', '100');
+    splitter.setAttribute('aria-valuenow', String(pct));
+    splitter.setAttribute('aria-valuetext', `${pct}% / ${100 - pct}%`);
+  }
+
+  function resetSplitterPair(group, index, dir, tab) {
+    if (!group || group.manualLocked) return false;
+    const left = group.children[index - 1];
+    const right = group.children[index];
+    if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return false;
+    const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
+      + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
+    const minL = nodeMin(left, dir);
+    const minR = nodeMin(right, dir);
+    const pair = resetPairSizes(total, minL, minR);
+    const l = pair.left;
+    const r = pair.right;
+    left.size = l;
+    right.size = r;
+    left.weight = Math.max(MIN_GROW, l - minL);
+    right.weight = Math.max(MIN_GROW, r - minR);
+    const { w, h } = workspaceBox();
+    solveTab(tab, w, h, { keepExpanded: protectedPanel });
+    applyFrame();
+    const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
+    if (splitter) updateSplitterAria(splitter, left, right);
+    save();
+    emitChange();
+    return true;
+  }
+
+  function nudgeSplitter(group, index, dir, delta, tab) {
+    if (!group || group.manualLocked) return false;
+    const left = group.children[index - 1];
+    const right = group.children[index];
+    if (!left || !right) return false;
+    const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
+      + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
+    const minL = nodeMin(left, dir);
+    const minR = nodeMin(right, dir);
+    const step = Math.max(1, Math.round(total * 0.02));
+    const l = Math.max(minL, Math.min(total - minR, (Number.isFinite(left.size) ? left.size : minL) + delta * step));
+    const r = total - l;
+    left.size = l;
+    right.size = r;
+    left.weight = Math.max(MIN_GROW, l - minL);
+    right.weight = Math.max(MIN_GROW, r - minR);
+    const { w, h } = workspaceBox();
+    solveTab(tab, w, h, { keepExpanded: protectedPanel });
+    applyFrame();
+    const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
+    if (splitter) updateSplitterAria(splitter, left, right);
+    save();
+    emitChange();
+    return true;
+  }
+
+  function openSplitterMenu(splitter, group, index, dir, tab) {
+    closeMenus();
+    const menu = el('div', 'panel-menu');
+    addMenuItem(menu, '恢复 1:1', () => resetSplitterPair(group, index, dir, tab));
+    addMenuItem(menu, '切换组方向 H↔V', () => {
+      if (group === tab.root) return;
+      rotateGroup(group);
+      refreshLastActive(tab.root);
+      save();
+      renderAll();
+    }, { disabled: group === tab.root });
+    positionMenu(menu, splitter);
+  }
+
   function makeSplitter(group, index, dir, tab) {
     const splitter = el('div', `split split-${dir === 'H' ? 'v' : 'h'}`);
     splitter.dataset.split = dir === 'H' ? 'v' : 'h';
     splitter.setAttribute('role', 'separator');
     splitter.setAttribute('aria-orientation', dir === 'H' ? 'vertical' : 'horizontal');
+    splitter.tabIndex = 0;
+    splitter._splitGroup = group;
+    splitter._splitIndex = index;
     splitter.style.flex = `0 0 ${SPLITTER}px`;
-    splitter.title = group === tab.root ? '根组方向固定为 H' : '双击切换分栏方向';
+    splitter.title = '拖动调整 · 双击恢复 1:1 · 右键更多（含旋转）';
     splitter.addEventListener('pointerdown', (ev) => startSplitDrag(ev, group, index, dir, tab));
+    splitter.addEventListener('dblclick', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const now = performance.now();
+      if (splitter._lastReset && now - splitter._lastReset < 400) return;
+      splitter._lastReset = now;
+      resetSplitterPair(group, index, dir, tab);
+    });
+    splitter.addEventListener('keydown', (ev) => {
+      const dec = dir === 'H' ? 'ArrowLeft' : 'ArrowUp';
+      const inc = dir === 'H' ? 'ArrowRight' : 'ArrowDown';
+      if (ev.key !== dec && ev.key !== inc) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      nudgeSplitter(group, index, dir, ev.key === dec ? -1 : 1, tab);
+    });
+    splitter.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openSplitterMenu(splitter, group, index, dir, tab);
+    });
+    updateSplitterAria(splitter, group.children[index - 1], group.children[index]);
     return splitter;
   }
 
@@ -11572,7 +11810,7 @@ function collapseIcon(dir, index, count, collapsed) {
     }
   }
 
-  function positionMenu(menu, button, { align = 'right' } = {}) {
+  function positionMenu(menu, button, { align = 'right', point = null } = {}) {
     menu.setAttribute('role', 'menu');
     menu.tabIndex = -1;
     menu._trigger = button;
@@ -11590,9 +11828,11 @@ function collapseIcon(dir, index, count, collapsed) {
     menu.style.visibility = 'hidden';
     document.body.appendChild(menu);
     menus.push(menu);
-    const rect = typeof button.getBoundingClientRect === 'function'
-      ? button.getBoundingClientRect()
-      : { left: winW - 40, right: winW - 12, top: 28, bottom: 40 };
+    const rect = point
+      ? { left: point.x, right: point.x, top: point.y, bottom: point.y }
+      : (typeof button.getBoundingClientRect === 'function'
+        ? button.getBoundingClientRect()
+        : { left: winW - 40, right: winW - 12, top: 28, bottom: 40 });
     const mw = menu.offsetWidth || menu.getBoundingClientRect().width || 180;
     const mh = menu.offsetHeight || menu.getBoundingClientRect().height || 120;
     const pos = clampMenuPosition({
@@ -11605,7 +11845,7 @@ function collapseIcon(dir, index, count, collapsed) {
     focusMenuItem(menu, 0);
   }
 
-  function openPanelMenu(button, panelId) {
+  function openPanelMenu(button, panelId, { point = null } = {}) {
     closeMenus();
     const tab = activeTab();
     const info = findPaneInfo(panelId, tab);
@@ -11636,7 +11876,7 @@ function collapseIcon(dir, index, count, collapsed) {
       addMenuItem(menu, other.name, () => copyPanel(panelId, other.id), { disabled: exists });
     }
     addMenuItem(menu, '复制到新标签页', () => copyPanel(panelId, null, { newTab: true }));
-    positionMenu(menu, button);
+    positionMenu(menu, button, point ? { point, align: 'left' } : {});
   }
 
   function startSplitDrag(ev, group, index, dir, tab) {
@@ -11649,6 +11889,17 @@ function collapseIcon(dir, index, count, collapsed) {
     const splitter = ev.currentTarget;
     splitter.classList.add('active');
     document.body.classList.add('dragging-split');
+    const badge = el('span', 'split-ratio');
+    splitter.append(badge);
+    const setBadge = () => {
+      const l = Number.isFinite(left.size) ? left.size : nodeMin(left, dir);
+      const r = Number.isFinite(right.size) ? right.size : nodeMin(right, dir);
+      const totalNow = l + r;
+      const pct = totalNow > 0 ? Math.round((l / totalNow) * 100) : 50;
+      badge.textContent = `${pct}% / ${100 - pct}%`;
+      updateSplitterAria(splitter, left, right);
+    };
+    setBadge();
     const start = dir === 'H' ? ev.clientX : ev.clientY;
     const startLeft = Number.isFinite(left.size) ? left.size : nodeMin(left, dir);
     const startRight = Number.isFinite(right.size) ? right.size : nodeMin(right, dir);
@@ -11684,6 +11935,7 @@ function collapseIcon(dir, index, count, collapsed) {
       solveTab(tab, w, h, { keepExpanded: protectedPanel });
       announceRestricted(tab);
       applyFrame();
+      setBadge();
     };
     const onUp = () => {
       if (moveRaf) {
@@ -11693,6 +11945,7 @@ function collapseIcon(dir, index, count, collapsed) {
       }
       splitter.classList.remove('active');
       document.body.classList.remove('dragging-split');
+      if (badge.parentNode) badge.parentNode.removeChild(badge);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       save();
@@ -11703,12 +11956,8 @@ function collapseIcon(dir, index, count, collapsed) {
         splitter._lastTap = 0;
       } else if (splitter._lastTap && now - splitter._lastTap < 350) {
         splitter._lastTap = 0;
-        if (group !== tab.root) {
-          rotateGroup(group);
-          refreshLastActive(tab.root);
-          save();
-          renderAll();
-        }
+        splitter._lastReset = now;
+        resetSplitterPair(group, index, dir, tab);
       } else {
         splitter._lastTap = now;
       }
@@ -11740,6 +11989,24 @@ function collapseIcon(dir, index, count, collapsed) {
   }
 
   tabsEl.addEventListener('keydown', tabKeydown);
+  tabsEl.addEventListener('auxclick', (ev) => {
+    if (ev.button !== 1) return;
+    const tab = ev.target.closest && ev.target.closest('.tab');
+    if (!tab || doc.tabs.length <= 1) return;
+    ev.preventDefault();
+    closeTab(tab.dataset.tabId);
+  });
+  tabsEl.addEventListener('wheel', (ev) => {
+    if (tabsEl.scrollWidth <= tabsEl.clientWidth) return;
+    const delta = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
+    if (!delta) return;
+    ev.preventDefault();
+    tabsEl.scrollLeft += delta;
+  }, { passive: false });
+  tabsEl.addEventListener('dblclick', (ev) => {
+    if (ev.target.closest && ev.target.closest('.tab, button, input')) return;
+    createTab({ activate: true });
+  });
   document.addEventListener('keydown', globalTabKeys);
 
   workspaceEl.addEventListener('pointerdown', (ev) => {
@@ -11753,6 +12020,46 @@ function collapseIcon(dir, index, count, collapsed) {
     const panel = head.closest('.panel');
     if (!panel || !panel.dataset.panelId) return;
     startHeaderDrag(ev, panel.dataset.panelId);
+  });
+
+  workspaceEl.addEventListener('dblclick', (ev) => {
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split')) return;
+    const head = target.closest('.panel-head');
+    if (!head) return;
+    const panel = head.closest('.panel');
+    if (!panel || !panel.dataset.panelId) return;
+    ev.preventDefault();
+    toggleMaximize(panel.dataset.panelId);
+  });
+
+  workspaceEl.addEventListener('contextmenu', (ev) => {
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split, .group-capsule')) return;
+    const head = target.closest('.panel-head');
+    if (!head) return;
+    const panel = head.closest('.panel');
+    if (!panel || !panel.dataset.panelId) return;
+    ev.preventDefault();
+    const menuBtn = panel.querySelector('[data-action="menu"]');
+    if (menuBtn) openPanelMenu(menuBtn, panel.dataset.panelId, { point: { x: ev.clientX, y: ev.clientY } });
+  });
+
+  workspaceEl.addEventListener('click', (ev) => {
+    const target = ev.target;
+    if (!target || !target.closest) return;
+    if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split')) return;
+    const slot = target.closest('.pane-slot.is-collapsed');
+    if (!slot) return;
+    const panel = slot.querySelector('.panel');
+    if (!panel || !panel.dataset.panelId) return;
+    const info = findPaneInfo(panel.dataset.panelId);
+    if (info && info.pane.collapsed) {
+      ev.preventDefault();
+      toggleCollapse(panel.dataset.panelId);
+    }
   });
 
   workspaceEl.addEventListener('click', (ev) => {
@@ -12154,9 +12461,11 @@ const { createLayout, PANEL_DEFS } = __tpb_require("web/layout.js");
 const { createWebHost } = __tpb_require("web/host-web.js");
 const { resolveInitialTheme, applyTheme, persistTheme } = __tpb_require("web/theme.js");
 const { blockColor } = __tpb_require("web/blocks.js");
-const { clamp, esc, fmtInt, icon, prefersReducedMotion, showToast } = __tpb_require("web/util.js");
+const { clamp, esc, fmtInt, flashButtonLabel, icon, prefersReducedMotion, showToast } = __tpb_require("web/util.js");
+const { normalizeSpeed, speedStorageValue } = __tpb_require("web/a11y.js");
 
 const DEFAULT_SPEED = 10;
+const SPEED_KEY = 'tickpack.speed';
 const ZIP_FILENAME = 'tickpack-datapack.zip';
 const SHARE_VERSION = '1';
 const SHARE_MAX_CHARS = 10000;
@@ -13251,8 +13560,10 @@ function parseQueryInt(q, key) {
     } catch {
       copied = false;
     }
-    if (copied) showToast('分享链接已复制：打开会自动播放，可点编辑修改', 'ok');
-    else showToast('复制失败 — 请用「导出 .tpk」发文件', 'error');
+    if (copied) {
+      flashButtonLabel(dom.share, '已复制 ✓', { iconName: 'share' });
+      showToast('分享链接已复制：打开会自动播放，可点编辑修改', 'ok');
+    } else showToast('复制失败 — 请用「导出 .tpk」发文件', 'error');
   }
 
   function tabHas(tab, panelId) {
@@ -13322,16 +13633,24 @@ function parseQueryInt(q, key) {
   if (dom.shareNoticeClose) dom.shareNoticeClose.addEventListener('click', () => hideShareNotice());
 
   
-  function initSpeed(value) {
-    const speed = clamp(Math.round(value), 1, 60);
+  function initSpeed(value, { persist = false } = {}) {
+    const speed = normalizeSpeed(value, DEFAULT_SPEED);
     state.speed = speed;
     dom.speed.value = String(speed);
     dom.speedOut.textContent = `${speed} tick/秒`;
+    dom.speed.setAttribute('aria-valuetext', `${speed} tick/秒`);
     const pct = ((speed - 1) / 59) * 100;
     dom.speed.style.setProperty('--fill', `${pct}%`);
+    if (persist && host && typeof host.storageSet === 'function') {
+      try { host.storageSet(SPEED_KEY, speedStorageValue(speed)); } catch {   }
+    }
   }
 
-  dom.speed.addEventListener('input', () => initSpeed(Number(dom.speed.value)));
+  dom.speed.addEventListener('input', () => initSpeed(Number(dom.speed.value), { persist: true }));
+  dom.speed.addEventListener('dblclick', (ev) => {
+    ev.preventDefault();
+    initSpeed(DEFAULT_SPEED, { persist: true });
+  });
 
   dom.run.addEventListener('click', () => startRun({ autoPlay: true }));
   dom.pause.addEventListener('click', () => togglePlay());
@@ -13462,7 +13781,7 @@ function parseQueryInt(q, key) {
     const tag = active && active.tagName;
     const typing = tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || (active && active.isContentEditable);
     const interactive = active && active.closest
-      && active.closest('button, a, input, textarea, select, [contenteditable="true"], [role="tab"], [role="slider"], [role="menuitem"], .panel-menu, .tab');
+      && active.closest('button, a, input, textarea, select, [contenteditable="true"], [role="tab"], [role="slider"], [role="menuitem"], [role="separator"], .panel-menu, .tab');
     if (typing || interactive) return;
     if (e.code === 'Space') {
       e.preventDefault();
@@ -13490,7 +13809,14 @@ function parseQueryInt(q, key) {
   fillSamples();
   world.applyQuery(location.search);
   updateViewReadout(world.getCamera());
-  initSpeed(parseQueryInt(q, 'speed') != null ? parseQueryInt(q, 'speed') : DEFAULT_SPEED);
+  const speedQuery = parseQueryInt(q, 'speed');
+  let storedSpeed = null;
+  try {
+    const rawSpeed = host.storageGet(SPEED_KEY);
+    const parsedSpeed = Number(rawSpeed);
+    if (rawSpeed != null && rawSpeed !== '' && Number.isFinite(parsedSpeed) && parsedSpeed > 0) storedSpeed = parsedSpeed;
+  } catch { storedSpeed = null; }
+  initSpeed(speedQuery != null ? speedQuery : (storedSpeed != null ? storedSpeed : DEFAULT_SPEED));
 
   const wanted = q.get('sample');
   const autoTicks = parseQueryInt(q, 'auto');

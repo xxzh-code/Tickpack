@@ -3,7 +3,7 @@
 // ({file,line,fn,tick,sourceLine}); this module only renders it — trace→source
 // mapping and onboarding rules belong to the core session.
 
-import { esc, icon } from './util.js';
+import { esc, flashButtonLabel, icon } from './util.js';
 
 /** Shorten pack paths for the tree: data/tp/function/main/s0 -> tp/main/s0 */
 function treePath(path) {
@@ -293,8 +293,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       } catch {
         delivered = false;
       }
-      copyBtn.innerHTML = `${icon('copy')}<span class="btn-label">${delivered ? '已复制' : '复制失败'}</span>`;
-      setTimeout(() => { copyBtn.innerHTML = `${icon('copy')}<span class="btn-label">复制</span>`; }, 1200);
+      flashButtonLabel(copyBtn, delivered ? '已复制 ✓' : '复制失败', { iconName: 'copy' });
     });
   }
 

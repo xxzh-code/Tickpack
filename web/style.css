@@ -217,6 +217,22 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--dim); }
 .btn:active:not(:disabled) { background: var(--active); }
 .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn-feedback {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: inherit;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.btn-feedback .icon { width: 14px; height: 14px; }
 .btn:disabled { opacity: 0.45; cursor: default; }
 /* one-shot input feedback (600ms), class removed by app.js */
 .btn.press-hint, .btn.press-flash { animation: pressFeedback 600ms ease-out; }
@@ -444,13 +460,68 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 .pane-dock.dock-collapsed .pane-slot.is-collapsed { flex: 1 1 auto; width: 100%; min-height: 0; }
 .pane-dock.dock-collapsed .pane-slot > .panel { width: 100%; height: auto; }
 
-/* splitters */
+/* splitters: 6px visual, 12px hit band */
 .split { flex: 0 0 6px; position: relative; background: transparent; touch-action: none; z-index: 2; }
-.split::after { content: ""; position: absolute; inset: 0; border-radius: 3px; background: transparent; transition: background 0.12s; }
-.split-v { cursor: col-resize; }
-.split-h, .split-dock { cursor: row-resize; }
+.split::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  background: transparent;
+  z-index: 1;
+}
+.split-h::before { left: 0; right: 0; top: -3px; bottom: -3px; }
+.split::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 0.12s;
+  z-index: 2;
+}
+.split-v {
+  cursor: col-resize;
+  background-image:
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px);
+  background-size: 3px 3px;
+  background-position: center calc(50% - 5px), center 50%, center calc(50% + 5px);
+  background-repeat: no-repeat;
+}
+.split-h, .split-dock {
+  cursor: row-resize;
+  background-image:
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px),
+    radial-gradient(circle, var(--muted) 1px, transparent 1.4px);
+  background-size: 3px 3px;
+  background-position: calc(50% - 5px) center, 50% center, calc(50% + 5px) center;
+  background-repeat: no-repeat;
+}
 .split:hover::after, .split.active::after { background: var(--accent-weak); }
+.split:not(:hover):not(:focus-visible):not(.active) { background-image: none; }
 .split.active::after { background: var(--accent); }
+.split:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.split-ratio {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  padding: 2px 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+}
+.split-v .split-ratio { left: 9px; top: 50%; transform: translateY(-50%); }
+.split-h .split-ratio { top: 9px; left: 50%; transform: translateX(-50%); }
 body.dragging-split { cursor: col-resize; user-select: none; }
 
 /* maximize (no :has — layout adds col-max / is-maximized / data-max-place) */

@@ -41,3 +41,29 @@ export function focusSelector(key) {
   if (!key) return '';
   return `[data-focus-key="${String(key).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"]`;
 }
+
+export function splitterPercent(left, right) {
+  const l = Math.max(0, Number(left) || 0);
+  const r = Math.max(0, Number(right) || 0);
+  const total = l + r;
+  return total > 0 ? Math.round((l / total) * 100) : 50;
+}
+
+export function resetPairSizes(total, minLeft, minRight) {
+  const t = Math.max(0, Number(total) || 0);
+  const minL = Math.max(0, Number(minLeft) || 0);
+  const minR = Math.max(0, Number(minRight) || 0);
+  if (t < minL + minR) return { left: minL, right: minR };
+  const left = Math.max(minL, Math.min(t - minR, t / 2));
+  return { left, right: t - left };
+}
+
+export function normalizeSpeed(value, fallback = 10) {
+  const n = Number(value);
+  const base = Number.isFinite(n) ? n : fallback;
+  return Math.min(60, Math.max(1, Math.round(base)));
+}
+
+export function speedStorageValue(value, fallback = 10) {
+  return String(normalizeSpeed(value, fallback));
+}
