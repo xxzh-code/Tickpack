@@ -17,7 +17,7 @@ import { createWebHost } from './host-web.js';
 import { resolveInitialTheme, applyTheme, persistTheme } from './theme.js';
 import { blockColor } from './blocks.js';
 import { clamp, esc, fmtInt, flashButtonLabel, icon, prefersReducedMotion, showToast } from './util.js';
-import { normalizeSpeed, speedStorageValue } from './a11y.js';
+import { importableName, normalizeSpeed, seekTick, speedStorageValue } from './a11y.js';
 
 const DEFAULT_SPEED = 10;
 const SPEED_KEY = 'tickpack.speed';
@@ -89,6 +89,7 @@ export function startApp(api) {
     zip: byId('btn-zip'),
     consoleLines: byId('console-lines'),
     consoleMeta: byId('console-meta'),
+    logFollow: byId('btn-log-follow'),
     sampleDesc: byId('sample-desc'),
     sampleDescText: byId('sample-desc-text'),
     timelineCanvas: byId('timeline-canvas'),
@@ -108,6 +109,14 @@ export function startApp(api) {
     theaterEdit: byId('btn-theater-edit'),
     theaterHandle: byId('theater-handle'),
     theaterBackdrop: byId('theater-backdrop'),
+    theaterControls: byId('theater-controls'),
+    theaterPlay: byId('tc-play'),
+    theaterReplay: byId('tc-replay'),
+    theaterProgress: byId('tc-progress'),
+    theaterTime: byId('tc-time'),
+    dropOverlay: byId('drop-overlay'),
+    shortcutDialog: byId('shortcut-dialog'),
+    shortcutClose: byId('shortcut-close'),
     sourceCollapse: byId('btn-source-collapse'),
     shareNotice: byId('share-notice'),
     shareNoticeText: byId('share-notice-text'),
@@ -133,6 +142,7 @@ export function startApp(api) {
     scoreRows: [],
     sampleId: null,
     logCount: 0,
+    logFollow: true,
     theme: 'dark',
     sound: true,
     lastSoundTick: -1,
@@ -181,6 +191,14 @@ export function startApp(api) {
     onSeek: seekTo,
   });
   timeline.setTheme(state.theme);
+
+  function jumpToExec() {
+    const exec = datapack.getExecuting();
+    if (!exec) return;
+    if (exec.tick != null) seekTo(exec.tick);
+    if (exec.sourceLine) editor.revealLine(exec.sourceLine);
+  }
+  if (dom.execBadge) dom.execBadge.addEventListener('click', jumpToExec);
 
   // ------------------------------------------------------------- workspace
   const panelNodes = {};
@@ -489,6 +507,7 @@ export function startApp(api) {
     if (session.finished && result.index >= session.snapshotsCount - 1) editor.setSourceLine(null);
     updateStatus(result.tick);
     timeline.setData(session.total, result.index);
+    syncTheaterControls();
     world.requestFit(0, !state.playing);
     updateWorldChip();
   }
@@ -830,21 +849,79 @@ export function startApp(api) {
     dom.consoleLines.innerHTML = `<div class="log-empty">${esc(hint)}</div>`;
     if (dom.consoleMeta) dom.consoleMeta.textContent = '空闲';
     state.logCount = 0;
+    setLogFollow(true, { scroll: true });
   }
 
-  function consoleLine(html, cls = '') {
+  function consoleLine(html, cls = '', tick = null) {
     if (!dom.consoleLines) return;
     if (state.logCount === 0) dom.consoleLines.innerHTML = '';
     const row = document.createElement('div');
     row.className = 'log-line' + (cls ? ` ${cls}` : '');
     row.innerHTML = html;
+    if (Number.isInteger(tick) && tick >= 0) {
+      row.dataset.tick = String(tick);
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', `跳到 tick ${tick}`);
+    }
     dom.consoleLines.appendChild(row);
     state.logCount += 1;
     while (state.logCount > 180 && dom.consoleLines.firstChild && dom.consoleLines.removeChild) {
       dom.consoleLines.removeChild(dom.consoleLines.firstChild);
       state.logCount -= 1;
     }
-    dom.consoleLines.scrollTop = dom.consoleLines.scrollHeight;
+    if (state.logFollow) dom.consoleLines.scrollTop = dom.consoleLines.scrollHeight;
+  }
+
+  function setLogFollow(on, { scroll = false } = {}) {
+    state.logFollow = !!on;
+    if (dom.logFollow) {
+      dom.logFollow.setAttribute('aria-pressed', state.logFollow ? 'true' : 'false');
+      dom.logFollow.classList.toggle('is-on', state.logFollow);
+      dom.logFollow.title = state.logFollow ? '正在跟随日志（点击暂停）' : '回到底部并继续跟随';
+      dom.logFollow.setAttribute('aria-label', state.logFollow ? '正在跟随日志，点击暂停' : '回到底部并继续跟随');
+    }
+    if (state.logFollow && scroll && dom.consoleLines) {
+      dom.consoleLines.scrollTop = dom.consoleLines.scrollHeight;
+    }
+  }
+
+  function updateLogFollowFromScroll() {
+    if (!dom.consoleLines) return;
+    const near = dom.consoleLines.scrollHeight - dom.consoleLines.scrollTop - dom.consoleLines.clientHeight < 24;
+    if (near !== state.logFollow) setLogFollow(near);
+  }
+
+  function seekFromLogRow(row) {
+    if (!row) return;
+    const target = seekTick(row.dataset.tick, Math.max(0, session.snapshotsCount - 1));
+    if (target == null) return;
+    seekTo(target);
+  }
+
+  if (dom.consoleLines) {
+    dom.consoleLines.addEventListener('click', (ev) => {
+      const row = ev.target.closest && ev.target.closest('.log-line[data-tick]');
+      if (row) seekFromLogRow(row);
+    });
+    dom.consoleLines.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter') return;
+      const row = ev.target.closest && ev.target.closest('.log-line[data-tick]');
+      if (!row) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      seekFromLogRow(row);
+    });
+    dom.consoleLines.addEventListener('scroll', updateLogFollowFromScroll, { passive: true });
+  }
+  if (dom.logFollow) {
+    dom.logFollow.addEventListener('click', () => {
+      if (state.logFollow) {
+        setLogFollow(false);
+      } else {
+        setLogFollow(true, { scroll: true });
+      }
+    });
   }
 
   function logTick(events, changes, elapsedTick) {
@@ -873,16 +950,16 @@ export function startApp(api) {
     if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
     if (particles) bits.push(`<span class="log-fx">${icon('sparkle', 'log-fx-icon')}${particles}</span>`);
     if (sounds) bits.push(`<span class="log-fx" title="声音 ${sounds}">${icon('volume-2', 'log-fx-icon')}${sounds}</span>`);
-    consoleLine(bits.join(' '), 'log-summary');
+    consoleLine(bits.join(' '), 'log-summary', tNo);
 
     for (const ev of events) {
       if (!ev) continue;
       if (ev.type === 'say') {
         // core knows which chat lines are Minecraft-only onboarding
         if (isOnboardingSay(ev.file)) continue;
-        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line');
+        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line', tNo);
       } else if (ev.type === 'error') {
-        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">错误 · ${esc(ev.message)}</span>`, 'log-error');
+        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">错误 · ${esc(ev.message)}</span>`, 'log-error', tNo);
       }
     }
     if (dom.consoleMeta) dom.consoleMeta.textContent = `t ${tNo}`;
@@ -903,6 +980,7 @@ export function startApp(api) {
     dom.reset.disabled = !canRun;
     // settling frames / scrubbing should end with the whole drawing visible
     if ((phase === 'paused' || phase === 'finished') && session.ok) world.requestFit(0, true);
+    syncTheaterControls();
     updateWorldChip();
   }
 
@@ -1021,6 +1099,29 @@ export function startApp(api) {
   }
 
   // ---------------------------------------------------- .tpk import / export
+  function importText(text, name = '程序') {
+    if (typeof text !== 'string' || !text.trim()) {
+      showToast('导入失败：文件是空的', 'error');
+      return false;
+    }
+    if (state.dirty) {
+      const ok = typeof window.confirm === 'function'
+        ? window.confirm('当前源码还有未编译的修改，导入会覆盖它。继续吗？')
+        : true;
+      if (!ok) return false;
+    }
+    state.sampleId = null;
+    if (dom.sampleSelect) dom.sampleSelect.value = '';
+    state.dirty = false;
+    dom.dirtyBadge.hidden = true;
+    applySampleDescription(null);
+    editor.setValue(text, { silent: true });
+    scheduleDraftSave();
+    startRun({ autoPlay: false });
+    showToast(`已导入 ${name || '程序'}`, 'ok');
+    return true;
+  }
+
   async function importProgram() {
     if (typeof host.importTextFile !== 'function') {
       showToast('当前宿主不支持导入文件', 'error');
@@ -1034,22 +1135,83 @@ export function startApp(api) {
       return;
     }
     if (!picked || typeof picked.text !== 'string') return;
-    if (state.dirty) {
-      const ok = typeof window.confirm === 'function'
-        ? window.confirm('当前源码还有未编译的修改，导入会覆盖它。继续吗？')
-        : true;
-      if (!ok) return;
-    }
-    state.sampleId = null;
-    if (dom.sampleSelect) dom.sampleSelect.value = '';
-    state.dirty = false;
-    dom.dirtyBadge.hidden = true;
-    applySampleDescription(null);
-    editor.setValue(picked.text, { silent: true });
-    scheduleDraftSave();
-    startRun({ autoPlay: false });
-    showToast(`已导入 ${picked.name || '程序'}`, 'ok');
+    importText(picked.text, picked.name);
   }
+
+  function readFileText(file) {
+    if (file && typeof file.text === 'function') return file.text();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error || new Error('read failed'));
+      reader.readAsText(file);
+    });
+  }
+
+  async function importDroppedFile(file) {
+    if (!file) return;
+    if (!importableName(file.name)) {
+      showToast('只支持 .tpk / .tp / .txt 文件', 'error');
+      return;
+    }
+    let text = '';
+    try {
+      text = await readFileText(file);
+    } catch {
+      showToast('导入失败：无法读取文件', 'error');
+      return;
+    }
+    importText(text, file.name);
+  }
+
+  let dragDepth = 0;
+  function showDropOverlay(show) {
+    if (!dom.dropOverlay) return;
+    dom.dropOverlay.hidden = !show;
+    dom.dropOverlay.setAttribute('aria-hidden', show ? 'false' : 'true');
+    dragDepth = show ? Math.max(1, dragDepth) : 0;
+  }
+  function dragHasFiles(ev) {
+    const types = ev.dataTransfer && ev.dataTransfer.types;
+    return !!types && Array.from(types).includes('Files');
+  }
+  window.addEventListener('dragenter', (ev) => {
+    if (!dragHasFiles(ev)) return;
+    ev.preventDefault();
+    dragDepth += 1;
+    showDropOverlay(true);
+  });
+  window.addEventListener('dragover', (ev) => {
+    if (!dragHasFiles(ev)) return;
+    ev.preventDefault();
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+    showDropOverlay(true);
+  });
+  window.addEventListener('dragleave', (ev) => {
+    if (!ev.relatedTarget) {
+      showDropOverlay(false);
+      return;
+    }
+    if (!dragHasFiles(ev)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) showDropOverlay(false);
+  });
+  window.addEventListener('dragend', () => showDropOverlay(false));
+  window.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    showDropOverlay(false);
+    const files = ev.dataTransfer && ev.dataTransfer.files ? Array.from(ev.dataTransfer.files) : [];
+    if (!files.length) return;
+    if (files.length > 1) {
+      showToast('一次只能导入一个文件', 'error');
+      return;
+    }
+    if (!importableName(files[0].name)) {
+      showToast('只支持 .tpk / .tp / .txt 文件', 'error');
+      return;
+    }
+    importDroppedFile(files[0]);
+  });
 
   async function exportProgram() {
     const text = editor.getValue();
@@ -1142,6 +1304,53 @@ export function startApp(api) {
   }
 
   /** Give the column that holds 世界 the full theater width (presentation only). */
+  let theaterIdleTimer = 0;
+  function wakeTheaterControls() {
+    if (!isTheater || !dom.theaterControls) return;
+    dom.theaterControls.classList.remove('is-idle');
+    clearTimeout(theaterIdleTimer);
+    theaterIdleTimer = setTimeout(() => {
+      if (!dom.theaterControls || dom.theaterControls.contains(document.activeElement)) return;
+      dom.theaterControls.classList.add('is-idle');
+    }, 2500);
+  }
+
+  function syncTheaterControls() {
+    if (!dom.theaterControls) return;
+    const max = Math.max(0, session.snapshotsCount - 1);
+    const cursor = Math.max(0, Math.min(max, session.cursor || 0));
+    const disabled = !session.ok || state.phase === 'error';
+    if (dom.theaterPlay) {
+      const iconName = state.playing ? 'pause' : (session.finished ? 'replay' : 'play');
+      dom.theaterPlay.innerHTML = icon(iconName);
+      dom.theaterPlay.setAttribute('aria-label', state.playing ? '暂停' : '播放');
+      dom.theaterPlay.title = state.playing ? '暂停' : '播放';
+      dom.theaterPlay.disabled = disabled;
+    }
+    if (dom.theaterReplay) dom.theaterReplay.disabled = disabled;
+    if (dom.theaterProgress) {
+      dom.theaterProgress.max = String(max);
+      dom.theaterProgress.value = String(cursor);
+      dom.theaterProgress.disabled = disabled;
+      dom.theaterProgress.setAttribute('aria-valuetext', `${cursor} / ${max}`);
+    }
+    if (dom.theaterTime) dom.theaterTime.textContent = `${cursor} / ${max}`;
+  }
+
+  if (dom.theaterPlay) dom.theaterPlay.addEventListener('click', () => { togglePlay(); syncTheaterControls(); });
+  if (dom.theaterReplay) dom.theaterReplay.addEventListener('click', () => startRun({ autoPlay: true }));
+  if (dom.theaterProgress) dom.theaterProgress.addEventListener('input', () => seekTo(Number(dom.theaterProgress.value)));
+  if (isTheater) {
+    window.addEventListener('pointermove', wakeTheaterControls, { passive: true });
+    window.addEventListener('pointerdown', wakeTheaterControls, { passive: true });
+    window.addEventListener('keydown', wakeTheaterControls);
+    if (dom.theaterControls) {
+      dom.theaterControls.addEventListener('focusin', wakeTheaterControls);
+      dom.theaterControls.addEventListener('focusout', wakeTheaterControls);
+      wakeTheaterControls();
+    }
+  }
+
   /** Presentation-only classes for the recursive group tree in theater mode. */
   function syncTheaterClasses() {
     if (!isTheater) return;
@@ -1182,6 +1391,64 @@ export function startApp(api) {
   if (dom.theaterBackdrop) dom.theaterBackdrop.addEventListener('click', () => setTheaterDrawer(false));
   if (dom.sourceCollapse) dom.sourceCollapse.addEventListener('click', () => setTheaterDrawer(false));
   if (dom.shareNoticeClose) dom.shareNoticeClose.addEventListener('click', () => hideShareNotice());
+
+  // ---------------------------------------------------------- shortcuts help
+  let shortcutReturnFocus = null;
+  function shortcutFocusables() {
+    if (!dom.shortcutDialog) return [];
+    return [...dom.shortcutDialog.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )];
+  }
+
+  function openShortcuts() {
+    if (!dom.shortcutDialog) return;
+    if (dom.shortcutDialog.open) return;
+    shortcutReturnFocus = document.activeElement;
+    if (typeof dom.shortcutDialog.showModal === 'function') dom.shortcutDialog.showModal();
+    else dom.shortcutDialog.setAttribute('open', '');
+    requestAnimationFrame(() => {
+      const first = shortcutFocusables()[0];
+      if (first) first.focus();
+    });
+  }
+
+  function closeShortcuts() {
+    if (!dom.shortcutDialog || !dom.shortcutDialog.open) return;
+    if (typeof dom.shortcutDialog.close === 'function') dom.shortcutDialog.close();
+    else dom.shortcutDialog.removeAttribute('open');
+    const back = shortcutReturnFocus;
+    shortcutReturnFocus = null;
+    if (back && back.isConnected && typeof back.focus === 'function') back.focus();
+  }
+
+  if (dom.shortcutDialog) {
+    dom.shortcutDialog.addEventListener('cancel', (ev) => {
+      ev.preventDefault();
+      closeShortcuts();
+    });
+    dom.shortcutDialog.addEventListener('click', (ev) => {
+      if (ev.target === dom.shortcutDialog) closeShortcuts();
+    });
+    dom.shortcutDialog.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeShortcuts();
+        return;
+      }
+      if (ev.key !== 'Tab') return;
+      const items = shortcutFocusables();
+      if (!items.length) return;
+      const current = items.indexOf(document.activeElement);
+      const next = ev.shiftKey
+        ? (current <= 0 ? items.length - 1 : current - 1)
+        : (current < 0 || current >= items.length - 1 ? 0 : current + 1);
+      ev.preventDefault();
+      items[next].focus();
+    });
+  }
+  if (dom.shortcutClose) dom.shortcutClose.addEventListener('click', closeShortcuts);
 
   // ------------------------------------------------------------------ init
   function initSpeed(value, { persist = false } = {}) {
@@ -1315,6 +1582,16 @@ export function startApp(api) {
   });
 
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && dom.shortcutDialog && dom.shortcutDialog.open) {
+      e.preventDefault();
+      closeShortcuts();
+      return;
+    }
+    if (e.key === 'Escape' && dom.dropOverlay && !dom.dropOverlay.hidden) {
+      e.preventDefault();
+      showDropOverlay(false);
+      return;
+    }
     if (e.key === 'Escape' && isTheater && theaterOpen) {
       e.preventDefault();
       setTheaterDrawer(false);
@@ -1331,8 +1608,16 @@ export function startApp(api) {
     const active = document.activeElement;
     const tag = active && active.tagName;
     const typing = tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || (active && active.isContentEditable);
+    const helpKey = e.key === '?' || (e.key === '/' && e.shiftKey) || (e.code === 'Slash' && e.shiftKey);
+    if (!typing && helpKey) {
+      e.preventDefault();
+      if (dom.shortcutDialog && dom.shortcutDialog.open) closeShortcuts();
+      else openShortcuts();
+      return;
+    }
+    if (dom.shortcutDialog && dom.shortcutDialog.open) return;
     const interactive = active && active.closest
-      && active.closest('button, a, input, textarea, select, [contenteditable="true"], [role="tab"], [role="slider"], [role="menuitem"], [role="separator"], .panel-menu, .tab');
+      && active.closest('button, a, input, textarea, select, [contenteditable="true"], [role="tab"], [role="slider"], [role="menuitem"], [role="separator"], [role="button"], .panel-menu, .tab');
     if (typing || interactive) return;
     if (e.code === 'Space') {
       e.preventDefault();
@@ -1368,10 +1653,11 @@ export function startApp(api) {
     if (rawSpeed != null && rawSpeed !== '' && Number.isFinite(parsedSpeed) && parsedSpeed > 0) storedSpeed = parsedSpeed;
   } catch { storedSpeed = null; }
   initSpeed(speedQuery != null ? speedQuery : (storedSpeed != null ? storedSpeed : DEFAULT_SPEED));
+  syncTheaterControls();
 
   const wanted = q.get('sample');
   const autoTicks = parseQueryInt(q, 'auto');
-  const seekTick = parseQueryInt(q, 't');
+  const initialSeekTick = parseQueryInt(q, 't');
 
   if (!SAMPLES.length) {
     editor.setValue('# 没有样例。\n# src/api.js 应导出 SAMPLES = [{ id, title, description, source }]。\n');
@@ -1403,11 +1689,11 @@ export function startApp(api) {
   const bootDraft = srcOverride == null ? readDraft() : null;
 
   if (autoTicks != null) {
-    startRun({ autoPlay: false, syncTicks: Math.max(0, autoTicks), seekTick });
+    startRun({ autoPlay: false, syncTicks: Math.max(0, autoTicks), seekTick: initialSeekTick });
     setPhase(session.finished ? 'finished' : 'paused');
-  } else if (seekTick != null) {
-    startRun({ autoPlay: false, syncTicks: Math.max(0, seekTick) });
-    seekTo(seekTick);
+  } else if (initialSeekTick != null) {
+    startRun({ autoPlay: false, syncTicks: Math.max(0, initialSeekTick) });
+    seekTo(initialSeekTick);
   } else {
     startRun({ autoPlay: true });
   }

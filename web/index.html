@@ -405,7 +405,7 @@
         <div class="file-view">
           <div class="file-head">
             <span class="file-path" id="file-path">—</span>
-            <span class="exec-badge" id="exec-badge" hidden></span>
+            <button type="button" class="exec-badge" id="exec-badge" hidden aria-label="定位当前执行"></button>
           </div>
           <div class="code-view" id="code-view"></div>
         </div>
@@ -444,6 +444,7 @@
         </div>
         <div class="head-right">
           <span class="panel-actions">
+            <button type="button" class="icon-btn" id="btn-log-follow" data-focus-key="log:follow" title="跟随日志（滚动到底部）" aria-label="跟随日志" aria-pressed="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-chevrons-down"></use></svg></button>
             <button type="button" class="icon-btn" data-action="collapse" title="折叠" aria-label="折叠" aria-expanded="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-chevrons-left"></use></svg></button>
             <button type="button" class="icon-btn" data-action="maximize" title="最大化" aria-label="最大化" aria-pressed="false"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-maximize"></use></svg></button>
             <button type="button" class="icon-btn" data-action="menu" title="更多操作" aria-label="更多操作" aria-haspopup="menu"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-more-horizontal"></use></svg></button>
@@ -488,10 +489,48 @@
     <span class="theater-handle-label">编辑程序</span>
     <code class="theater-handle-file">main.tpk</code>
   </button>
+  <div id="theater-controls" class="theater-controls" role="group" aria-label="剧场控制">
+    <button id="tc-play" class="icon-btn" type="button" aria-label="播放" title="播放 / 暂停">
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-play"></use></svg>
+    </button>
+    <button id="tc-replay" class="icon-btn" type="button" aria-label="重播" title="从头重播">
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-replay"></use></svg>
+    </button>
+    <input id="tc-progress" class="theater-progress" type="range" min="0" max="0" value="0" step="1" aria-label="播放进度">
+    <span id="tc-time" class="theater-time" aria-live="off">0 / 0</span>
+  </div>
   <div id="share-notice" class="share-notice" role="status" hidden>
     <span id="share-notice-text"></span>
     <button id="share-notice-close" class="share-notice-close" type="button" aria-label="关闭提示"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-x"></use></svg></button>
   </div>
+
+  <div id="drop-overlay" class="drop-overlay" hidden aria-hidden="true">
+    <div class="drop-card">
+      <svg class="icon drop-icon" aria-hidden="true" focusable="false"><use href="#i-upload"></use></svg>
+      <strong>松手导入 .tpk</strong>
+      <span>支持 .tpk / .tp / .txt，单个文件</span>
+    </div>
+  </div>
+
+  <dialog id="shortcut-dialog" class="shortcut-dialog" aria-labelledby="shortcut-title">
+    <div class="shortcut-head">
+      <h2 id="shortcut-title">键盘快捷键</h2>
+      <button id="shortcut-close" class="icon-btn" type="button" aria-label="关闭快捷键面板">
+        <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+    <div class="shortcut-list">
+      <div class="shortcut-row"><kbd class="kbd-hint">Space</kbd><span>暂停 / 继续</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">← / →</kbd><span>上一步 / 下一步</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">F</kbd><span>适应视图</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">R</kbd><span>重置到第 0 tick</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">Ctrl+Enter</kbd><span>编译并运行</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">Esc</kbd><span>关闭面板 / 收起源码抽屉 / 还原最大化的分栏</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">?</kbd><span>打开 / 关闭本面板</span></div>
+      <div class="shortcut-row"><kbd class="kbd-hint">剧场</kbd><span>「编辑 / 改编」打开源码抽屉，Esc 收起</span></div>
+    </div>
+    <p class="shortcut-foot">按 Esc 或 ? 关闭</p>
+  </dialog>
 
   <div id="action-toast" class="action-toast" role="status" aria-live="polite" hidden>
     <span class="action-toast-text" id="action-toast-text"></span>

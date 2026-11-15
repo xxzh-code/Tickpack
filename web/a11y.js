@@ -67,3 +67,13 @@ export function normalizeSpeed(value, fallback = 10) {
 export function speedStorageValue(value, fallback = 10) {
   return String(normalizeSpeed(value, fallback));
 }
+
+export function seekTick(value, total) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) return null;
+  return Math.min(n, Math.max(0, Number(total) | 0));
+}
+
+export function importableName(name) {
+  return /\.(tpk|tp|txt)$/i.test(String(name || ''));
+}

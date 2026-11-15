@@ -188,6 +188,9 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
     if (!exec || !exec.file) {
       execEl.hidden = true;
       execEl.innerHTML = '';
+      execEl.removeAttribute('aria-label');
+      delete execEl.dataset.tick;
+      delete execEl.dataset.sourceLine;
       return;
     }
     execEl.hidden = false;
@@ -198,8 +201,15 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       (exec.tick != null ? `<span class="exec-tick">t${exec.tick}</span>` : '') +
       (exec.sourceLine ? `<span class="exec-src">↳ main.tpk:${exec.sourceLine}</span>` : '');
     execEl.title = exec.sourceLine
-      ? `${exec.file}:${exec.line} ← 来自源码第 ${exec.sourceLine} 行`
-      : `${exec.file}:${exec.line}`;
+      ? `${exec.file}:${exec.line} ← 来自源码第 ${exec.sourceLine} 行（点击定位）`
+      : `${exec.file}:${exec.line}（点击定位）`;
+    execEl.setAttribute('aria-label', exec.sourceLine
+      ? `定位执行位置 ${exec.file}:${exec.line}，源码第 ${exec.sourceLine} 行`
+      : `定位执行位置 ${exec.file}:${exec.line}`);
+    if (exec.tick != null) execEl.dataset.tick = String(exec.tick);
+    else delete execEl.dataset.tick;
+    if (exec.sourceLine != null) execEl.dataset.sourceLine = String(exec.sourceLine);
+    else delete execEl.dataset.sourceLine;
   }
 
   function emitSourceLine() {
@@ -255,6 +265,10 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       renderExec();
       applyExecHighlight(false);
       emitSourceLine();
+    },
+
+    getExecuting() {
+      return exec ? { ...exec } : null;
     },
 
     setMeta(meta) {

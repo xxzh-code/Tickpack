@@ -11,6 +11,8 @@ import {
   resetPairSizes,
   normalizeSpeed,
   speedStorageValue,
+  seekTick,
+  importableName,
 } from '../web/a11y.js';
 
 test('tab roving index wraps and supports Home/End', () => {
@@ -65,4 +67,17 @@ test('speed normalization clamps to 1..60 and persists a rounded value', () => {
   assert.equal(normalizeSpeed(12.6), 13);
   assert.equal(speedStorageValue(12.6), '13');
   assert.equal(speedStorageValue('bad'), '10');
+});
+
+test('log tick and drop filename helpers accept only valid targets', () => {
+  assert.equal(seekTick('0', 10), 0);
+  assert.equal(seekTick('7', 10), 7);
+  assert.equal(seekTick('12', 10), 10);
+  assert.equal(seekTick('-1', 10), null);
+  assert.equal(seekTick('x', 10), null);
+  assert.equal(importableName('demo.tpk'), true);
+  assert.equal(importableName('DEMO.TXT'), true);
+  assert.equal(importableName('demo.tp'), true);
+  assert.equal(importableName('demo.mcfunction'), false);
+  assert.equal(importableName('demo'), false);
 });
