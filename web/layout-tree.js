@@ -497,6 +497,24 @@ export function resetTabTree(tab, templateRoot) {
   return true;
 }
 
+/** Clear a user-created tab while preserving its name/id/order. */
+export function clearTabTree(tab) {
+  if (!tab) return false;
+  tab.root = createGroup('H', []);
+  tab.maximized = null;
+  return true;
+}
+
+/** Reset by stable id: known default tab gets root+name; user tab becomes empty. */
+export function resetTabVariant(tab, defaultTab = null) {
+  if (!tab) return false;
+  if (defaultTab) {
+    tab.name = defaultTab.name;
+    return resetTabTree(tab, defaultTab.root);
+  }
+  return clearTabTree(tab);
+}
+
 function oppositeDir(dir) { return dir === 'H' ? 'V' : 'H'; }
 
 function resetRestricted(node) {

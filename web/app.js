@@ -1133,20 +1133,12 @@ export function startApp(api) {
   function ensureTheaterTab() {
     if (!isTheater || !layout || !layout.document) return;
     const tabs = layout.document.tabs;
-    let active = tabs.find((t) => t.id === layout.activeTabId);
-    // A maximized pane would hide the world/source tree from the theater
-    // presentation; restore the tree once for this view.
-    if (active && active.maximized) {
-      layout.toggleMaximize(active.maximized);
-      active = tabs.find((t) => t.id === layout.activeTabId);
-    }
+    const active = tabs.find((t) => t.id === layout.activeTabId);
     if (tabHas(active, 'source') && tabHas(active, 'world')) return;
     const best = tabs.find((t) => tabHas(t, 'source') && tabHas(t, 'world'))
       || tabs.find((t) => tabHas(t, 'source'))
       || tabs.find((t) => tabHas(t, 'world'));
     if (best && best.id !== layout.activeTabId) layout.selectTab(best.id);
-    const chosen = layout.document.tabs.find((t) => t.id === layout.activeTabId);
-    if (chosen && chosen.maximized) layout.toggleMaximize(chosen.maximized);
   }
 
   /** Give the column that holds 世界 the full theater width (presentation only). */

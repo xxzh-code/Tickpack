@@ -22,6 +22,8 @@ import {
   addPaneToTab,
   addMissingPaneToTab,
   resetTabTree,
+  resetTabVariant,
+  clearTabTree,
   clonePaneForCopy,
 } from '../web/layout-tree.js';
 
@@ -195,6 +197,27 @@ test('tab reorder and reset preserve ids/names/order and leave other tabs alone'
   assert.equal(allPanes(tab.root).length, 6);
   assert.equal(doc.tabs[0], second);
   assert.equal(doc.tabs[1], tab);
+});
+
+test('reset by stable id restores default name/root, clears user tabs', () => {
+  const templates = defaultLayout();
+  const tplWork = templates.tabs.find((t) => t.id === 'workbench');
+  const tplObserve = templates.tabs.find((t) => t.id === 'observe');
+  const work = { id: 'workbench', name: '我的工作台', root: createGroup('H', [createPane('log')]), maximized: 'log' };
+  assert.equal(resetTabVariant(work, tplWork), true);
+  assert.equal(work.name, '工作台');
+  assert.deepEqual(allPanes(work.root).map((p) => p.panel).sort(), ['log', 'pack', 'scores', 'source', 'timeline', 'world']);
+
+  const observe = { id: 'observe', name: 'OBS', root: createGroup('H', []), maximized: null };
+  assert.equal(resetTabVariant(observe, tplObserve), true);
+  assert.equal(observe.name, '观察');
+  assert.ok(allPanes(observe.root).length > 0);
+
+  const user = { id: 'tab-9', name: '我的空白页', root: createGroup('H', [createPane('scores')]), maximized: null };
+  assert.equal(resetTabVariant(user, null), true);
+  assert.equal(user.name, '我的空白页');
+  assert.equal(allPanes(user.root).length, 0);
+  assert.equal(user.root.dir, 'H');
 });
 
 test('copy/add helpers reject duplicates and preserve a copied collapsed pane', () => {

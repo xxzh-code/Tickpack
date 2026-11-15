@@ -27,6 +27,8 @@ import {
   addPaneToTab,
   addMissingPaneToTab,
   resetTabTree,
+  clearTabTree,
+  resetTabVariant,
   clampMenuPosition,
   isExpandedNode,
   expandedPanes,
@@ -114,6 +116,7 @@ export function createLayout({
   let tabClickSuppressedUntil = 0;
 
   const notify = (message) => { if (typeof onNotify === 'function') onNotify(message); };
+  const theaterLocked = () => typeof document !== 'undefined' && document.documentElement.dataset.view === 'theater';
   const activeTab = () => doc.tabs.find((t) => t.id === doc.activeId) || doc.tabs[0];
 
   function canPersist() {
@@ -121,6 +124,7 @@ export function createLayout({
   }
 
   function save() {
+    if (theaterLocked()) return false;
     if (!canPersist()) return false;
     try { host.storageSet(LAYOUT_KEY, JSON.stringify(doc)); return true; } catch { return false; }
   }
@@ -154,7 +158,7 @@ export function createLayout({
 
   function visiblePanels(tab) {
     if (!tab) return new Set();
-    if (tab.maximized) return new Set([tab.maximized]);
+    if (tab.maximized && !theaterLocked()) return new Set([tab.maximized]);
     return new Set(expandedPanes(tab.root).map((p) => p.panel));
   }
 
@@ -269,12 +273,14 @@ export function createLayout({
   }
 
   function markActive(panelId) {
+    if (theaterLocked()) return;
     const tab = activeTab();
     if (!tab) return;
     if (markPaneActive(tab.root, panelId)) save();
   }
 
   function expandCapsuleGroup(group, tab) {
+    if (theaterLocked()) return;
     const pane = lastActivePane(group) || allPanes(group)[0];
     if (!pane) return;
     const info = findPaneInfo(pane.panel, tab);
@@ -287,6 +293,7 @@ export function createLayout({
   }
 
   function expandCapsulePane(group, panelId, tab) {
+    if (theaterLocked()) return;
     const pane = allPanes(group).find((p) => p.panel === panelId);
     if (!pane) return;
     const info = findPaneInfo(panelId, tab);
@@ -327,6 +334,7 @@ export function createLayout({
   }
 
   function openCapsuleMenu(button, group, tab) {
+    if (theaterLocked()) return;
     closeMenus();
     const menu = el('div', 'panel-menu');
     menu.setAttribute('role', 'menu');
@@ -399,6 +407,7 @@ export function createLayout({
     panel.dataset.layoutActiveBound = '1';
     panel.addEventListener('pointerdown', () => markActive(panelId), { capture: true });
     panel.addEventListener('focusin', () => {
+      if (theaterLocked()) return;
       const tab = activeTab();
       if (tab) markPaneActive(tab.root, panelId);
     });
@@ -636,6 +645,7 @@ export function createLayout({
   }
 
   function startHeaderDrag(ev, panelId) {
+    if (theaterLocked()) return;
     const tab = activeTab();
     const panel = panelNodes[panelId];
     if (!tab || !panel) return;
@@ -778,6 +788,7 @@ export function createLayout({
   }
 
   function resetSplitterPair(group, index, dir, tab) {
+    if (theaterLocked()) return false;
     if (!group || group.manualLocked) return false;
     const left = group.children[index - 1];
     const right = group.children[index];
@@ -804,6 +815,7 @@ export function createLayout({
   }
 
   function nudgeSplitter(group, index, dir, delta, tab) {
+    if (theaterLocked()) return false;
     if (!group || group.manualLocked) return false;
     const left = group.children[index - 1];
     const right = group.children[index];
@@ -830,6 +842,7 @@ export function createLayout({
   }
 
   function openSplitterMenu(splitter, group, index, dir, tab) {
+    if (theaterLocked()) return;
     closeMenus();
     const menu = el('div', 'panel-menu');
     addMenuItem(menu, '恢复 1:1', () => resetSplitterPair(group, index, dir, tab));
@@ -848,11 +861,15 @@ export function createLayout({
     splitter.dataset.split = dir === 'H' ? 'v' : 'h';
     splitter.setAttribute('role', 'separator');
     splitter.setAttribute('aria-orientation', dir === 'H' ? 'vertical' : 'horizontal');
-    splitter.tabIndex = 0;
+    splitter.tabIndex = theaterLocked() ? -1 : 0;
+    if (theaterLocked()) {
+      splitter.setAttribute('aria-disabled', 'true');
+      splitter.style.pointerEvents = 'none';
+    }
     splitter._splitGroup = group;
     splitter._splitIndex = index;
     splitter.style.flex = `0 0 ${SPLITTER}px`;
-    splitter.title = '拖动调整 · 双击恢复 1:1 · 右键更多（含旋转）';
+    splitter.title = theaterLocked() ? '' : '拖动调整 · 双击恢复 1:1 · 右键更多（含旋转）';
     splitter.addEventListener('pointerdown', (ev) => startSplitDrag(ev, group, index, dir, tab));
     splitter.addEventListener('dblclick', (ev) => {
       ev.preventDefault();
@@ -904,19 +921,90 @@ export function createLayout({
     return groupEl;
   }
 
-  function emptyState() {
+  function openEmptyInsertMenu(button, tab) {
+    if (theaterLocked()) return;
+    closeMenus();
+    const menu = el('div', 'panel-menu');
+    const missing = PANEL_DEFS.filter((p) => !findPaneNode(tab.root, p.id));
+    addMenuItem(menu, '插入分栏', () => {}, { heading: true });
+    if (!missing.length) addMenuItem(menu, '全部分栏已存在', () => {}, { disabled: true });
+    for (const def of missing) {
+      addMenuItem(menu, def.title, () => addPanelToTab(tab.id, def.id));
+    }
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'true');
+    positionMenu(menu, button, { align: 'left' });
+  }
+
+  function openEmptyMoveMenu(button, tab) {
+    if (theaterLocked()) return;
+    closeMenus();
+    const menu = el('div', 'panel-menu');
+    const entries = [];
+    for (const other of doc.tabs) {
+      if (other.id === tab.id) continue;
+      for (const pane of allPanes(other.root)) entries.push({ pane, source: other });
+    }
+    addMenuItem(menu, '从其他标签页移入', () => {}, { heading: true });
+    if (!entries.length) addMenuItem(menu, '没有可移入的分栏', () => {}, { disabled: true });
+    for (const entry of entries) {
+      addMenuItem(menu, `${panelTitle(entry.pane.panel)} · ${entry.source.name}`, () => {
+        movePanelFromTab(entry.pane.panel, entry.source.id, tab.id);
+      });
+    }
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'true');
+    positionMenu(menu, button, { align: 'left' });
+  }
+
+  function emptyState(tab) {
     const box = el('div', 'tab-empty');
+    const titleId = `tab-empty-title-${tab.id}`;
+    const hintId = `tab-empty-hint-${tab.id}`;
+    box.setAttribute('role', 'region');
+    box.setAttribute('aria-labelledby', titleId);
+    box.setAttribute('aria-describedby', hintId);
     const img = document.createElement('img');
-    img.src = '../logo/logo-middle.svg';
-    img.alt = 'Tickpack';
+    img.src = '../logo/logo-big.svg';
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
     img.className = 'tab-empty-logo';
     box.append(img);
-    box.append(el('p', 'tab-empty-title', '这个标签页还是空的'));
-    box.append(el('span', 'tab-empty-hint', '在任意分栏标题的「更多」菜单里选择「移动到标签页」，把分栏移动到这里。'));
+    const title = el('h2', 'tab-empty-title', '从空白页开始');
+    title.id = titleId;
+    box.append(title);
+    const hint = el('p', 'tab-empty-hint', '点击下方按钮插入分栏，或从其他标签页移入；也可以重置这个标签页的布局。');
+    hint.id = hintId;
+    box.append(hint);
+    const actions = el('div', 'tab-empty-actions');
+    const insert = el('button', 'btn btn-soft btn-sm', '插入分栏');
+    insert.type = 'button';
+    insert.dataset.focusKey = `empty:${tab.id}:insert`;
+    insert.innerHTML = `${icon('plus')}<span class="btn-label">插入分栏</span>`;
+    insert.setAttribute('aria-haspopup', 'menu');
+    insert.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openEmptyInsertMenu(insert, tab);
+    });
+    const move = el('button', 'btn btn-soft btn-sm', '移入分栏');
+    move.type = 'button';
+    move.dataset.focusKey = `empty:${tab.id}:move`;
+    move.innerHTML = `${icon('pointer')}<span class="btn-label">移入分栏</span>`;
+    move.setAttribute('aria-haspopup', 'menu');
+    move.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openEmptyMoveMenu(move, tab);
+    });
     const reset = el('button', 'btn btn-soft btn-sm', '重置布局');
     reset.type = 'button';
-    reset.addEventListener('click', (ev) => { ev.stopPropagation(); resetToDefaults(); });
-    box.append(reset);
+    reset.dataset.focusKey = `empty:${tab.id}:reset`;
+    reset.innerHTML = `${icon('rotate-ccw')}<span class="btn-label">重置布局</span>`;
+    reset.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      resetTabById(tab.id);
+    });
+    actions.append(insert, move, reset);
+    box.append(actions);
     return box;
   }
 
@@ -941,8 +1029,8 @@ export function createLayout({
     const root = el('div', 'pane-root');
     root.dataset.tabId = tab.id;
     if (panelCount(tab) === 0) {
-      root.append(emptyState());
-    } else if (tab.maximized) {
+      root.append(emptyState(tab));
+    } else if (tab.maximized && !theaterLocked()) {
       root.dataset.maximized = '1';
       root.dataset.maxPlace = 'main';
       root.style.flexDirection = tab.root.dir === 'H' ? 'row' : 'column';
@@ -999,6 +1087,7 @@ export function createLayout({
   }
 
   function tabKeydown(ev) {
+    if (theaterLocked()) return;
     if (ev.altKey || ev.metaKey) return;
     const node = ev.target && ev.target.closest ? ev.target.closest('.tab') : null;
     if (!node) return;
@@ -1038,6 +1127,7 @@ export function createLayout({
   }
 
   function globalTabKeys(ev) {
+    if (theaterLocked()) return;
     if (!ev.ctrlKey || ev.altKey || ev.metaKey) return;
     if (ev.key !== 'PageUp' && ev.key !== 'PageDown') return;
     const active = document.activeElement;
@@ -1151,6 +1241,7 @@ export function createLayout({
   }
 
   function addPanelToTab(tabId, panelId) {
+    if (theaterLocked()) return false;
     const tab = doc.tabs.find((t) => t.id === tabId);
     if (!tab || !PANEL_DEFS.some((p) => p.id === panelId)) return false;
     if (findPaneNode(tab.root, panelId)) return false;
@@ -1165,18 +1256,21 @@ export function createLayout({
   }
 
   function resetTabById(tabId) {
+    if (theaterLocked()) return false;
     const tab = doc.tabs.find((t) => t.id === tabId);
     if (!tab) return false;
-    activateTabForAction(tabId);
-    if (!resetTabTree(tab, defaultLayout().tabs[0].root)) return false;
-    protectedPanel = null;
+    const defaults = defaultLayout();
+    const defaultTab = defaults.tabs.find((t) => t.id === tab.id);
+    if (!resetTabVariant(tab, defaultTab || null)) return false;
+    if (activeTab() === tab) protectedPanel = null;
     save();
     renderAll();
-    notify('已重置当前标签页');
+    notify(defaultTab ? `已重置「${tab.name}」` : `已清空「${tab.name}」`);
     return true;
   }
 
   function copyPanel(panelId, targetTabId, { newTab = false } = {}) {
+    if (theaterLocked()) return false;
     const sourceTab = activeTab();
     const source = findPaneInfo(panelId, sourceTab);
     if (!source) return false;
@@ -1198,6 +1292,7 @@ export function createLayout({
   }
 
   function openTabMenu(tab, tabNode) {
+    if (theaterLocked()) return;
     closeMenus();
     tabNode.setAttribute('aria-haspopup', 'menu');
     const menu = el('div', 'panel-menu');
@@ -1257,6 +1352,7 @@ export function createLayout({
   }
 
   function createTab({ activate = true } = {}) {
+    if (theaterLocked()) return null;
     const id = `tab-${doc.nextId++}`;
     const tab = { id, name: `标签页 ${doc.nextId - 1}`, root: { dir: 'H', children: [] }, maximized: null };
     doc.tabs.push(tab);
@@ -1267,6 +1363,7 @@ export function createLayout({
   }
 
   function closeTab(id) {
+    if (theaterLocked()) return false;
     if (doc.tabs.length <= 1) { notify('至少保留一个标签页'); return false; }
     const index = doc.tabs.findIndex((t) => t.id === id);
     if (index === -1) return false;
@@ -1292,6 +1389,7 @@ export function createLayout({
   }
 
   function movePanel(panelId, targetTabId, { toEnd = false } = {}) {
+    if (theaterLocked()) return false;
     protectedPanel = null;
     const sourceTab = activeTab();
     const source = findPaneInfo(panelId, sourceTab);
@@ -1321,6 +1419,30 @@ export function createLayout({
     return true;
   }
 
+  function movePanelFromTab(panelId, sourceTabId, targetTabId) {
+    if (theaterLocked()) return false;
+    const sourceTab = doc.tabs.find((t) => t.id === sourceTabId);
+    const target = doc.tabs.find((t) => t.id === targetTabId);
+    if (!sourceTab || !target || sourceTab.id === target.id) return false;
+    const source = findPaneInfo(panelId, sourceTab);
+    if (!source) return false;
+    if (findPaneNode(target.root, panelId)) return false;
+    protectedPanel = null;
+    const pane = source.pane;
+    if (sourceTab.maximized === panelId) sourceTab.maximized = null;
+    removePaneFromTree(sourceTab.root, panelId);
+    normalizeTree(sourceTab.root);
+    ensureSourceExpandedAfterRemoval(sourceTab);
+    appendPaneToRoot(target.root, pane);
+    normalizeTree(target.root);
+    ensureOneExpanded(target.root);
+    refreshLastActive(sourceTab.root);
+    refreshLastActive(target.root);
+    save();
+    renderAll();
+    return true;
+  }
+
   function expandWithWeight(pane, info) {
     if (!pane) return;
     expandPane(pane);
@@ -1332,6 +1454,7 @@ export function createLayout({
   }
 
   function toggleCollapse(panelId) {
+    if (theaterLocked()) return;
     const tab = activeTab();
     const info = findPaneInfo(panelId, tab);
     if (!info) return;
@@ -1361,6 +1484,7 @@ export function createLayout({
   }
 
   function toggleMaximize(panelId) {
+    if (theaterLocked()) return;
     const tab = activeTab();
     const info = findPaneInfo(panelId, tab);
     if (!info) return;
@@ -1398,6 +1522,7 @@ export function createLayout({
     for (const trigger of triggers) {
       if (trigger && trigger.setAttribute && trigger.dataset.action === 'menu') trigger.setAttribute('aria-expanded', 'false');
       if (trigger && trigger.setAttribute && trigger.dataset.action === 'capsule-menu') trigger.setAttribute('aria-expanded', 'false');
+      if (trigger && trigger.getAttribute && trigger.getAttribute('aria-haspopup')) trigger.setAttribute('aria-expanded', 'false');
     }
     if (restoreFocus && triggers[0]) {
       try { triggers[0].focus({ preventScroll: true }); } catch { try { triggers[0].focus(); } catch { /* ignore */ } }
@@ -1489,6 +1614,7 @@ export function createLayout({
   }
 
   function openPanelMenu(button, panelId, { point = null } = {}) {
+    if (theaterLocked()) return;
     closeMenus();
     const tab = activeTab();
     const info = findPaneInfo(panelId, tab);
@@ -1523,6 +1649,7 @@ export function createLayout({
   }
 
   function startSplitDrag(ev, group, index, dir, tab) {
+    if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
     if (!group || group.manualLocked) return;
@@ -1611,6 +1738,7 @@ export function createLayout({
   }
 
   function resetToDefaults() {
+    if (theaterLocked()) return false;
     const previous = cloneTree(doc);
     protectedPanel = null;
     doc = defaultLayout();
@@ -1633,6 +1761,7 @@ export function createLayout({
 
   tabsEl.addEventListener('keydown', tabKeydown);
   tabsEl.addEventListener('auxclick', (ev) => {
+    if (theaterLocked()) return;
     if (ev.button !== 1) return;
     const tab = ev.target.closest && ev.target.closest('.tab');
     if (!tab || doc.tabs.length <= 1) return;
@@ -1640,6 +1769,7 @@ export function createLayout({
     closeTab(tab.dataset.tabId);
   });
   tabsEl.addEventListener('wheel', (ev) => {
+    if (theaterLocked()) return;
     if (tabsEl.scrollWidth <= tabsEl.clientWidth) return;
     const delta = Math.abs(ev.deltaX) > Math.abs(ev.deltaY) ? ev.deltaX : ev.deltaY;
     if (!delta) return;
@@ -1647,12 +1777,14 @@ export function createLayout({
     tabsEl.scrollLeft += delta;
   }, { passive: false });
   tabsEl.addEventListener('dblclick', (ev) => {
+    if (theaterLocked()) return;
     if (ev.target.closest && ev.target.closest('.tab, button, input')) return;
     createTab({ activate: true });
   });
   document.addEventListener('keydown', globalTabKeys);
 
   workspaceEl.addEventListener('pointerdown', (ev) => {
+    if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
     const target = ev.target;
     if (!target || !target.closest) return;
@@ -1666,6 +1798,7 @@ export function createLayout({
   });
 
   workspaceEl.addEventListener('dblclick', (ev) => {
+    if (theaterLocked()) return;
     const target = ev.target;
     if (!target || !target.closest) return;
     if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split')) return;
@@ -1678,6 +1811,7 @@ export function createLayout({
   });
 
   workspaceEl.addEventListener('contextmenu', (ev) => {
+    if (theaterLocked()) return;
     const target = ev.target;
     if (!target || !target.closest) return;
     if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split, .group-capsule')) return;
@@ -1691,6 +1825,7 @@ export function createLayout({
   });
 
   workspaceEl.addEventListener('click', (ev) => {
+    if (theaterLocked()) return;
     const target = ev.target;
     if (!target || !target.closest) return;
     if (target.closest('button, a, input, textarea, select, [contenteditable="true"], .panel-actions, .view-ctrls, .split')) return;
@@ -1758,6 +1893,7 @@ export function createLayout({
     addPanelToTab,
     resetTab: resetTabById,
     moveTab(draggedId, targetId, after = false) {
+      if (theaterLocked()) return false;
       const moved = reorderTabs(doc.tabs, draggedId, targetId, after);
       if (moved) { save(); renderTabs(); }
       return moved;
@@ -1765,6 +1901,7 @@ export function createLayout({
     toggleCollapse,
     toggleMaximize,
     restoreLayout(raw) {
+      if (theaterLocked()) return false;
       const next = sanitizeLayout(raw);
       if (!next) return false;
       doc = next;
