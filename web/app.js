@@ -916,6 +916,7 @@ function parseQueryInt(q, key) {
   function setLogFollow(on, { scroll = false } = {}) {
     state.logFollow = !!on;
     if (dom.logFollow) {
+      dom.logFollow.innerHTML = icon(state.logFollow ? 'follow-bottom' : 'follow-off');
       dom.logFollow.setAttribute('aria-pressed', state.logFollow ? 'true' : 'false');
       dom.logFollow.classList.toggle('is-on', state.logFollow);
       dom.logFollow.title = state.logFollow ? '正在跟随日志（点击暂停）' : '回到底部并继续跟随';
@@ -1009,7 +1010,7 @@ function parseQueryInt(q, key) {
     if (!dom.run) return;
     const hasSession = session.ok && state.phase !== 'error';
     const label = runButtonLabel(hasSession);
-    const iconName = hasSession ? 'replay' : 'play';
+    const iconName = hasSession ? 'rerun' : 'play';
     dom.run.innerHTML = `${icon(iconName)}<span class="btn-label">${label}</span>`;
     dom.run.setAttribute('aria-label', label);
     dom.run.title = hasSession ? '重新编译并运行（Ctrl+Enter）' : '编译并运行（Ctrl+Enter）';

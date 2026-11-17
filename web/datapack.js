@@ -107,7 +107,7 @@ export function createDatapack({ treeEl, pathEl, codeEl, execEl, packMetaEl, cop
       row.className = 'tree-row tree-file prelude-row' + (currentPath === '__prelude__' ? ' active' : '');
       row.dataset.path = '__prelude__';
       row.title = '标准库 —— 只读，编译时会自动拼在程序前面';
-      row.innerHTML = `<span class="ext ext-txt">${icon('sparkle', 'tree-file-icon')}</span><span class="tname">prelude.tpk</span><span class="ro">标准库</span>`;
+      row.innerHTML = `<span class="ext ext-txt">${icon('book-open', 'tree-file-icon')}</span><span class="tname">prelude.tpk</span><span class="ro">标准库</span>`;
       row.addEventListener('click', () => viewFile('__prelude__'));
       frag.append(row);
       treeRows.push(row);

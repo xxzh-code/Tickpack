@@ -374,7 +374,7 @@ export function createLayout({
     body.setAttribute('aria-label', `展开 ${members}（${allPanes(group).length} 个分栏）`);
     body.title = `${members}（${allPanes(group).length} 个分栏）`;
     const iconSpan = el('span', 'capsule-icon');
-    iconSpan.innerHTML = icon('archive');
+    iconSpan.innerHTML = icon('panes');
     body.append(iconSpan);
     body.append(el('span', 'capsule-count', String(allPanes(group).length)));
     body.append(el('span', 'capsule-summary', members));
@@ -1036,7 +1036,7 @@ export function createLayout({
     const move = el('button', 'btn btn-soft btn-sm', '移入分栏');
     move.type = 'button';
     move.dataset.focusKey = `empty:${tab.id}:move`;
-    move.innerHTML = `${icon('pointer')}<span class="btn-label">移入分栏</span>`;
+    move.innerHTML = `${icon('pane-insert')}<span class="btn-label">移入分栏</span>`;
     move.setAttribute('aria-haspopup', 'menu');
     move.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -1045,7 +1045,7 @@ export function createLayout({
     const reset = el('button', 'btn btn-soft btn-sm', '重置布局');
     reset.type = 'button';
     reset.dataset.focusKey = `empty:${tab.id}:reset`;
-    reset.innerHTML = `${icon('rotate-ccw')}<span class="btn-label">重置布局</span>`;
+    reset.innerHTML = `${icon('undo')}<span class="btn-label">重置布局</span>`;
     reset.addEventListener('click', (ev) => {
       ev.stopPropagation();
       resetTabById(tab.id);

@@ -1580,7 +1580,7 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
   </symbol>
   <symbol id="i-replay" viewBox="0 0 16 16">
     <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M13.29 8.69a5.33 5.33 0 1 1-6.62-5.86c2.6-.67 5.29.67 6.29 3.16"/><path d="M13.33 2.67v3.33H10"/>
+      <path d="M13.29 8.69a5.33 5.33 0 1 1-6.62-5.86c2.6-.67 5.29.67 6.29 3.16"/><path d="M13.33 2.67v3.33H10"/><path d="M6.9 5.9v4.2L10.2 8 6.9 5.9Z" fill="currentColor" stroke="none"/>
     </g>
   </symbol>
   <symbol id="i-chevron-left" viewBox="0 0 16 16">
@@ -1736,6 +1736,41 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
     </g>
   </symbol>
 
+  <symbol id="i-rerun" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2 8a6 6 0 0 1 6-6 6.5 6.5 0 0 1 4.493 1.827L14 5.333"/><path d="M14 2v3.333h-3.333"/><path d="M14 8a6 6 0 0 1-6 6 6.5 6.5 0 0 1-4.493-1.827L2 10.667"/><path d="M5.333 10.667H2v3.333"/>
+    </g>
+  </symbol>
+  <symbol id="i-follow-bottom" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3.2v7.2"/><path d="M4.9 7.5 8 10.6l3.1-3.1"/><path d="M3.2 13.2h9.6"/>
+    </g>
+  </symbol>
+  <symbol id="i-follow-off" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3.2v7.2"/><path d="M4.9 7.5 8 10.6l3.1-3.1"/><path d="M3.2 13.2h9.6"/><path d="M3.2 3.2 12.8 12.8"/>
+    </g>
+  </symbol>
+  <symbol id="i-panes" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="2.6" y="3.2" width="4.6" height="4.2" rx="1"/><rect x="8.8" y="3.2" width="4.6" height="4.2" rx="1"/><rect x="2.6" y="8.6" width="4.6" height="4.2" rx="1"/><rect x="8.8" y="8.6" width="4.6" height="4.2" rx="1"/>
+    </g>
+  </symbol>
+  <symbol id="i-pane-insert" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8.2" y="3" width="5.2" height="10" rx="1.2"/><path d="M2.6 8h5.4"/><path d="M5.9 6.1 7.9 8l-2 1.9"/>
+    </g>
+  </symbol>
+  <symbol id="i-book-open" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3.8C6.9 3 4.9 2.9 3.2 3.7v8.9c1.7-.8 3.7-.7 4.8.2 1.1-.9 3.1-1 4.8-.2V3.7C11.1 2.9 9.1 3 8 3.8Z"/><path d="M8 3.8v9"/>
+    </g>
+  </symbol>
+  <symbol id="i-undo" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3.2 6.4h5.9a3.4 3.4 0 0 1 0 6.8H6.3"/><path d="M6.2 3.4 3.2 6.4l3 3"/>
+    </g>
+  </symbol>
 </svg>
   <div class="app">
     <!-- --------------------------------------------------------- 顶栏 -->
@@ -1972,7 +2007,7 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
         </div>
         <div class="head-right">
           <span class="panel-actions">
-            <button type="button" class="icon-btn" id="btn-log-follow" data-focus-key="log:follow" title="跟随日志（滚动到底部）" aria-label="跟随日志" aria-pressed="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-chevrons-down"></use></svg></button>
+            <button type="button" class="icon-btn" id="btn-log-follow" data-focus-key="log:follow" title="跟随日志（滚动到底部）" aria-label="跟随日志" aria-pressed="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-follow-bottom"></use></svg></button>
             <button type="button" class="icon-btn" data-action="collapse" title="折叠" aria-label="折叠" aria-expanded="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-chevrons-left"></use></svg></button>
             <button type="button" class="icon-btn" data-action="maximize" title="最大化" aria-label="最大化" aria-pressed="false"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-maximize"></use></svg></button>
             <button type="button" class="icon-btn" data-action="menu" title="更多操作" aria-label="更多操作" aria-haspopup="menu"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-more-horizontal"></use></svg></button>
@@ -1995,8 +2030,8 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
         </div>
         <div class="head-right">
           <span class="tl-nav">
-            <button id="btn-back" class="btn btn-soft btn-sm" title="后退一 tick" aria-label="后退一 tick"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-chevron-left"></use></svg></button>
-            <button id="btn-fwd" class="btn btn-soft btn-sm" title="前进一 tick" aria-label="前进一 tick"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></button>
+            <button id="btn-back" class="btn btn-soft btn-sm" title="后退一 tick" aria-label="后退一 tick"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-step-back"></use></svg></button>
+            <button id="btn-fwd" class="btn btn-soft btn-sm" title="前进一 tick" aria-label="前进一 tick"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-step-forward"></use></svg></button>
           </span>
           <span class="panel-actions">
             <button type="button" class="icon-btn" data-action="collapse" title="折叠" aria-label="折叠" aria-expanded="true"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-chevrons-left"></use></svg></button>
@@ -2021,8 +2056,8 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
     <button id="tc-play" class="icon-btn" type="button" aria-label="播放" title="播放 / 暂停">
       <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-play"></use></svg>
     </button>
-    <button id="tc-replay" class="icon-btn" type="button" aria-label="重播" title="从头重播">
-      <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-replay"></use></svg>
+    <button id="tc-replay" class="icon-btn" type="button" aria-label="重跑" title="重新编译并运行">
+      <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-rerun"></use></svg>
     </button>
     <input id="tc-progress" class="theater-progress" type="range" min="0" max="0" value="0" step="1" aria-label="播放进度">
     <span id="tc-time" class="theater-time" aria-live="off">0 / 0</span>
@@ -9304,7 +9339,7 @@ function buildTree(files) {
       row.className = 'tree-row tree-file prelude-row' + (currentPath === '__prelude__' ? ' active' : '');
       row.dataset.path = '__prelude__';
       row.title = '标准库 —— 只读，编译时会自动拼在程序前面';
-      row.innerHTML = `<span class="ext ext-txt">${icon('sparkle', 'tree-file-icon')}</span><span class="tname">prelude.tpk</span><span class="ro">标准库</span>`;
+      row.innerHTML = `<span class="ext ext-txt">${icon('book-open', 'tree-file-icon')}</span><span class="tname">prelude.tpk</span><span class="ro">标准库</span>`;
       row.addEventListener('click', () => viewFile('__prelude__'));
       frag.append(row);
       treeRows.push(row);
@@ -11149,7 +11184,7 @@ function collapseIcon(dir, index, count, collapsed) {
     body.setAttribute('aria-label', `展开 ${members}（${allPanes(group).length} 个分栏）`);
     body.title = `${members}（${allPanes(group).length} 个分栏）`;
     const iconSpan = el('span', 'capsule-icon');
-    iconSpan.innerHTML = icon('archive');
+    iconSpan.innerHTML = icon('panes');
     body.append(iconSpan);
     body.append(el('span', 'capsule-count', String(allPanes(group).length)));
     body.append(el('span', 'capsule-summary', members));
@@ -11811,7 +11846,7 @@ function collapseIcon(dir, index, count, collapsed) {
     const move = el('button', 'btn btn-soft btn-sm', '移入分栏');
     move.type = 'button';
     move.dataset.focusKey = `empty:${tab.id}:move`;
-    move.innerHTML = `${icon('pointer')}<span class="btn-label">移入分栏</span>`;
+    move.innerHTML = `${icon('pane-insert')}<span class="btn-label">移入分栏</span>`;
     move.setAttribute('aria-haspopup', 'menu');
     move.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -11820,7 +11855,7 @@ function collapseIcon(dir, index, count, collapsed) {
     const reset = el('button', 'btn btn-soft btn-sm', '重置布局');
     reset.type = 'button';
     reset.dataset.focusKey = `empty:${tab.id}:reset`;
-    reset.innerHTML = `${icon('rotate-ccw')}<span class="btn-label">重置布局</span>`;
+    reset.innerHTML = `${icon('undo')}<span class="btn-label">重置布局</span>`;
     reset.addEventListener('click', (ev) => {
       ev.stopPropagation();
       resetTabById(tab.id);
@@ -14005,6 +14040,7 @@ function parseQueryInt(q, key) {
   function setLogFollow(on, { scroll = false } = {}) {
     state.logFollow = !!on;
     if (dom.logFollow) {
+      dom.logFollow.innerHTML = icon(state.logFollow ? 'follow-bottom' : 'follow-off');
       dom.logFollow.setAttribute('aria-pressed', state.logFollow ? 'true' : 'false');
       dom.logFollow.classList.toggle('is-on', state.logFollow);
       dom.logFollow.title = state.logFollow ? '正在跟随日志（点击暂停）' : '回到底部并继续跟随';
@@ -14098,7 +14134,7 @@ function parseQueryInt(q, key) {
     if (!dom.run) return;
     const hasSession = session.ok && state.phase !== 'error';
     const label = runButtonLabel(hasSession);
-    const iconName = hasSession ? 'replay' : 'play';
+    const iconName = hasSession ? 'rerun' : 'play';
     dom.run.innerHTML = `${icon(iconName)}<span class="btn-label">${label}</span>`;
     dom.run.setAttribute('aria-label', label);
     dom.run.title = hasSession ? '重新编译并运行（Ctrl+Enter）' : '编译并运行（Ctrl+Enter）';
