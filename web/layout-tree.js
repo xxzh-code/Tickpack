@@ -431,6 +431,49 @@ export function movePaneForDrop(root, panel, target) {
   return { ok: true, pane };
 }
 
+/**
+ * Swap two existing Pane node objects in place. No prune/flatten is performed;
+ * pane weights/sizes/collapse fields travel with the objects they belong to.
+ */
+export function swapPaneForDrop(root, sourcePanel, targetPanel) {
+  if (!isGroup(root) || !sourcePanel || !targetPanel || sourcePanel === targetPanel) {
+    return { ok: false };
+  }
+  const source = findPaneNode(root, sourcePanel);
+  const target = findPaneNode(root, targetPanel);
+  if (!source || !target || !isPane(source) || !isPane(target)) return { ok: false };
+  if (target.collapsed) return { ok: false };
+  const sourceParent = parentGroupOf(root, source);
+  const targetParent = parentGroupOf(root, target);
+  if (!sourceParent || !targetParent) return { ok: false };
+  const sourceIndex = sourceParent.children.indexOf(source);
+  const targetIndex = targetParent.children.indexOf(target);
+  if (sourceIndex < 0 || targetIndex < 0) return { ok: false };
+  sourceParent.children[sourceIndex] = target;
+  targetParent.children[targetIndex] = source;
+  const expandedIn = (group) => allPanes(group).some((p) => !p.collapsed);
+  if (!expandedIn(sourceParent) || !expandedIn(targetParent)) {
+    sourceParent.children[sourceIndex] = source;
+    targetParent.children[targetIndex] = target;
+    return { ok: false };
+  }
+  refreshLastActive(root);
+  return { ok: true, pane: source };
+}
+
+export function halfRect(rect, side) {
+  if (!rect) return null;
+  const left = Number(rect.left) || 0;
+  const top = Number(rect.top) || 0;
+  const width = Math.max(0, Number(rect.width) || 0);
+  const height = Math.max(0, Number(rect.height) || 0);
+  if (side === 'left') return { left, top, width: width / 2, height };
+  if (side === 'right') return { left: left + width / 2, top, width: width / 2, height };
+  if (side === 'top') return { left, top, width, height: height / 2 };
+  if (side === 'bottom') return { left, top: top + height / 2, width, height: height / 2 };
+  return { left, top, width, height };
+}
+
 export function rotateGroup(group) {
   if (!isGroup(group)) return false;
   group.dir = oppositeDir(group.dir);

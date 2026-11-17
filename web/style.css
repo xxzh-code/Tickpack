@@ -701,6 +701,8 @@ body.dragging-split { cursor: col-resize; user-select: none; }
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.25), 0 0 14px var(--accent-weak);
 }
 .drag-target-box[hidden] { display: none; }
+.drag-target-box.is-half { background: var(--accent-weak); border-style: dashed; }
+.drag-target-box.is-swap { background: var(--accent-weak); box-shadow: 0 0 0 2px var(--accent), 0 0 18px var(--accent-weak); }
 .drag-target { outline: 2px solid var(--accent) !important; outline-offset: -2px; }
 .pane-slot.drag-source { opacity: 0.35; }
 body.dragging-pane { cursor: grabbing; user-select: none; }

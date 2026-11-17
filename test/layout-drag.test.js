@@ -10,6 +10,8 @@ import {
   allPanes,
   findPaneNode,
   movePaneForDrop,
+  swapPaneForDrop,
+  halfRect,
   normalizeTree,
   rotateGroup,
   lastActivePane,
@@ -232,4 +234,42 @@ test('copy/add helpers reject duplicates and preserve a copied collapsed pane', 
   assert.equal(addMissingPaneToTab(target, 'source'), false);
   assert.equal(addMissingPaneToTab(target, 'world'), false); // observe already has world
   assert.equal(addMissingPaneToTab(target, 'timeline'), false);
+});
+
+test('swapPaneForDrop swaps nodes in-place and rejects invalid layouts', () => {
+  const same = createGroup('H', [
+    createPane('source', { weight: 3, size: 300 }),
+    createPane('world', { weight: 7, size: 500 }),
+  ]);
+  assert.equal(swapPaneForDrop(same, 'source', 'world').ok, true);
+  assert.equal(same.children[0].panel, 'world');
+  assert.equal(same.children[1].panel, 'source');
+  assert.equal(same.children[1].weight, 3);
+  assert.equal(same.children[1].size, 300);
+
+  const root = createGroup('H', [
+    createPane('source', { weight: 4 }),
+    createGroup('V', [createPane('world'), createPane('scores')]),
+  ]);
+  const target = findPaneNode(root, 'world');
+  target.size = 444;
+  assert.equal(swapPaneForDrop(root, 'source', 'world').ok, true);
+  assert.equal(root.children[0].panel, 'world');
+  assert.equal(root.children[0].size, 444);
+  assert.equal(root.children[1].children[0].panel, 'source');
+
+  const collapsedTarget = createGroup('H', [createPane('source'), createPane('world', { collapsed: true })]);
+  assert.equal(swapPaneForDrop(collapsedTarget, 'source', 'world').ok, false);
+  assert.equal(collapsedTarget.children[0].panel, 'source');
+
+  const noExpanded = createGroup('H', [
+    createPane('source', { collapsed: true }),
+    createGroup('V', [createPane('world')]),
+  ]);
+  assert.equal(swapPaneForDrop(noExpanded, 'source', 'world').ok, false);
+  assert.equal(findPaneNode(noExpanded, 'source').collapsed, true);
+  assert.equal(findPaneNode(noExpanded, 'world').panel, 'world');
+
+  assert.deepEqual(halfRect({ left: 10, top: 20, width: 100, height: 80 }, 'left'), { left: 10, top: 20, width: 50, height: 80 });
+  assert.deepEqual(halfRect({ left: 10, top: 20, width: 100, height: 80 }, 'bottom'), { left: 10, top: 60, width: 100, height: 40 });
 });

@@ -21,6 +21,8 @@ import {
   markPaneActive,
   refreshLastActive,
   movePaneForDrop,
+  swapPaneForDrop,
+  halfRect,
   rotateGroup,
   reorderTabs,
   clonePaneForCopy,
@@ -199,6 +201,16 @@ export function createLayout({
 
   function focusTab(tabId) {
     return focusByKey(`tab:${tabId}`);
+  }
+
+  function focusPanelAfterDrop(panelId) {
+    const slots = workspaceEl.querySelectorAll('.pane-slot[data-panel-id]');
+    const slot = [...slots].find((node) => node.dataset.panelId === panelId);
+    const head = slot && slot.querySelector('.panel-head');
+    if (!head) return false;
+    head.tabIndex = -1;
+    try { head.focus({ preventScroll: true }); } catch { try { head.focus(); } catch { return false; } }
+    return document.activeElement === head;
   }
 
   function emitChange() {
@@ -439,7 +451,10 @@ export function createLayout({
   function clearDragPreview() {
     for (const gap of dragGaps) gap.el.classList.remove('active');
     for (const el of document.querySelectorAll('.drag-target')) el.classList.remove('drag-target');
-    if (dragTargetBox) dragTargetBox.hidden = true;
+    if (dragTargetBox) {
+      dragTargetBox.hidden = true;
+      dragTargetBox.classList.remove('is-swap', 'is-half', 'is-left', 'is-right', 'is-top', 'is-bottom');
+    }
     if (dragLabel) {
       dragLabel.textContent = '';
       dragLabel.hidden = true;
@@ -526,10 +541,12 @@ export function createLayout({
       { side: 'bottom', d: rect.bottom - y },
     ].sort((a, b) => a.d - b.d);
     const limit = Math.min(48, Math.max(18, Math.min(rect.width, rect.height) * 0.3));
-    if (edges[0].d > limit) return null;
+    const nearest = edges[0];
     return {
       paneId: slot.dataset.panelId,
-      side: edges[0].side,
+      side: nearest.d <= limit ? nearest.side : null,
+      nearestSide: nearest.side,
+      center: nearest.d > limit,
       rect,
       slot,
     };
@@ -562,11 +579,22 @@ export function createLayout({
         const chain = ancestorGroups(tab, pane.paneId);
         if (chain.length) {
           const node = chain[Math.min(chain.length - 1, Math.max(0, state.ancestorIndex))];
+          const side = pane.side || pane.nearestSide;
           if (node === tab.root) {
-            return { kind: 'root-edge', edge: pane.side, label: '根级：包裹整个根内容' };
+            return { kind: 'root-edge', edge: side, label: '根级：包裹整个根内容' };
           }
-          return { kind: 'wrap', node, side: pane.side, label: `将包裹：${memberSummary(node)}` };
+          return { kind: 'wrap', node, side, label: `将包裹：${memberSummary(node)}` };
         }
+      }
+      if (pane.center) {
+        return {
+          kind: 'swap',
+          node: findPaneNode(tab.root, pane.paneId),
+          paneId: pane.paneId,
+          rect: pane.rect,
+          slot: pane.slot,
+          label: `交换：${panelTitle(pane.paneId)}`,
+        };
       }
       return { kind: 'wrap', node: findPaneNode(tab.root, pane.paneId), side: pane.side, label: `包裹：${panelTitle(pane.paneId)}` };
     }
@@ -589,7 +617,7 @@ export function createLayout({
     }
     if (!target) {
       document.body.classList.add('drag-invalid');
-      if (dragLabel) { dragLabel.hidden = false; dragLabel.textContent = 'V1 不交换中心；请拖到边缘、间隙或标签栏'; }
+      if (dragLabel) { dragLabel.hidden = false; dragLabel.textContent = '请拖到分栏中央交换，或拖到边缘/间隙/标签栏'; }
       return;
     }
     document.body.classList.add('drag-valid');
@@ -609,11 +637,18 @@ export function createLayout({
         : target.edge === 'right' ? { left: wr.right - band, top: wr.top, width: band, height: wr.height }
           : target.edge === 'top' ? { left: wr.left, top: wr.top, width: wr.width, height: band }
             : { left: wr.left, top: wr.bottom - band, width: wr.width, height: band };
+    } else if (target.kind === 'swap') {
+      const r = target.rect || (target.slot && target.slot.getBoundingClientRect());
+      if (r) box = { left: r.left, top: r.top, width: r.width, height: r.height };
+      if (dragTargetBox) dragTargetBox.classList.add('is-swap');
     } else if (target.kind === 'wrap') {
       const nodeEl = nodeEls.get(target.node);
       if (nodeEl) {
         const r = nodeEl.getBoundingClientRect();
-        box = { left: r.left, top: r.top, width: r.width, height: r.height };
+        box = halfRect({ left: r.left, top: r.top, width: r.width, height: r.height }, target.side);
+        if (dragTargetBox && box) {
+          dragTargetBox.classList.add('is-half', `is-${target.side}`);
+        }
       }
     }
     if (box && dragTargetBox) {
@@ -695,7 +730,9 @@ export function createLayout({
         notify('此处不能放置分栏');
         return;
       }
-      const result = movePaneForDrop(tab.root, panelId, target);
+      const result = target.kind === 'swap'
+        ? swapPaneForDrop(tab.root, panelId, target.paneId)
+        : movePaneForDrop(tab.root, panelId, target);
       if (!result.ok) {
         notify('无法完成这次分栏移动');
         return;
@@ -707,6 +744,9 @@ export function createLayout({
       refreshLastActive(tab.root);
       save();
       renderAll();
+      requestAnimationFrame(() => {
+        if (!focusPanelAfterDrop(panelId)) focusTab(doc.activeId);
+      });
     };
     const onCancel = () => cleanupHeaderDrag();
     const onKey = (kev) => {
@@ -841,7 +881,7 @@ export function createLayout({
     return true;
   }
 
-  function openSplitterMenu(splitter, group, index, dir, tab) {
+  function openSplitterMenu(splitter, group, index, dir, tab, point = null) {
     if (theaterLocked()) return;
     closeMenus();
     const menu = el('div', 'panel-menu');
@@ -853,7 +893,7 @@ export function createLayout({
       save();
       renderAll();
     }, { disabled: group === tab.root });
-    positionMenu(menu, splitter);
+    positionMenu(menu, splitter, point ? { point, align: 'left' } : {});
   }
 
   function makeSplitter(group, index, dir, tab) {
@@ -880,6 +920,13 @@ export function createLayout({
       resetSplitterPair(group, index, dir, tab);
     });
     splitter.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10')) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const r = splitter.getBoundingClientRect();
+        openSplitterMenu(splitter, group, index, dir, tab, { x: r.left + r.width / 2, y: r.top + r.height / 2 });
+        return;
+      }
       const dec = dir === 'H' ? 'ArrowLeft' : 'ArrowUp';
       const inc = dir === 'H' ? 'ArrowRight' : 'ArrowDown';
       if (ev.key !== dec && ev.key !== inc) return;
@@ -890,7 +937,7 @@ export function createLayout({
     splitter.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      openSplitterMenu(splitter, group, index, dir, tab);
+      openSplitterMenu(splitter, group, index, dir, tab, { x: ev.clientX, y: ev.clientY });
     });
     updateSplitterAria(splitter, group.children[index - 1], group.children[index]);
     return splitter;
@@ -1620,7 +1667,35 @@ export function createLayout({
     menu.style.left = `${Math.round(pos.left)}px`;
     menu.style.top = `${Math.round(pos.top)}px`;
     menu.style.visibility = 'visible';
+    menu._anchor = { button, align, point };
     focusMenuItem(menu, 0);
+  }
+
+  function repositionMenus() {
+    for (const menu of menus) {
+      const anchor = menu._anchor;
+      if (!anchor) continue;
+      if (!anchor.point && (!anchor.button || !anchor.button.isConnected)) {
+        closeMenus();
+        return;
+      }
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const margin = 8;
+      menu.style.maxWidth = `${Math.max(160, winW - margin * 2)}px`;
+      menu.style.maxHeight = `${Math.max(120, winH - margin * 2)}px`;
+      const rect = anchor.point
+        ? { left: anchor.point.x, right: anchor.point.x, top: anchor.point.y, bottom: anchor.point.y }
+        : anchor.button.getBoundingClientRect();
+      const mw = menu.offsetWidth || menu.getBoundingClientRect().width || 180;
+      const mh = menu.offsetHeight || menu.getBoundingClientRect().height || 120;
+      const pos = clampMenuPosition({
+        button: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+        width: mw, height: mh, vw: winW, vh: winH, margin, align: anchor.align,
+      });
+      menu.style.left = `${Math.round(pos.left)}px`;
+      menu.style.top = `${Math.round(pos.top)}px`;
+    }
   }
 
   function openPanelMenu(button, panelId, { point = null } = {}) {
@@ -1885,6 +1960,7 @@ export function createLayout({
   }
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('resize', scheduleFrame);
+  window.addEventListener('resize', repositionMenus);
   }
 
   const api = {
@@ -1931,7 +2007,10 @@ export function createLayout({
     },
     dispose() {
       if (resizeObserver) resizeObserver.disconnect();
-      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') window.removeEventListener('resize', scheduleFrame);
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('resize', scheduleFrame);
+        window.removeEventListener('resize', repositionMenus);
+      }
     },
   };
   return api;
