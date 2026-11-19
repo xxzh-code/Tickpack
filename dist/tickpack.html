@@ -587,6 +587,7 @@ body.dragging-split { cursor: col-resize; user-select: none; }
   min-height: 0;
   border: 0;
   background: transparent;
+  cursor: grab;
   color: inherit;
   font: inherit;
   cursor: pointer;
@@ -716,6 +717,8 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 .drag-target-box.is-swap { background: var(--accent-weak); box-shadow: 0 0 0 2px var(--accent), 0 0 18px var(--accent-weak); }
 .drag-target { outline: 2px solid var(--accent) !important; outline-offset: -2px; }
 .pane-slot.drag-source { opacity: 0.35; }
+.group-capsule.drag-source { opacity: 0.35; }
+body.dragging-group .capsule-body { cursor: grabbing; }
 body.dragging-pane { cursor: grabbing; user-select: none; }
 body.dragging-pane .panel-head { cursor: grabbing; }
 body.drag-invalid .pane-drag-ghost { border-color: var(--danger); }
@@ -10585,6 +10588,56 @@ function detachPaneLoose(root, panel) {
   return { left, top, width, height };
 }
 
+ 
+ function moveGroupForDrop(root, group, target) {
+  if (!isGroup(root) || !isGroup(group) || group === root || !target) return { ok: false };
+  if (!nodeInTree(root, group)) return { ok: false };
+  const parent = parentGroupOf(root, group);
+  if (!parent) return { ok: false };
+  const sourceIndex = parent.children.indexOf(group);
+  if (sourceIndex < 0) return { ok: false };
+  if (target.kind === 'gap') {
+    const targetGroup = target.group;
+    if (!isGroup(targetGroup) || !nodeInTree(root, targetGroup)) return { ok: false };
+    if (targetGroup === group || nodeInTree(group, targetGroup)) return { ok: false };
+    const rawIndex = Number.isInteger(target.index) ? target.index : targetGroup.children.length;
+    if (targetGroup === parent && (rawIndex === sourceIndex || rawIndex === sourceIndex + 1)) {
+      return { ok: false };
+    }
+  } else if (target.kind === 'root-edge') {
+    if (!['left', 'right', 'top', 'bottom'].includes(target.edge)) return { ok: false };
+    if (parent === root && root.children.length === 1) return { ok: false };
+  } else if (target.kind !== 'tab-end') {
+    return { ok: false };
+  } else if (parent === root && sourceIndex === root.children.length - 1) {
+    return { ok: false };
+  }
+  parent.children.splice(sourceIndex, 1);
+  group.keep = true;
+  if (target.kind === 'gap') {
+    const targetGroup = target.group;
+    let index = Number.isInteger(target.index) ? target.index : targetGroup.children.length;
+    if (targetGroup === parent && sourceIndex < index) index -= 1;
+    index = Math.max(0, Math.min(targetGroup.children.length, index));
+    targetGroup.children.splice(index, 0, group);
+  } else if (target.kind === 'root-edge') {
+    const edge = target.edge;
+    if (edge === 'left') root.children.unshift(group);
+    else if (edge === 'right') root.children.push(group);
+    else {
+      const wrapper = createGroup('V', edge === 'top' ? [group, ...root.children] : [...root.children, group]);
+      wrapper.keep = true;
+      root.children = [wrapper];
+    }
+  } else {
+    root.children.push(group);
+  }
+  normalizeTree(root);
+  ensureOneExpanded(root);
+  refreshLastActive(root);
+  return { ok: true, group };
+}
+
  function rotateGroup(group) {
   if (!isGroup(group)) return false;
   group.dir = oppositeDir(group.dir);
@@ -11033,6 +11086,7 @@ exports.refreshLastActive = refreshLastActive;
 exports.movePaneForDrop = movePaneForDrop;
 exports.swapPaneForDrop = swapPaneForDrop;
 exports.halfRect = halfRect;
+exports.moveGroupForDrop = moveGroupForDrop;
 exports.rotateGroup = rotateGroup;
 exports.reorderTabs = reorderTabs;
 exports.clampMenuPosition = clampMenuPosition;
@@ -11055,7 +11109,7 @@ exports.defaultLayout = defaultLayout;
 
 const { icon, applyTruncationTitles } = __tpb_require("web/util.js");
 const { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } = __tpb_require("web/a11y.js");
-const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, swapPaneForDrop, halfRect, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clearTabTree, resetTabVariant, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
+const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, swapPaneForDrop, halfRect, moveGroupForDrop, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clearTabTree, resetTabVariant, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
 
  const LAYOUT_KEY = 'tickpack.layout.v2';
 
@@ -11117,6 +11171,7 @@ function collapseIcon(dir, index, count, collapsed) {
   let restrictedNotified = false;
   const nodeEls = new Map();
   let headerDrag = null;
+  let groupDrag = null;
   let dragGaps = [];
   let dragGhost = null;
   let dragLabel = null;
@@ -11392,8 +11447,13 @@ function collapseIcon(dir, index, count, collapsed) {
     const chevron = el('span', 'capsule-chevron');
     chevron.innerHTML = icon(parentDir === 'V' ? 'chevron-down' : 'chevron-right');
     body.append(chevron);
+    body.addEventListener('pointerdown', (ev) => startCapsuleDrag(ev, body, group, tab));
     body.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      if (performance.now() < (body._suppressClickUntil || 0)) {
+        ev.preventDefault();
+        return;
+      }
       closeMenus();
       expandCapsuleGroup(group, tab);
     });
@@ -11671,10 +11731,7 @@ function collapseIcon(dir, index, count, collapsed) {
     }
   }
 
-  function cleanupHeaderDrag() {
-    if (!headerDrag) return;
-    headerDrag.removers.forEach((fn) => fn());
-    if (headerDrag.slot) headerDrag.slot.classList.remove('drag-source');
+  function removeDragVisuals() {
     for (const gap of dragGaps) if (gap.el.parentNode) gap.el.parentNode.removeChild(gap.el);
     dragGaps = [];
     if (dragShield && dragShield.parentNode) dragShield.parentNode.removeChild(dragShield);
@@ -11685,9 +11742,177 @@ function collapseIcon(dir, index, count, collapsed) {
     dragTargetBox = null;
     dragGhost = null;
     dragLabel = null;
-    document.body.classList.remove('dragging-pane', 'drag-valid', 'drag-invalid');
+    document.body.classList.remove('dragging-pane', 'dragging-group', 'drag-valid', 'drag-invalid');
     for (const el of document.querySelectorAll('.drag-target')) el.classList.remove('drag-target');
+  }
+
+  function cleanupHeaderDrag() {
+    if (!headerDrag) return;
+    headerDrag.removers.forEach((fn) => fn());
+    if (headerDrag.slot) headerDrag.slot.classList.remove('drag-source');
+    removeDragVisuals();
     headerDrag = null;
+  }
+
+  function detectGroupDropTarget(tab, x, y, group) {
+    if (tabsEl && rectHas(tabsEl.getBoundingClientRect(), x, y)) {
+      if (tab.root.children[tab.root.children.length - 1] === group) return null;
+      return { kind: 'tab-end', label: '整组：追加到标签页末尾' };
+    }
+    const wr = workspaceEl.getBoundingClientRect();
+    if (rectHas(wr, x, y)) {
+      const edges = [
+        { edge: 'left', d: x - wr.left },
+        { edge: 'right', d: wr.right - x },
+        { edge: 'top', d: y - wr.top },
+        { edge: 'bottom', d: wr.bottom - y },
+      ].sort((a, b) => a.d - b.d);
+      if (edges[0].d <= 26) {
+        if (tab.root.children.length === 1 && tab.root.children[0] === group) return null;
+        return { kind: 'root-edge', edge: edges[0].edge, label: `整组：根级 ${edges[0].edge}` };
+      }
+    }
+    const gap = nearestGap(x, y);
+    if (gap) {
+      if (gap.group === group || walkNodes(group).includes(gap.group)) return null;
+      return { kind: 'gap', group: gap.group, index: gap.index, gap, label: '整组：作为兄弟插入' };
+    }
+    return null;
+  }
+
+  function updateGroupDragTarget(x, y) {
+    if (!groupDrag || !groupDrag.dragging) return;
+    const target = detectGroupDropTarget(groupDrag.tab, x, y, groupDrag.group);
+    groupDrag.target = target;
+    clearDragPreview();
+    if (dragGhost) {
+      dragGhost.style.left = `${x + 14}px`;
+      dragGhost.style.top = `${y + 14}px`;
+    }
+    if (dragLabel) {
+      dragLabel.style.left = `${x + 14}px`;
+      dragLabel.style.top = `${y + 34}px`;
+    }
+    if (!target) {
+      document.body.classList.add('drag-invalid');
+      if (dragLabel) { dragLabel.hidden = false; dragLabel.textContent = '整组只能放到同标签页的间隙、根边缘或标签栏末尾'; }
+      return;
+    }
+    document.body.classList.add('drag-valid');
+    if (dragLabel) { dragLabel.hidden = false; dragLabel.textContent = target.label; }
+    if (target.gap) target.gap.el.classList.add('active');
+    let box = null;
+    if (target.gap) {
+      const hit = target.gap.hit;
+      box = { left: hit.left, top: hit.top, width: hit.width, height: hit.height };
+    } else if (target.kind === 'tab-end') {
+      const r = tabsEl.getBoundingClientRect();
+      box = { left: r.left, top: r.top, width: r.width, height: r.height };
+    } else if (target.kind === 'root-edge') {
+      const wr = workspaceEl.getBoundingClientRect();
+      const band = 24;
+      box = target.edge === 'left' ? { left: wr.left, top: wr.top, width: band, height: wr.height }
+        : target.edge === 'right' ? { left: wr.right - band, top: wr.top, width: band, height: wr.height }
+          : target.edge === 'top' ? { left: wr.left, top: wr.top, width: wr.width, height: band }
+            : { left: wr.left, top: wr.bottom - band, width: wr.width, height: band };
+    }
+    if (box && dragTargetBox) {
+      dragTargetBox.hidden = false;
+      dragTargetBox.style.left = `${box.left}px`;
+      dragTargetBox.style.top = `${box.top}px`;
+      dragTargetBox.style.width = `${Math.max(2, box.width)}px`;
+      dragTargetBox.style.height = `${Math.max(2, box.height)}px`;
+    }
+  }
+
+  function cleanupGroupDrag() {
+    if (!groupDrag) return;
+    if (groupDrag.dragging && groupDrag.body) {
+      groupDrag.body._suppressClickUntil = performance.now() + 400;
+    }
+    groupDrag.removers.forEach((fn) => fn());
+    const capsule = nodeEls.get(groupDrag.group);
+    if (capsule) capsule.classList.remove('drag-source');
+    removeDragVisuals();
+    groupDrag = null;
+  }
+
+  function startCapsuleDrag(ev, body, group, tab) {
+    if (theaterLocked()) return;
+    if (ev.button != null && ev.button !== 0) return;
+    const state = {
+      startX: ev.clientX,
+      startY: ev.clientY,
+      lastX: ev.clientX,
+      lastY: ev.clientY,
+      group,
+      tab,
+      body,
+      dragging: false,
+      target: null,
+      removers: [],
+    };
+    groupDrag = state;
+    const onMove = (mv) => {
+      state.lastX = mv.clientX;
+      state.lastY = mv.clientY;
+      if (!state.dragging) {
+        if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
+        state.dragging = true;
+        body._suppressClickUntil = performance.now() + 400;
+        if (typeof mv.preventDefault === 'function') mv.preventDefault();
+        document.body.classList.add('dragging-group');
+        const capsule = nodeEls.get(group);
+        if (capsule) capsule.classList.add('drag-source');
+        dragShield = el('div', 'drag-shield');
+        dragTargetBox = el('div', 'drag-target-box');
+        dragTargetBox.hidden = true;
+        dragGhost = el('div', 'pane-drag-ghost', `整组：${memberSummary(group)}`);
+        dragLabel = el('div', 'pane-drag-label');
+        dragLabel.hidden = true;
+        document.body.append(dragShield, dragTargetBox, dragGhost, dragLabel);
+        buildDragGaps(tab);
+      }
+      updateGroupDragTarget(mv.clientX, mv.clientY);
+    };
+    const onUp = (mv) => {
+      if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+      if (!state.dragging) { cleanupGroupDrag(); return; }
+      const target = detectGroupDropTarget(tab, state.lastX, state.lastY, group);
+      cleanupGroupDrag();
+      if (!target) {
+        notify('整组只能放到同标签页的间隙、根边缘或标签栏末尾');
+        return;
+      }
+      const result = moveGroupForDrop(tab.root, group, target);
+      if (!result.ok) {
+        notify('无法完成整组移动');
+        return;
+      }
+      save();
+      renderAll();
+      requestAnimationFrame(() => {
+        const capsule = nodeEls.get(group);
+        const nextBody = capsule && capsule.querySelector('.capsule-body');
+        if (nextBody) nextBody.focus({ preventScroll: true });
+        else focusTab(doc.activeId);
+      });
+    };
+    const onCancel = () => cleanupGroupDrag();
+    const onKey = (kev) => {
+      if (kev.key !== 'Escape') return;
+      kev.preventDefault();
+      kev.stopPropagation();
+      cleanupGroupDrag();
+    };
+    const add = (target, type, fn, opts) => {
+      target.addEventListener(type, fn, opts);
+      state.removers.push(() => target.removeEventListener(type, fn, opts));
+    };
+    add(window, 'pointermove', onMove);
+    add(window, 'pointerup', onUp);
+    add(window, 'pointercancel', onCancel);
+    add(window, 'keydown', onKey, true);
   }
 
   function startHeaderDrag(ev, panelId) {

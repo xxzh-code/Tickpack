@@ -576,6 +576,7 @@ body.dragging-split { cursor: col-resize; user-select: none; }
   min-height: 0;
   border: 0;
   background: transparent;
+  cursor: grab;
   color: inherit;
   font: inherit;
   cursor: pointer;
@@ -705,6 +706,8 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 .drag-target-box.is-swap { background: var(--accent-weak); box-shadow: 0 0 0 2px var(--accent), 0 0 18px var(--accent-weak); }
 .drag-target { outline: 2px solid var(--accent) !important; outline-offset: -2px; }
 .pane-slot.drag-source { opacity: 0.35; }
+.group-capsule.drag-source { opacity: 0.35; }
+body.dragging-group .capsule-body { cursor: grabbing; }
 body.dragging-pane { cursor: grabbing; user-select: none; }
 body.dragging-pane .panel-head { cursor: grabbing; }
 body.drag-invalid .pane-drag-ghost { border-color: var(--danger); }

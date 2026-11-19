@@ -12,6 +12,7 @@ import {
   movePaneForDrop,
   swapPaneForDrop,
   halfRect,
+  moveGroupForDrop,
   normalizeTree,
   rotateGroup,
   lastActivePane,
@@ -272,4 +273,78 @@ test('swapPaneForDrop swaps nodes in-place and rejects invalid layouts', () => {
 
   assert.deepEqual(halfRect({ left: 10, top: 20, width: 100, height: 80 }, 'left'), { left: 10, top: 20, width: 50, height: 80 });
   assert.deepEqual(halfRect({ left: 10, top: 20, width: 100, height: 80 }, 'bottom'), { left: 10, top: 60, width: 100, height: 40 });
+});
+
+test('moveGroupForDrop inserts a whole group at a sibling gap', () => {
+  const group = createGroup('V', [pane('source'), pane('log')]);
+  const host = createGroup('V', [pane('world'), pane('scores')]);
+  const root = createGroup('H', [group, host]);
+  const result = moveGroupForDrop(root, group, { kind: 'gap', group: host, index: 1 });
+  assert.equal(result.ok, true);
+  assert.equal(result.group, group);
+  assert.equal(root.children.includes(group), false);
+  assert.equal(host.children[1], group);
+  assert.equal(allPanes(root).filter((p) => p.panel === 'source').length, 1);
+});
+
+test('moveGroupForDrop supports root left and right edges', () => {
+  const group = createGroup('V', [pane('source'), pane('log')]);
+  const host = createGroup('V', [group, pane('world')]);
+  const root = createGroup('H', [host]);
+  assert.equal(moveGroupForDrop(root, group, { kind: 'root-edge', edge: 'left' }).ok, true);
+  assert.equal(root.children[0], group);
+  assert.equal(findPaneNode(root, 'world').panel, 'world');
+
+  assert.equal(moveGroupForDrop(root, group, { kind: 'root-edge', edge: 'right' }).ok, true);
+  assert.equal(root.children[root.children.length - 1], group);
+});
+
+test('moveGroupForDrop wraps root content for top/bottom edges', () => {
+  const group = createGroup('V', [pane('source'), pane('log')]);
+  const host = createGroup('V', [group, pane('world')]);
+  const root = createGroup('H', [host]);
+  assert.equal(moveGroupForDrop(root, group, { kind: 'root-edge', edge: 'top' }).ok, true);
+  assert.equal(root.dir, 'H');
+  assert.equal(root.children.length, 1);
+  assert.equal(root.children[0].dir, 'V');
+  assert.equal(root.children[0].children[0], group);
+  assert.equal(root.children[0].keep, true);
+});
+
+test('moveGroupForDrop preserves group fields and collapse state', () => {
+  const group = createGroup('V', [pane('source', { collapsed: true }), pane('log')], { weight: 9, size: 444 });
+  group.lastActive = 'log';
+  const host = createGroup('H', [pane('world')]);
+  const root = createGroup('H', [group, host]);
+  const before = { weight: group.weight, size: group.size, lastActive: group.lastActive, collapsed: group.children[0].collapsed };
+  assert.equal(moveGroupForDrop(root, group, { kind: 'tab-end' }).ok, true);
+  assert.equal(group.weight, before.weight);
+  assert.equal(group.size, before.size);
+  assert.equal(group.lastActive, before.lastActive);
+  assert.equal(group.children[0].collapsed, before.collapsed);
+  assert.equal(group.keep, true);
+});
+
+test('moveGroupForDrop rejects root/not-in-tree/descendant targets', () => {
+  const child = createGroup('V', [pane('source')]);
+  const group = createGroup('H', [child, pane('log')]);
+  const root = createGroup('H', [group]);
+  assert.equal(moveGroupForDrop(root, root, { kind: 'tab-end' }).ok, false);
+  assert.equal(moveGroupForDrop(root, createGroup('H', [pane('pack')]), { kind: 'tab-end' }).ok, false);
+  assert.equal(moveGroupForDrop(root, group, { kind: 'gap', group: child, index: 0 }).ok, false);
+  assert.equal(findPaneNode(root, 'source').panel, 'source');
+});
+
+test('moveGroupForDrop rejects no-op targets without changing the tree', () => {
+  const only = createGroup('V', [pane('source'), pane('log')]);
+  const oneRoot = createGroup('H', [only]);
+  assert.equal(moveGroupForDrop(oneRoot, only, { kind: 'root-edge', edge: 'left' }).ok, false);
+  assert.equal(oneRoot.children[0], only);
+
+  const a = createGroup('V', [pane('source')]);
+  const b = createGroup('V', [pane('world')]);
+  const root = createGroup('H', [a, b]);
+  assert.equal(moveGroupForDrop(root, a, { kind: 'gap', group: root, index: 0 }).ok, false);
+  assert.equal(root.children[0], a);
+  assert.equal(root.children[1], b);
 });

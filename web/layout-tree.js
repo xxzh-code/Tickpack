@@ -474,6 +474,59 @@ export function halfRect(rect, side) {
   return { left, top, width, height };
 }
 
+/**
+ * Move an entire non-root group as a sibling/root-edge/tab-end. The group
+ * object keeps its children, collapse state, sizes, weights and lastActive.
+ */
+export function moveGroupForDrop(root, group, target) {
+  if (!isGroup(root) || !isGroup(group) || group === root || !target) return { ok: false };
+  if (!nodeInTree(root, group)) return { ok: false };
+  const parent = parentGroupOf(root, group);
+  if (!parent) return { ok: false };
+  const sourceIndex = parent.children.indexOf(group);
+  if (sourceIndex < 0) return { ok: false };
+  if (target.kind === 'gap') {
+    const targetGroup = target.group;
+    if (!isGroup(targetGroup) || !nodeInTree(root, targetGroup)) return { ok: false };
+    if (targetGroup === group || nodeInTree(group, targetGroup)) return { ok: false };
+    const rawIndex = Number.isInteger(target.index) ? target.index : targetGroup.children.length;
+    if (targetGroup === parent && (rawIndex === sourceIndex || rawIndex === sourceIndex + 1)) {
+      return { ok: false };
+    }
+  } else if (target.kind === 'root-edge') {
+    if (!['left', 'right', 'top', 'bottom'].includes(target.edge)) return { ok: false };
+    if (parent === root && root.children.length === 1) return { ok: false };
+  } else if (target.kind !== 'tab-end') {
+    return { ok: false };
+  } else if (parent === root && sourceIndex === root.children.length - 1) {
+    return { ok: false };
+  }
+  parent.children.splice(sourceIndex, 1);
+  group.keep = true;
+  if (target.kind === 'gap') {
+    const targetGroup = target.group;
+    let index = Number.isInteger(target.index) ? target.index : targetGroup.children.length;
+    if (targetGroup === parent && sourceIndex < index) index -= 1;
+    index = Math.max(0, Math.min(targetGroup.children.length, index));
+    targetGroup.children.splice(index, 0, group);
+  } else if (target.kind === 'root-edge') {
+    const edge = target.edge;
+    if (edge === 'left') root.children.unshift(group);
+    else if (edge === 'right') root.children.push(group);
+    else {
+      const wrapper = createGroup('V', edge === 'top' ? [group, ...root.children] : [...root.children, group]);
+      wrapper.keep = true;
+      root.children = [wrapper];
+    }
+  } else {
+    root.children.push(group);
+  }
+  normalizeTree(root);
+  ensureOneExpanded(root);
+  refreshLastActive(root);
+  return { ok: true, group };
+}
+
 export function rotateGroup(group) {
   if (!isGroup(group)) return false;
   group.dir = oppositeDir(group.dir);
