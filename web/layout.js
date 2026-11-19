@@ -703,6 +703,7 @@ export function createLayout({
   }
 
   function removeDragVisuals() {
+    clearDragPreview();
     for (const gap of dragGaps) if (gap.el.parentNode) gap.el.parentNode.removeChild(gap.el);
     dragGaps = [];
     if (dragShield && dragShield.parentNode) dragShield.parentNode.removeChild(dragShield);
