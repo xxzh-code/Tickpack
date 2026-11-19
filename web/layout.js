@@ -25,6 +25,8 @@ import {
   halfRect,
   moveGroupForDrop,
   transferGroupBetweenRoots,
+  collapsedBridgePairs,
+  resizeCollapsedBridge,
   rotateGroup,
   reorderTabs,
   clonePaneForCopy,
@@ -109,6 +111,8 @@ export function createLayout({
   const nodeEls = new Map();
   let headerDrag = null;
   let groupDrag = null;
+  let collapsedBridges = [];
+  let bridgeRaf = 0;
   let dragGaps = [];
   let dragGhost = null;
   let dragLabel = null;
@@ -1362,7 +1366,213 @@ export function createLayout({
     }
   }
 
+  function updateBridgeAria(el, pair) {
+    if (!el || !pair) return;
+    const l = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
+    const r = Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir);
+    const pct = splitterPercent(l, r);
+    el.setAttribute('aria-valuemin', '0');
+    el.setAttribute('aria-valuemax', '100');
+    el.setAttribute('aria-valuenow', String(pct));
+    el.setAttribute('aria-valuetext', `${pct}% / ${100 - pct}%`);
+  }
+
+  function bridgeRect(pair) {
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (const node of pair.run || []) {
+      const el = nodeEls.get(node);
+      if (!el || !el.isConnected) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      left = Math.min(left, r.left);
+      top = Math.min(top, r.top);
+      right = Math.max(right, r.right);
+      bottom = Math.max(bottom, r.bottom);
+    }
+    if (!Number.isFinite(left)) return null;
+    return { left, top, width: right - left, height: bottom - top };
+  }
+
+  function positionCollapsedBridges() {
+    for (const bridge of collapsedBridges) {
+      const r = bridgeRect(bridge.pair);
+      if (!r) { bridge.el.hidden = true; continue; }
+      bridge.el.hidden = false;
+      bridge.el.style.left = `${Math.round(r.left + r.width / 2)}px`;
+      bridge.el.style.top = `${Math.round(r.top + r.height / 2)}px`;
+    }
+  }
+
+  function scheduleBridgePosition() {
+    if (bridgeRaf) return;
+    bridgeRaf = requestAnimationFrame(() => {
+      bridgeRaf = 0;
+      positionCollapsedBridges();
+    });
+  }
+
+  function clearCollapsedBridges() {
+    for (const bridge of collapsedBridges) if (bridge.el.parentNode) bridge.el.parentNode.removeChild(bridge.el);
+    collapsedBridges = [];
+    if (bridgeRaf) {
+      cancelAnimationFrame(bridgeRaf);
+      bridgeRaf = 0;
+    }
+  }
+
+  function adjustCollapsedBridge(pair, leftSize, { saveNow = false } = {}) {
+    if (!pair || theaterLocked()) return false;
+    const result = resizeCollapsedBridge(pair, leftSize);
+    if (!result.ok) return false;
+    const tab = activeTab();
+    if (!tab) return false;
+    const { w, h } = workspaceBox();
+    solveTab(tab, w, h, { keepExpanded: protectedPanel });
+    applyFrame();
+    const bridge = collapsedBridges.find((item) => item.pair === pair);
+    if (bridge) updateBridgeAria(bridge.el, pair);
+    scheduleBridgePosition();
+    if (saveNow) {
+      save();
+      emitChange();
+    }
+    return true;
+  }
+
+  function resetCollapsedBridge(pair) {
+    if (!pair) return false;
+    const l = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
+    const r = Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir);
+    return adjustCollapsedBridge(pair, (l + r) / 2, { saveNow: true });
+  }
+
+  function startCollapsedBridgeDrag(ev, pair, el) {
+    if (theaterLocked() || (pair.parent && pair.parent.manualLocked)) return;
+    if (ev.button != null && ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const start = pair.dir === 'H' ? ev.clientX : ev.clientY;
+    const startLeft = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
+    const startRight = Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir);
+    const startLeftWeight = pair.left.weight;
+    const startRightWeight = pair.right.weight;
+    let pos = start;
+    let raf = 0;
+    let done = false;
+    const badge = document.createElement('span');
+    badge.className = 'bridge-ratio';
+    document.body.append(badge);
+    const updateBadge = () => {
+      const l = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
+      const r = Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir);
+      const pct = splitterPercent(l, r);
+      badge.textContent = `${pct}% / ${100 - pct}%`;
+      const rect = el.getBoundingClientRect();
+      badge.style.left = pair.dir === 'H' ? `${Math.round(rect.right + 6)}px` : `${Math.round(rect.left + rect.width / 2)}px`;
+      badge.style.top = pair.dir === 'H' ? `${Math.round(rect.top + rect.height / 2)}px` : `${Math.round(rect.bottom + 6)}px`;
+    };
+    const apply = () => {
+      raf = 0;
+      adjustCollapsedBridge(pair, startLeft + (pos - start));
+      updateBadge();
+    };
+    const onMove = (mv) => {
+      pos = pair.dir === 'H' ? mv.clientX : mv.clientY;
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    const restore = () => {
+      pair.left.size = startLeft;
+      pair.right.size = startRight;
+      pair.left.weight = startLeftWeight;
+      pair.right.weight = startRightWeight;
+      const tab = activeTab();
+      if (tab) {
+        const { w, h } = workspaceBox();
+        solveTab(tab, w, h, { keepExpanded: protectedPanel });
+        applyFrame();
+      }
+      updateBridgeAria(el, pair);
+      scheduleBridgePosition();
+    };
+    const cleanup = (cancel = false) => {
+      if (done) return;
+      done = true;
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      if (cancel) restore();
+      else {
+        adjustCollapsedBridge(pair, pair.left.size);
+        save();
+        emitChange();
+      }
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      window.removeEventListener('keydown', onKey, true);
+      el.classList.remove('active');
+      if (badge.parentNode) badge.parentNode.removeChild(badge);
+    };
+    const onUp = () => cleanup(false);
+    const onCancel = () => cleanup(true);
+    const onKey = (kev) => {
+      if (kev.key === 'Escape') {
+        kev.preventDefault();
+        kev.stopPropagation();
+        cleanup(true);
+      }
+    };
+    el.classList.add('active');
+    updateBadge();
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    window.addEventListener('keydown', onKey, true);
+  }
+
+  function renderCollapsedBridges(tab) {
+    clearCollapsedBridges();
+    if (theaterLocked() || !tab) return;
+    for (const pair of collapsedBridgePairs(tab.root)) {
+      if (pair.parent && pair.parent.manualLocked) continue;
+      if (!bridgeRect(pair)) continue;
+      const el = document.createElement('div');
+      el.className = 'collapsed-bridge';
+      el.dataset.dir = pair.dir;
+      el.tabIndex = 0;
+      el.setAttribute('role', 'separator');
+      el.setAttribute('aria-orientation', pair.dir === 'H' ? 'vertical' : 'horizontal');
+      el.setAttribute('aria-label', '调整相邻分栏（中间折叠组固定）');
+      el.title = '调整折叠段两侧比例';
+      updateBridgeAria(el, pair);
+      el.addEventListener('pointerdown', (ev) => startCollapsedBridgeDrag(ev, pair, el));
+      el.addEventListener('dblclick', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        resetCollapsedBridge(pair);
+      });
+      el.addEventListener('keydown', (ev) => {
+        const dec = pair.dir === 'H' ? 'ArrowLeft' : 'ArrowUp';
+        const inc = pair.dir === 'H' ? 'ArrowRight' : 'ArrowDown';
+        if (ev.key !== dec && ev.key !== inc) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        const current = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
+        const total = (Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir))
+          + (Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir));
+        const step = Math.max(1, Math.round(total * 0.02));
+        adjustCollapsedBridge(pair, current + (ev.key === dec ? -step : step), { saveNow: true });
+      });
+      document.body.append(el);
+      collapsedBridges.push({ pair, el });
+    }
+    scheduleBridgePosition();
+  }
+
   function renderWorkspace() {
+    clearCollapsedBridges();
     workspaceEl.innerHTML = '';
     nodeEls.clear();
     const tab = activeTab();
@@ -1392,6 +1602,7 @@ export function createLayout({
       root.append(renderNode(tab.root, tab.root.dir, { tab, parent: null, index: 0, dir: tab.root.dir }, tab, true));
     }
     workspaceEl.append(root);
+    renderCollapsedBridges(tab);
   }
 
   function applyFrame() {
@@ -1403,6 +1614,7 @@ export function createLayout({
         element.style.flex = `0 0 ${Math.max(0, node.size || 0)}px`;
       }
     }
+    scheduleBridgePosition();
   }
 
   function scheduleFrame() {
@@ -2300,6 +2512,7 @@ export function createLayout({
       dragCleanup = null;
     },
     dispose() {
+      clearCollapsedBridges();
       if (resizeObserver) resizeObserver.disconnect();
       if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
         window.removeEventListener('resize', scheduleFrame);

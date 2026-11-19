@@ -14,6 +14,8 @@ import {
   halfRect,
   moveGroupForDrop,
   transferGroupBetweenRoots,
+  collapsedBridgePairs,
+  resizeCollapsedBridge,
   normalizeTree,
   rotateGroup,
   lastActivePane,
@@ -404,4 +406,64 @@ test('transferGroupBetweenRoots rejects target panel conflicts for move and copy
   assert.equal(findPaneNode(source, 'world'), group.children[0]);
   assert.equal(target.children[0].panel, 'world');
   assert.equal(allPanes(target).filter((p) => p.panel === 'world').length, 1);
+});
+
+test('collapsedBridgePairs finds only capsules with expanded siblings on both sides', () => {
+  const left = pane('source');
+  const collapsed = createGroup('V', [
+    createPane('world', { collapsed: true }),
+    createPane('scores', { collapsed: true }),
+  ]);
+  const right = createGroup('H', [pane('pack'), pane('log')]);
+  const root = createGroup('H', [left, collapsed, right]);
+  const pairs = collapsedBridgePairs(root);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].group, root);
+  assert.equal(pairs[0].parent, root);
+  assert.equal(pairs[0].start, 1);
+  assert.equal(pairs[0].end, 1);
+  assert.equal(pairs[0].left, left);
+  assert.equal(pairs[0].right, right);
+  assert.equal(pairs[0].dir, 'H');
+
+  assert.equal(collapsedBridgePairs(createGroup('H', [collapsed, right])).length, 0);
+  assert.equal(collapsedBridgePairs(createGroup('H', [left, collapsed])).length, 0);
+});
+
+test('collapsedBridgePairs merges consecutive collapsed bars into one run', () => {
+  const left = pane('source');
+  const rail = createPane('pack', { collapsed: true });
+  const capsule = createGroup('V', [
+    createPane('world', { collapsed: true }),
+    createPane('scores', { collapsed: true }),
+  ]);
+  const right = createGroup('H', [pane('log')]);
+  const root = createGroup('H', [left, rail, capsule, right]);
+  const pairs = collapsedBridgePairs(root);
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].start, 1);
+  assert.equal(pairs[0].end, 2);
+  assert.equal(pairs[0].run.length, 2);
+  assert.equal(pairs[0].run[0], rail);
+  assert.equal(pairs[0].run[1], capsule);
+});
+
+test('resizeCollapsedBridge keeps the pair total and leaves the capsule fixed', () => {
+  const left = createPane('source', { size: 300, weight: 30 });
+  const right = createPane('pack', { size: 500, weight: 50 });
+  const collapsed = createGroup('V', [
+    createPane('world', { collapsed: true, size: 36 }),
+    createPane('scores', { collapsed: true, size: 36 }),
+  ]);
+  const root = createGroup('H', [left, collapsed, right]);
+  const pair = collapsedBridgePairs(root)[0];
+  const result = resizeCollapsedBridge(pair, 400);
+  assert.equal(result.ok, true);
+  assert.equal(left.size, 400);
+  assert.equal(right.size, 400);
+  assert.equal(collapsed.children[0].size, 36);
+  assert.equal(collapsed.children[1].size, 36);
+  root.manualLocked = true;
+  assert.equal(resizeCollapsedBridge(pair, 450).ok, false);
+  assert.equal(left.size, 400);
 });

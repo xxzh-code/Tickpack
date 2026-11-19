@@ -228,7 +228,7 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 | `docs/NAMING.md` | 命名与标识、`.tpk`、CLI、数据包命名空间规则（设计） |
 | `scripts/build-html.mjs` | 零依赖单文件 HTML 构建 |
 | `dist/` | 预生成的数据包 zip + 单文件 HTML |
-| `test/` | 编译器/模拟器/端到端/会话/zip/分层守卫/构建 + 布局 13 + layout-drag 18 + world3d 9 + UI 10 = **235 个测试**（以 `node test/run-all.mjs` 为准） |
+| `test/` | 编译器/模拟器/端到端/会话/zip/分层守卫/构建 + 布局 13 + layout-drag 18 + world3d 9 + UI 10 = **238 个测试**（以 `node test/run-all.mjs` 为准） |
 | `scripts/pack.mjs` | 生成可安装的数据包 zip（Node 外壳的导出实现） |
 | `scripts/dump.mjs` | 打印某个示例生成的数据包（调试编译器用） |
 | `scripts/shot.ps1` | Edge headless 截图（QA 用） |

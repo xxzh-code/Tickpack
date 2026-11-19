@@ -474,6 +474,68 @@ export function halfRect(rect, side) {
   return { left, top, width, height };
 }
 
+/** Collapsed runs with expanded siblings on both sides get one central bridge. */
+export function collapsedBridgePairs(root) {
+  const out = [];
+  const isCollapsedNode = (node) => (isPane(node) ? node.collapsed : fullyCollapsed(node));
+  const walk = (parent) => {
+    if (!isGroup(parent)) return;
+    let i = 0;
+    while (i < parent.children.length) {
+      const child = parent.children[i];
+      if (!isCollapsedNode(child)) {
+        if (isGroup(child)) walk(child);
+        i += 1;
+        continue;
+      }
+      const start = i;
+      while (i < parent.children.length && isCollapsedNode(parent.children[i])) i += 1;
+      const end = i - 1;
+      let left = null;
+      let right = null;
+      for (let j = start - 1; j >= 0; j--) {
+        if (isExpandedNode(parent.children[j])) { left = parent.children[j]; break; }
+      }
+      for (let j = end + 1; j < parent.children.length; j++) {
+        if (isExpandedNode(parent.children[j])) { right = parent.children[j]; break; }
+      }
+      if (left && right) {
+        out.push({
+          group: parent,
+          parent,
+          start,
+          end,
+          run: parent.children.slice(start, end + 1),
+          left,
+          right,
+          dir: parent.dir,
+        });
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/** Resize the nearest expanded siblings; the collapsed capsule keeps its size. */
+export function resizeCollapsedBridge(pair, leftSize) {
+  if (!pair || !pair.left || !pair.right || !pair.parent) return { ok: false };
+  if (pair.parent.manualLocked) return { ok: false };
+  const left = pair.left;
+  const right = pair.right;
+  const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, pair.dir))
+    + (Number.isFinite(right.size) ? right.size : nodeMin(right, pair.dir));
+  const minL = nodeMin(left, pair.dir);
+  const minR = nodeMin(right, pair.dir);
+  const l = Math.max(minL, Math.min(total - minR, Number(leftSize) || 0));
+  const r = total - l;
+  left.size = l;
+  right.size = r;
+  left.weight = Math.max(1, l - minL);
+  right.weight = Math.max(1, r - minR);
+  return { ok: true, left, right, total };
+}
+
 /**
  * Move an entire non-root group as a sibling/root-edge/tab-end. The group
  * object keeps its children, collapse state, sizes, weights and lastActive.
