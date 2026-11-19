@@ -42,6 +42,8 @@ const RESERVED = new Set([
   'press',
   'brush',
   'paint',
+  'ahead',
+  'below',
 ]);
 
 const EMPTY_PARAMS = new Set();
@@ -366,6 +368,8 @@ class Semantics {
         this.checkIntRange(expr.value, expr.line);
         return;
       case 'now':
+        return;
+      case 'sense':
         return;
       case 'var': {
         const name = expr.name;

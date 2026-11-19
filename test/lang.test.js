@@ -507,6 +507,16 @@ class MiniSim {
           index += 3;
           continue;
         }
+        if (kind === 'block') {
+          const pos = this.resolvePosition(tokens.slice(index + 2, index + 5), local);
+          const key = `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`;
+          const actual = this.blocks.get(key)?.block || 'air';
+          const want = tokens[index + 5].replace(/^minecraft:/, '');
+          const ok = actual === want;
+          passes = passes && (word === 'if' ? ok : !ok);
+          index += 6;
+          continue;
+        }
         assert.fail(`MiniSim: unsupported condition '${kind}' in: ${head}`);
       }
       assert.fail(`MiniSim: unsupported execute clause '${word}' in: ${head}`);

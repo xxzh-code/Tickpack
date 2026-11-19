@@ -86,14 +86,15 @@ cmp    := add (('=='|'!='|'<'|'<='|'>'|'>=') add)*
 add    := mul (('+'|'-') mul)*
 mul    := unary (('*'|'/'|'%') unary)*
 unary  := ('-'|'not') unary | atom
-atom   := INT | 'now' | IDENT | '$' PARAM | '(' expr ')'
+atom   := INT | 'now' | IDENT | '$' PARAM | '(' expr ')' | 'ahead' '(' IDENT ')' | 'below' '(' IDENT ')'
 ```
 
 - 只支持整数（记分板是 32 位整数）。除以/模以零 => 0。
 - 比较的结果是 0/1。`and`/`or`/`not` 基于 0/1 值运算
   （`a and b` 当且仅当两者都非零时为 1）。
 - 在 `if` 中，条件值非零即为真。
-- 函数调用只能作为语句，不能出现在表达式里（v0.1）。
+- 函数调用只能作为语句，不能出现在表达式里（v0.1）；`ahead(block)` /
+  `below(block)` 是例外，它们是内置传感器表达式（§1.8）。
 
 ### 1.5 `run` 行
 
@@ -128,6 +129,38 @@ atom   := INT | 'now' | IDENT | '$' PARAM | '(' expr ')'
 - `paint`（也接受 `paint()`）—— 在笔尖处绘制当前画笔的方块。编译成
   `function tp:fn/paint`，即一个针对调色板生成的 dispatch 函数。
 - `brush` 和 `paint` 是保留名：用户的状态/fn 不能和它们重名。
+
+### 1.8 感官（ahead / below）
+
+`ahead(block)` 和 `below(block)` 是内置的**布尔表达式**，读取笔所在世界：
+
+- `ahead(block)`：笔沿当前 yaw+pitch 的视线方向前一格是否有 `block`；
+- `below(block)`：笔正下方一格是否有 `block`；
+- 结果 0/1，可直接用于 `if`、`and`/`or`/`not` 或赋值；
+- `block` 必须是 `air` 或调色板方块（§1.7 的 12 种），否则编译错误；
+- 不是 `prelude` 函数，不生成 `fn` 文件；每条表达式编译成真实
+  `execute ... if block ... run scoreboard players set <tmp> tp 1` 命令。
+
+示例：
+
+```
+brush(gold_block)
+if ahead(stone) {
+  turn(90)
+} else {
+  walk
+  paint
+}
+```
+
+生成的“前方”探测使用笔的局部坐标，因此在 3D 中会跟随 pitch：
+
+```
+execute at @e[tag=pen] positioned ^ ^ ^1 if block ~ ~ ~ stone run scoreboard players set #__t0 tp 1
+```
+
+`below` 使用世界方向的 `~ ~-1 ~`。示例 `senses`（沿墙）演示了“先画墙，再感知并转向”。
+
 
 调色板（固定顺序 = `#__brush` 的序号）：
 
@@ -253,6 +286,9 @@ score <tmp> tp matches 0 run function <A entry>`（开头的 `#__b` 是分支闩
   scoreboard players set <dst> tp 1`（dst 预先置 0）。
   与字面量比较时则省掉临时变量和减法，直接使用平移后的 `matches`
   区间（例如 `x >= 3` -> `matches 3..`）。
+- `ahead(block)` / `below(block)`：dst 先置 0，再用
+  `execute at @e[tag=pen] positioned ^ ^ ^1 if block ~ ~ ~ <block>` /
+  `execute at @e[tag=pen] if block ~ ~-1 ~ <block>` 置 1。
 - 给变量赋值：先求值进临时变量，再 `operation #<var> tp = #__t<tmp>`
 
 优化（`x = x + 1` -> `scoreboard players add #x tp 1`，以及
@@ -385,7 +421,8 @@ fn pitch(deg)             # 笔的 pitch 增加 deg 度（宏；负值抬头、�
 
 `brush(<block>)` 和 `paint` 是编译器内置（§1.7），不是 prelude 函数：
 编译器必须校验方块 id 并知道调色板序号。`plot(block)` 仍然是绘制
-调色板之外方块的“字面量逃生口”。
+调色板之外方块的“字面量逃生口”。`ahead(block)` / `below(block)` 也是
+编译器内置表达式（§1.8），不占 prelude 函数名。
 
 实现注记：
 - `walk`：`execute as @e[tag=pen] at @s run tp @s ^ ^ ^1`

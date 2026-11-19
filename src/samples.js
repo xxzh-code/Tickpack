@@ -160,6 +160,33 @@ stamp
 `,
   },
   {
+    id: 'senses',
+    title: '沿墙 · Wall Follower',
+    description: '给笔装上感官：先用 stone 画一段墙，再用 ahead(stone) 看正前方；碰到墙就 turn(90)，否则前进并留下金线。',
+    source: `# 先用石头画一段墙
+brush(stone)
+over 4 as i {
+  walk
+  paint
+}
+
+# 回到玩家脚下，换成金色笔
+home
+brush(gold_block)
+
+# ahead(stone) 读取正前方一格：有墙就转，没有就前进
+over 24 as i {
+  if ahead(stone) {
+    turn(90)
+  } else {
+    walk
+    paint
+  }
+}
+stamp
+`,
+  },
+  {
     id: 'helix3d',
     title: '3D 螺旋 · Helix 3D',
     description: 'pitch(-35) 让笔抬头（Minecraft 里负 pitch 向上），walk 沿视线方向前进：12 步边走边转，画出向上螺旋的三维螺旋。浏览器与 Minecraft 里形状一致。',

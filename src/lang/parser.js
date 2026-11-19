@@ -379,6 +379,15 @@ class Parser {
     if (token.type === 'ident') {
       this.next();
       if (token.value === 'now') return { kind: 'now', line: token.line };
+      if (token.value === 'ahead' || token.value === 'below') {
+        if (!this.at('punct', '(')) {
+          this.fail(`expected '(' after '${token.value}' (usage: ${token.value}(stone))`, token);
+        }
+        this.next();
+        const block = this.expect('ident', undefined, `expected a block id inside ${token.value}(...)`);
+        this.expect('punct', ')', `expected ')' after ${token.value}(...)`);
+        return { kind: 'sense', dir: token.value, block: block.value, line: token.line };
+      }
       return { kind: 'var', name: token.value, line: token.line };
     }
     if (token.type === 'punct' && token.value === '(') {

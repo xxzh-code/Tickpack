@@ -2797,6 +2797,15 @@ class Parser {
     if (token.type === 'ident') {
       this.next();
       if (token.value === 'now') return { kind: 'now', line: token.line };
+      if (token.value === 'ahead' || token.value === 'below') {
+        if (!this.at('punct', '(')) {
+          this.fail(`expected '(' after '${token.value}' (usage: ${token.value}(stone))`, token);
+        }
+        this.next();
+        const block = this.expect('ident', undefined, `expected a block id inside ${token.value}(...)`);
+        this.expect('punct', ')', `expected ')' after ${token.value}(...)`);
+        return { kind: 'sense', dir: token.value, block: block.value, line: token.line };
+      }
       return { kind: 'var', name: token.value, line: token.line };
     }
     if (token.type === 'punct' && token.value === '(') {
@@ -3186,6 +3195,22 @@ class TempAllocator {
       case 'now': {
         const temp = env.allocator.alloc();
         out.push(`scoreboard players operation ${temp} tp = #__tick tp`);
+        return temp;
+      }
+      case 'sense': {
+        const block = String(expr.block || '');
+        if (block !== 'air' && !BRUSH_INDEX.has(block)) {
+          throw new TpError(
+            `unknown sensed block '${block}'; use air or a palette block: ${BRUSH_PALETTE.join(', ')}`,
+            expr.line,
+          );
+        }
+        const temp = env.allocator.alloc();
+        out.push(`scoreboard players set ${temp} tp 0`);
+        const probe = expr.dir === 'ahead'
+          ? `execute at @e[tag=pen] positioned ^ ^ ^1 if block ~ ~ ~ ${block}`
+          : `execute at @e[tag=pen] if block ~ ~-1 ~ ${block}`;
+        out.push(`${probe} run scoreboard players set ${temp} tp 1`);
         return temp;
       }
       case 'var': {
@@ -3877,6 +3902,8 @@ const RESERVED = new Set([
   'press',
   'brush',
   'paint',
+  'ahead',
+  'below',
 ]);
 
 const EMPTY_PARAMS = new Set();
@@ -4201,6 +4228,8 @@ class Semantics {
         this.checkIntRange(expr.value, expr.line);
         return;
       case 'now':
+        return;
+      case 'sense':
         return;
       case 'var': {
         const name = expr.name;
@@ -6366,6 +6395,33 @@ over 120 as i {
     count = 0
     arm = arm + 1
     turn(90)
+  }
+}
+stamp
+`,
+  },
+  {
+    id: 'senses',
+    title: '沿墙 · Wall Follower',
+    description: '给笔装上感官：先用 stone 画一段墙，再用 ahead(stone) 看正前方；碰到墙就 turn(90)，否则前进并留下金线。',
+    source: `# 先用石头画一段墙
+brush(stone)
+over 4 as i {
+  walk
+  paint
+}
+
+# 回到玩家脚下，换成金色笔
+home
+brush(gold_block)
+
+# ahead(stone) 读取正前方一格：有墙就转，没有就前进
+over 24 as i {
+  if ahead(stone) {
+    turn(90)
+  } else {
+    walk
+    paint
   }
 }
 stamp

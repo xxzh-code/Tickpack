@@ -306,3 +306,31 @@ test('unknown names and duplicate declarations are compile errors', () => {
   assert.equal(compile('nope()\n').ok, false);
 });
 
+
+test('ahead/below read the real generated world through execute if block', () => {
+  const source = `run setblock 0 0 1 gold_block
+run setblock 0 -1 0 stone
+if ahead(gold_block) {
+  say "ahead-ok"
+}
+if below(stone) {
+  say "below-ok"
+}
+`;
+  const out = compile(source);
+  assert.equal(out.ok, true, JSON.stringify(out.diagnostics));
+  const all = Object.values(out.files).join('\n');
+  assert.match(all, /positioned \^ \^ \^1 if block ~ ~ ~ gold_block/);
+  assert.match(all, /if block ~ ~-1 ~ stone/);
+  const { events } = run(source, 1);
+  const says = events.filter(isProgramSay).map((e) => e.text);
+  assert.deepEqual(says, ['ahead-ok', 'below-ok']);
+});
+
+test('ahead/below reject blocks outside the sensor palette at their source line', () => {
+  const out = compile('if ahead(grass_block) {\n  say "nope"\n}\n');
+  assert.equal(out.ok, false);
+  assert.equal(out.diagnostics[0].line, 1);
+  assert.match(out.diagnostics[0].message, /unknown sensed block 'grass_block'/);
+  assert.match(out.diagnostics[0].message, /stone, gold_block/);
+});

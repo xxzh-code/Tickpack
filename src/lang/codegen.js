@@ -371,6 +371,22 @@ export class CodeGen {
         out.push(`scoreboard players operation ${temp} tp = #__tick tp`);
         return temp;
       }
+      case 'sense': {
+        const block = String(expr.block || '');
+        if (block !== 'air' && !BRUSH_INDEX.has(block)) {
+          throw new TpError(
+            `unknown sensed block '${block}'; use air or a palette block: ${BRUSH_PALETTE.join(', ')}`,
+            expr.line,
+          );
+        }
+        const temp = env.allocator.alloc();
+        out.push(`scoreboard players set ${temp} tp 0`);
+        const probe = expr.dir === 'ahead'
+          ? `execute at @e[tag=pen] positioned ^ ^ ^1 if block ~ ~ ~ ${block}`
+          : `execute at @e[tag=pen] if block ~ ~-1 ~ ${block}`;
+        out.push(`${probe} run scoreboard players set ${temp} tp 1`);
+        return temp;
+      }
       case 'var': {
         const temp = env.allocator.alloc();
         out.push(`scoreboard players operation ${temp} tp = ${this.varScore(expr.name, expr.line)} tp`);

@@ -84,6 +84,20 @@ over 90 as i {
 共享重绕会把画笔重置回 stone，所以每次 `/function tp:start` /
 `start_at` 都从同一个状态开始。`brush` 和 `paint` 是保留名。
 
+## 感官表达式（ahead / below）
+
+`ahead(<block>)` / `below(<block>)` 是表达式内置，不是 prelude 函数；它们
+生成真实的条件命令，模拟器和 Minecraft 都执行同一条：
+
+```
+execute at @e[tag=pen] positioned ^ ^ ^1 if block ~ ~ ~ stone run scoreboard players set #__t0 tp 1
+execute at @e[tag=pen] if block ~ ~-1 ~ stone run scoreboard players set #__t0 tp 1
+```
+
+`ahead` 使用笔的局部坐标（含 pitch），`below` 是世界向下；`block` 必须是
+`air` 或调色板方块。结果写入 `#__t0` 之类的临时记分板，可直接用于 `if`。
+示例 `senses` 先画墙，再用 `ahead(stone)` 转向。
+
 ## 真实世界里的启动（把笔锚定在玩家身上）
 
 `load.mcfunction` 在世界加载时运行，那时还没有玩家——而且在普通世界里
