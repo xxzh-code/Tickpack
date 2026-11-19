@@ -204,6 +204,20 @@ say "wave done"
 `,
   },
   {
+    id: 'gestures',
+    title: '手势串 · Gestures',
+    description: '接连三行意图：wave → nod → spin，各 8 tick；新的 animate 会覆盖旧动画槽，浏览器里能看到三段不同的粒子手势。',
+    source: `# 三个命名手势，每个 8 tick；后一个会覆盖前一个的剩余时间
+animate(@p, "wave", 8 ticks)
+wait 8
+animate(@p, "nod", 8 ticks)
+wait 8
+animate(@p, "spin", 8 ticks)
+wait 8
+say "gestures done"
+`,
+  },
+  {
     id: 'helix3d',
     title: '3D 螺旋 · Helix 3D',
     description: 'pitch(-35) 让笔抬头（Minecraft 里负 pitch 向上），walk 沿视线方向前进：12 步边走边转，画出向上螺旋的三维螺旋。浏览器与 Minecraft 里形状一致。',

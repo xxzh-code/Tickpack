@@ -10,6 +10,8 @@
 // either side of a newline.
 import { TpError } from './errors.js';
 
+const ANIMATIONS = new Set(['wave', 'nod', 'spin']);
+
 export function parse(tokens) {
   return new Parser(tokens).parseProgram();
 }
@@ -189,8 +191,8 @@ class Parser {
           if (!match) {
             this.fail('animate syntax is animate(@p, "wave", N ticks)', token);
           }
-          if (match[1] !== 'wave') {
-            this.fail(`unknown animation '${match[1]}'; this probe only supports "wave"`, token);
+          if (!ANIMATIONS.has(match[1])) {
+            this.fail(`unknown animation '${match[1]}'; supported: ${[...ANIMATIONS].join(', ')}`, token);
           }
           return { kind: 'animate', selector: '@p', animation: match[1], ticks: Number(match[2]), line: token.line };
         }

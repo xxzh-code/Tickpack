@@ -186,17 +186,18 @@ P1.5 只做最小探针，不是完整意图层：
 animate(@p, "wave", 20 ticks)
 ```
 
-- 语句级内置；目标目前只支持 `@p`，动画名只支持 `"wave"`，时长是
-  正整数 + `ticks`；
+- 语句级内置；目标目前只支持 `@p`，动画名支持 `"wave"` / `"nod"` /
+  `"spin"`，时长是正整数 + `ticks`；
 - 编译器把它 lower 成 `#__animLeft` / `#__animActive` 两个记分板槽，并
   生成 `data/tp/function/anim/tick.mcfunction`；`tp:tick/body` 每 tick 在
   时间线 dispatch 之后调用它；
-- `tp:anim/tick` 发出可读的 `particle` 命令，浏览器模拟器执行同一份
-  mcfunction，因此预览和数据包一致；
-- **覆盖机制**：全局只有一个动画槽；新的 `animate(...)` 会重置剩余
-  ticks/active，旧动画不会继续；
+- `tp:anim/tick` 按 `#__animKind` 发出可读的 `particle` 命令；浏览器
+  模拟器执行同一份 mcfunction，因此预览和数据包一致；
+- **覆盖机制**：全局只有一个动画槽；新的 `animate(...)` 会重置
+  kind/剩余 ticks/active，旧动画不会继续；
 - `load` 和 `start/rewind` 会把动画槽清空；
-- 示例 `wave` 是“一行意图 + 等待 20 ticks”，用于验证语法、展开和覆盖。
+- 示例 `wave` 是“一行意图 + 等待 20 ticks”；`gestures` 连续演示
+  wave → nod → spin，用于验证命名扩展和覆盖。
 
 ## 2. 编译模型
 

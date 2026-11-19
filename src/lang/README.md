@@ -106,11 +106,12 @@ P1.5 的最小 intent 语句：
 animate(@p, "wave", 20 ticks)
 ```
 
-解析器只接受 `@p` + `"wave"` + 正整数 ticks；codegen 写
-`#__animLeft/#__animActive` 并生成 `tp:anim/tick`，由 `tp:tick/body`
-每 tick 调用。`tp:anim/tick` 是普通粒子 mcfunction；浏览器模拟器执行同一份
-命令，因此数据包和预览一致。新 `animate` 重置同一槽即覆盖旧动画；
-`load`/`rewind` 清空槽。示例 `wave` 用来验收一行语法、可读展开和覆盖。
+解析器接受 `@p` + `"wave"|"nod"|"spin"` + 正整数 ticks；codegen 写
+`#__animKind/#__animLeft/#__animActive` 并生成 `tp:anim/tick`，由
+`tp:tick/body` 每 tick 调用。`tp:anim/tick` 按 kind 是普通粒子 mcfunction；
+浏览器模拟器执行同一份命令，因此数据包和预览一致。新 `animate` 重置同一槽
+即覆盖旧动画（包括 kind）；`load`/`rewind` 清空槽。示例 `wave` 验收一行
+语法/展开，`gestures` 验收 wave→nod→spin 与覆盖。
 
 ## 真实世界里的启动（把笔锚定在玩家身上）
 

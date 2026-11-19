@@ -377,3 +377,18 @@ test('animate syntax only accepts the @p / wave probe form', () => {
   assert.equal(out.diagnostics[0].line, 1);
   assert.match(out.diagnostics[0].message, /animate syntax/);
 });
+
+test('animate supports the registered gesture names through the same slot', () => {
+  for (const [name, kind] of [['wave', 0], ['nod', 1], ['spin', 2]]) {
+    const out = compile(`animate(@p, "${name}", 2 ticks)\nwait 2\n`);
+    assert.equal(out.ok, true, `${name}: ${JSON.stringify(out.diagnostics)}`);
+    const fn = out.files['data/tp/function/anim/tick.mcfunction'];
+    assert.match(fn, new RegExp(`# intent kind ${kind}: ${name}`));
+    assert.match(fn, new RegExp(`if score #__animKind tp matches ${kind}`));
+    const sim = new Simulator(out.files);
+    sim.reset();
+    const events = [...sim.step(), ...sim.step()];
+    assert.ok(events.some((e) => e.type === 'particle'), `${name} emits particles`);
+    assert.equal(sim.getScores().tp['#__animActive'], 0, `${name} ends`);
+  }
+});
