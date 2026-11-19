@@ -32,6 +32,7 @@ import {
   clearTabTree,
   clonePaneForCopy,
 } from '../web/layout-tree.js';
+import { createUndoStack } from '../web/layout-history.js';
 
 function pane(panel, weight = 1) { return createPane(panel, { weight }); }
 function byPanel(root) { return allPanes(root).map((p) => p.panel).join(','); }
@@ -466,4 +467,19 @@ test('resizeCollapsedBridge keeps the pair total and leaves the capsule fixed', 
   root.manualLocked = true;
   assert.equal(resizeCollapsedBridge(pair, 450).ok, false);
   assert.equal(left.size, 400);
+});
+
+test('layout undo stack is bounded and preserves labels', () => {
+  const stack = createUndoStack(3);
+  stack.push({ n: 1 }, '一');
+  stack.push({ n: 2 }, '二');
+  stack.push({ n: 3 }, '三');
+  stack.push({ n: 4 }, '四');
+  assert.equal(stack.size, 3);
+  assert.deepEqual(stack.labels(), ['二', '三', '四']);
+  assert.equal(stack.canUndo, true);
+  assert.deepEqual(stack.pop(), { state: { n: 4 }, label: '四' });
+  stack.clear();
+  assert.equal(stack.canUndo, false);
+  assert.equal(stack.pop(), null);
 });

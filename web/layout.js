@@ -4,6 +4,7 @@
 
 import { icon, applyTruncationTitles } from './util.js';
 import { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } from './a11y.js';
+import { createUndoStack } from './layout-history.js';
 import {
   LAYOUT_VERSION,
   SPLITTER,
@@ -127,6 +128,56 @@ export function createLayout({
   const notify = (message) => { if (typeof onNotify === 'function') onNotify(message); };
   const theaterLocked = () => typeof document !== 'undefined' && document.documentElement.dataset.view === 'theater';
   const activeTab = () => doc.tabs.find((t) => t.id === doc.activeId) || doc.tabs[0];
+  const undoStack = createUndoStack(50);
+  let undoDepth = 0;
+  let undoEntry = null;
+
+  function beginUndo(label) {
+    if (theaterLocked() || !doc) return false;
+    if (undoDepth === 0) undoEntry = { state: cloneTree(doc), label: label || '布局操作' };
+    undoDepth += 1;
+    return true;
+  }
+
+  function endUndo() {
+    if (undoDepth === 0) return false;
+    undoDepth -= 1;
+    if (undoDepth > 0) return false;
+    const entry = undoEntry;
+    undoEntry = null;
+    if (!entry) return false;
+    if (JSON.stringify(entry.state) === JSON.stringify(doc)) return false;
+    undoStack.push(entry.state, entry.label);
+    return true;
+  }
+
+  function setUndoLabel(label) {
+    if (undoDepth > 0 && undoEntry) undoEntry.label = label;
+  }
+
+  function withUndo(label, fn) {
+    const started = beginUndo(label);
+    try {
+      return fn();
+    } finally {
+      if (started) endUndo();
+    }
+  }
+
+  function undoLayout() {
+    if (theaterLocked()) return false;
+    const entry = undoStack.pop();
+    if (!entry) return false;
+    const next = sanitizeLayout(entry.state);
+    if (!next) return false;
+    closeMenus();
+    doc = next;
+    protectedPanel = null;
+    save();
+    renderAll();
+    notify(`已撤销：${entry.label}`);
+    return true;
+  }
 
   function canPersist() {
     return !!(host && host.canPersist !== false && typeof host.storageSet === 'function');
@@ -889,6 +940,7 @@ export function createLayout({
       if (!state.dragging) {
         if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
         state.dragging = true;
+        state.undoStarted = beginUndo('移动整组');
         body._suppressClickUntil = performance.now() + 400;
         if (typeof mv.preventDefault === 'function') mv.preventDefault();
         document.body.classList.add('dragging-group');
@@ -905,40 +957,57 @@ export function createLayout({
       }
       updateGroupDragTarget(mv.clientX, mv.clientY);
     };
-    const onUp = (mv) => {
-      if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
-      if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
-      if (!state.dragging) { cleanupGroupDrag(); return; }
-      const target = detectGroupDropTarget(tab, state.lastX, state.lastY, group, state);
-      cleanupGroupDrag();
-      if (!target) {
-        notify('整组只能放到同标签页的间隙、根边缘或标签栏末尾');
-        return;
-      }
-      if (target.kind === 'tab-end' || target.kind === 'tab-new') {
-        if (!commitGroupTabDrop(group, tab, target)) notify('无法完成整组标签页移动');
-        return;
-      }
-      const result = moveGroupForDrop(tab.root, group, target);
-      if (!result.ok) {
-        notify('无法完成整组移动');
-        return;
-      }
-      save();
-      renderAll();
-      requestAnimationFrame(() => {
-        const capsule = nodeEls.get(group);
-        const nextBody = capsule && capsule.querySelector('.capsule-body');
-        if (nextBody) nextBody.focus({ preventScroll: true });
-        else focusTab(doc.activeId);
-      });
+    const finishUndo = () => {
+      if (!state.undoStarted) return;
+      state.undoStarted = false;
+      endUndo();
     };
-    const onCancel = () => cleanupGroupDrag();
+    const onUp = (mv) => {
+      try {
+        if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+        if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
+        if (!state.dragging) { cleanupGroupDrag(); return; }
+        const target = detectGroupDropTarget(tab, state.lastX, state.lastY, group, state);
+        cleanupGroupDrag();
+        if (!target) {
+          notify('整组只能放到同标签页的间隙、根边缘或标签栏末尾');
+          return;
+        }
+        if (target.kind === 'tab-end' || target.kind === 'tab-new') {
+          setUndoLabel(target.kind === 'tab-new'
+            ? (target.copy ? '复制整组到新标签页' : '移动整组到新标签页')
+            : (target.copy ? '复制整组到标签页' : '移动整组到标签页'));
+          if (!commitGroupTabDrop(group, tab, target)) notify('无法完成整组标签页移动');
+          return;
+        }
+        setUndoLabel('移动整组');
+        const result = moveGroupForDrop(tab.root, group, target);
+        if (!result.ok) {
+          notify('无法完成整组移动');
+          return;
+        }
+        save();
+        renderAll();
+        requestAnimationFrame(() => {
+          const capsule = nodeEls.get(group);
+          const nextBody = capsule && capsule.querySelector('.capsule-body');
+          if (nextBody) nextBody.focus({ preventScroll: true });
+          else focusTab(doc.activeId);
+        });
+      } finally {
+        finishUndo();
+      }
+    };
+    const onCancel = () => {
+      cleanupGroupDrag();
+      finishUndo();
+    };
     const onKey = (kev) => {
       if (kev.key === 'Escape') {
         kev.preventDefault();
         kev.stopPropagation();
         cleanupGroupDrag();
+        finishUndo();
       } else if (kev.key === 'Control' || kev.key === 'Meta') {
         kev.preventDefault();
         state.copy = true;
@@ -992,6 +1061,7 @@ export function createLayout({
       if (!state.dragging) {
         if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
         state.dragging = true;
+        state.undoStarted = beginUndo('移动分栏');
         if (typeof mv.preventDefault === 'function') mv.preventDefault();
         document.body.classList.add('dragging-pane');
         if (slot) slot.classList.add('drag-source');
@@ -1006,42 +1076,62 @@ export function createLayout({
       }
       updateDragTarget(mv.clientX, mv.clientY);
     };
-    const onUp = (mv) => {
-      if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
-      if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
-      if (!state.dragging) { cleanupHeaderDrag(); return; }
-      const target = detectDropTarget(tab, state.lastX, state.lastY, panelId, state);
-      cleanupHeaderDrag();
-      if (!target) {
-        notify('此处不能放置分栏');
-        return;
-      }
-      if (target.kind === 'tab-end' || target.kind === 'tab-new') {
-        if (!commitPaneTabDrop(panelId, tab, target)) notify('无法完成标签页移动');
-        return;
-      }
-      const result = target.kind === 'swap'
-        ? swapPaneForDrop(tab.root, panelId, target.paneId)
-        : movePaneForDrop(tab.root, panelId, target);
-      if (!result.ok) {
-        notify('无法完成这次分栏移动');
-        return;
-      }
-      result.pane.collapsed = false;
-      protectedPanel = panelId;
-      ensureOneExpanded(tab.root, panelId);
-      markPaneActive(tab.root, panelId);
-      refreshLastActive(tab.root);
-      save();
-      renderAll();
-      requestAnimationFrame(() => {
-        if (!focusPanelAfterDrop(panelId)) focusTab(doc.activeId);
-      });
+    const finishUndo = () => {
+      if (!state.undoStarted) return;
+      state.undoStarted = false;
+      endUndo();
     };
-    const onCancel = () => cleanupHeaderDrag();
+    const onUp = (mv) => {
+      try {
+        if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+        if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
+        if (!state.dragging) { cleanupHeaderDrag(); return; }
+        const target = detectDropTarget(tab, state.lastX, state.lastY, panelId, state);
+        cleanupHeaderDrag();
+        if (!target) {
+          notify('此处不能放置分栏');
+          return;
+        }
+        if (target.kind === 'tab-end' || target.kind === 'tab-new') {
+          setUndoLabel(target.kind === 'tab-new'
+            ? (target.copy ? '复制分栏到新标签页' : '移动分栏到新标签页')
+            : (target.copy ? '复制分栏到标签页' : '移动分栏到标签页'));
+          if (!commitPaneTabDrop(panelId, tab, target)) notify('无法完成标签页移动');
+          return;
+        }
+        setUndoLabel(target.kind === 'swap' ? '交换分栏' : '移动分栏');
+        const result = target.kind === 'swap'
+          ? swapPaneForDrop(tab.root, panelId, target.paneId)
+          : movePaneForDrop(tab.root, panelId, target);
+        if (!result.ok) {
+          notify('无法完成这次分栏移动');
+          return;
+        }
+        result.pane.collapsed = false;
+        protectedPanel = panelId;
+        ensureOneExpanded(tab.root, panelId);
+        markPaneActive(tab.root, panelId);
+        refreshLastActive(tab.root);
+        save();
+        renderAll();
+        requestAnimationFrame(() => {
+          if (!focusPanelAfterDrop(panelId)) focusTab(doc.activeId);
+        });
+      } finally {
+        finishUndo();
+      }
+    };
+    const onCancel = () => {
+      cleanupHeaderDrag();
+      finishUndo();
+    };
     const onKey = (kev) => {
-      if (kev.key === 'Escape') { kev.preventDefault(); kev.stopPropagation(); cleanupHeaderDrag(); }
-      else if (kev.key === 'Control' || kev.key === 'Meta') {
+      if (kev.key === 'Escape') {
+        kev.preventDefault();
+        kev.stopPropagation();
+        cleanupHeaderDrag();
+        finishUndo();
+      } else if (kev.key === 'Control' || kev.key === 'Meta') {
         kev.preventDefault();
         state.copy = true;
         if (state.dragging) updateDragTarget(state.lastX, state.lastY);
@@ -1128,55 +1218,59 @@ export function createLayout({
   function resetSplitterPair(group, index, dir, tab) {
     if (theaterLocked()) return false;
     if (!group || group.manualLocked) return false;
-    const left = group.children[index - 1];
-    const right = group.children[index];
-    if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return false;
-    const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
-      + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
-    const minL = nodeMin(left, dir);
-    const minR = nodeMin(right, dir);
-    const pair = resetPairSizes(total, minL, minR);
-    const l = pair.left;
-    const r = pair.right;
-    left.size = l;
-    right.size = r;
-    left.weight = Math.max(MIN_GROW, l - minL);
-    right.weight = Math.max(MIN_GROW, r - minR);
-    const { w, h } = workspaceBox();
-    solveTab(tab, w, h, { keepExpanded: protectedPanel });
-    applyFrame();
-    const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
-    if (splitter) updateSplitterAria(splitter, left, right);
-    save();
-    emitChange();
-    return true;
+    return withUndo('恢复 1:1', () => {
+      const left = group.children[index - 1];
+      const right = group.children[index];
+      if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return false;
+      const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
+        + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
+      const minL = nodeMin(left, dir);
+      const minR = nodeMin(right, dir);
+      const pair = resetPairSizes(total, minL, minR);
+      const l = pair.left;
+      const r = pair.right;
+      left.size = l;
+      right.size = r;
+      left.weight = Math.max(MIN_GROW, l - minL);
+      right.weight = Math.max(MIN_GROW, r - minR);
+      const { w, h } = workspaceBox();
+      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      applyFrame();
+      const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
+      if (splitter) updateSplitterAria(splitter, left, right);
+      save();
+      emitChange();
+      return true;
+    });
   }
 
   function nudgeSplitter(group, index, dir, delta, tab) {
     if (theaterLocked()) return false;
     if (!group || group.manualLocked) return false;
-    const left = group.children[index - 1];
-    const right = group.children[index];
-    if (!left || !right) return false;
-    const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
-      + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
-    const minL = nodeMin(left, dir);
-    const minR = nodeMin(right, dir);
-    const step = Math.max(1, Math.round(total * 0.02));
-    const l = Math.max(minL, Math.min(total - minR, (Number.isFinite(left.size) ? left.size : minL) + delta * step));
-    const r = total - l;
-    left.size = l;
-    right.size = r;
-    left.weight = Math.max(MIN_GROW, l - minL);
-    right.weight = Math.max(MIN_GROW, r - minR);
-    const { w, h } = workspaceBox();
-    solveTab(tab, w, h, { keepExpanded: protectedPanel });
-    applyFrame();
-    const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
-    if (splitter) updateSplitterAria(splitter, left, right);
-    save();
-    emitChange();
-    return true;
+    return withUndo('调整分栏比例', () => {
+      const left = group.children[index - 1];
+      const right = group.children[index];
+      if (!left || !right) return false;
+      const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, dir))
+        + (Number.isFinite(right.size) ? right.size : nodeMin(right, dir));
+      const minL = nodeMin(left, dir);
+      const minR = nodeMin(right, dir);
+      const step = Math.max(1, Math.round(total * 0.02));
+      const l = Math.max(minL, Math.min(total - minR, (Number.isFinite(left.size) ? left.size : minL) + delta * step));
+      const r = total - l;
+      left.size = l;
+      right.size = r;
+      left.weight = Math.max(MIN_GROW, l - minL);
+      right.weight = Math.max(MIN_GROW, r - minR);
+      const { w, h } = workspaceBox();
+      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      applyFrame();
+      const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
+      if (splitter) updateSplitterAria(splitter, left, right);
+      save();
+      emitChange();
+      return true;
+    });
   }
 
   function openSplitterMenu(splitter, group, index, dir, tab, point = null) {
@@ -1186,10 +1280,12 @@ export function createLayout({
     addMenuItem(menu, '恢复 1:1', () => resetSplitterPair(group, index, dir, tab));
     addMenuItem(menu, '切换组方向 H↔V', () => {
       if (group === tab.root) return;
-      rotateGroup(group);
-      refreshLastActive(tab.root);
-      save();
-      renderAll();
+      withUndo('切换组方向', () => {
+        rotateGroup(group);
+        refreshLastActive(tab.root);
+        save();
+        renderAll();
+      });
     }, { disabled: group === tab.root });
     positionMenu(menu, splitter, point ? { point, align: 'left' } : {});
   }
@@ -1444,9 +1540,11 @@ export function createLayout({
 
   function resetCollapsedBridge(pair) {
     if (!pair) return false;
-    const l = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
-    const r = Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir);
-    return adjustCollapsedBridge(pair, (l + r) / 2, { saveNow: true });
+    return withUndo('恢复 1:1', () => {
+      const l = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
+      const r = Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir);
+      return adjustCollapsedBridge(pair, (l + r) / 2, { saveNow: true });
+    });
   }
 
   function startCollapsedBridgeDrag(ev, pair, el) {
@@ -1454,6 +1552,7 @@ export function createLayout({
     if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
     ev.stopPropagation();
+    const undoStarted = beginUndo('调整折叠段比例');
     const start = pair.dir === 'H' ? ev.clientX : ev.clientY;
     const startLeft = Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir);
     const startRight = Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir);
@@ -1514,6 +1613,7 @@ export function createLayout({
       window.removeEventListener('keydown', onKey, true);
       el.classList.remove('active');
       if (badge.parentNode) badge.parentNode.removeChild(badge);
+      if (undoStarted) endUndo();
     };
     const onUp = () => cleanup(false);
     const onCancel = () => cleanup(true);
@@ -1563,7 +1663,7 @@ export function createLayout({
         const total = (Number.isFinite(pair.left.size) ? pair.left.size : nodeMin(pair.left, pair.dir))
           + (Number.isFinite(pair.right.size) ? pair.right.size : nodeMin(pair.right, pair.dir));
         const step = Math.max(1, Math.round(total * 0.02));
-        adjustCollapsedBridge(pair, current + (ev.key === dec ? -step : step), { saveNow: true });
+        withUndo('调整折叠段比例', () => adjustCollapsedBridge(pair, current + (ev.key === dec ? -step : step), { saveNow: true }));
       });
       document.body.append(el);
       collapsedBridges.push({ pair, el });
@@ -1638,6 +1738,18 @@ export function createLayout({
       tabEl.classList.remove('tab-drop-before', 'tab-drop-after', 'tab-dragging');
     }
   }
+
+  window.addEventListener('keydown', (ev) => {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey) return;
+    if (theaterLocked()) return;
+    if (String(ev.key).toLowerCase() !== 'z') return;
+    const active = document.activeElement;
+    if (active && active.closest
+      && active.closest('input, textarea, select, [contenteditable="true"]')) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    undoLayout();
+  });
 
   function tabKeydown(ev) {
     if (theaterLocked()) return;
@@ -1805,53 +1917,59 @@ export function createLayout({
 
   function addPanelToTab(tabId, panelId) {
     if (theaterLocked()) return false;
-    const tab = doc.tabs.find((t) => t.id === tabId);
-    if (!tab || !PANEL_DEFS.some((p) => p.id === panelId)) return false;
-    if (findPaneNode(tab.root, panelId)) return false;
-    activateTabForAction(tabId);
-    if (!addMissingPaneToTab(tab, panelId)) return false;
-    protectedPanel = panelId;
-    ensureOneExpanded(tab.root, panelId);
-    refreshLastActive(tab.root);
-    save();
-    renderAll();
-    return true;
+    return withUndo('添加分栏', () => {
+      const tab = doc.tabs.find((t) => t.id === tabId);
+      if (!tab || !PANEL_DEFS.some((p) => p.id === panelId)) return false;
+      if (findPaneNode(tab.root, panelId)) return false;
+      activateTabForAction(tabId);
+      if (!addMissingPaneToTab(tab, panelId)) return false;
+      protectedPanel = panelId;
+      ensureOneExpanded(tab.root, panelId);
+      refreshLastActive(tab.root);
+      save();
+      renderAll();
+      return true;
+    });
   }
 
   function resetTabById(tabId) {
     if (theaterLocked()) return false;
-    const tab = doc.tabs.find((t) => t.id === tabId);
-    if (!tab) return false;
-    const defaults = defaultLayout();
-    const defaultTab = defaults.tabs.find((t) => t.id === tab.id);
-    if (!resetTabVariant(tab, defaultTab || null)) return false;
-    if (activeTab() === tab) protectedPanel = null;
-    save();
-    renderAll();
-    notify(defaultTab ? `已重置「${tab.name}」` : `已清空「${tab.name}」`);
-    return true;
+    return withUndo('重置标签页', () => {
+      const tab = doc.tabs.find((t) => t.id === tabId);
+      if (!tab) return false;
+      const defaults = defaultLayout();
+      const defaultTab = defaults.tabs.find((t) => t.id === tab.id);
+      if (!resetTabVariant(tab, defaultTab || null)) return false;
+      if (activeTab() === tab) protectedPanel = null;
+      save();
+      renderAll();
+      notify(defaultTab ? `已重置「${tab.name}」` : `已清空「${tab.name}」`);
+      return true;
+    });
   }
 
   function copyPanel(panelId, targetTabId, { newTab = false } = {}) {
     if (theaterLocked()) return false;
-    const sourceTab = activeTab();
-    const source = findPaneInfo(panelId, sourceTab);
-    if (!source) return false;
-    let target = targetTabId ? doc.tabs.find((t) => t.id === targetTabId) : null;
-    if (!target && !newTab) return false;
-    if (target && target.id === sourceTab.id) return false;
-    if (target && findPaneNode(target.root, panelId)) return false;
-    if (!target && newTab) {
-      target = createTab({ activate: false });
-    }
-    if (!target) return false;
-    if (!addPaneToTab(target, clonePaneForCopy(source.pane))) return false;
-    ensureOneExpanded(target.root);
-    refreshLastActive(target.root);
-    save();
-    renderAll();
-    notify(`已复制「${panelTitle(panelId)}」到「${target.name}」`);
-    return true;
+    return withUndo('复制分栏', () => {
+      const sourceTab = activeTab();
+      const source = findPaneInfo(panelId, sourceTab);
+      if (!source) return false;
+      let target = targetTabId ? doc.tabs.find((t) => t.id === targetTabId) : null;
+      if (!target && !newTab) return false;
+      if (target && target.id === sourceTab.id) return false;
+      if (target && findPaneNode(target.root, panelId)) return false;
+      if (!target && newTab) {
+        target = createTab({ activate: false });
+      }
+      if (!target) return false;
+      if (!addPaneToTab(target, clonePaneForCopy(source.pane))) return false;
+      ensureOneExpanded(target.root);
+      refreshLastActive(target.root);
+      save();
+      renderAll();
+      notify(`已复制「${panelTitle(panelId)}」到「${target.name}」`);
+      return true;
+    });
   }
 
   function openTabMenu(tab, tabNode) {
@@ -1916,34 +2034,38 @@ export function createLayout({
 
   function createTab({ activate = true } = {}) {
     if (theaterLocked()) return null;
-    const id = `tab-${doc.nextId++}`;
-    const tab = { id, name: `标签页 ${doc.nextId - 1}`, root: { dir: 'H', children: [] }, maximized: null };
-    doc.tabs.push(tab);
-    if (activate) { doc.activeId = tab.id; protectedPanel = null; }
-    save();
-    renderAll();
-    return tab;
+    return withUndo('新建标签页', () => {
+      const id = `tab-${doc.nextId++}`;
+      const tab = { id, name: `标签页 ${doc.nextId - 1}`, root: { dir: 'H', children: [] }, maximized: null };
+      doc.tabs.push(tab);
+      if (activate) { doc.activeId = tab.id; protectedPanel = null; }
+      save();
+      renderAll();
+      return tab;
+    });
   }
 
   function closeTab(id) {
     if (theaterLocked()) return false;
-    if (doc.tabs.length <= 1) { notify('至少保留一个标签页'); return false; }
-    const index = doc.tabs.findIndex((t) => t.id === id);
-    if (index === -1) return false;
-    const closing = doc.tabs[index];
-    const remaining = doc.tabs.filter((_, i) => i !== index);
-    const hostTab = remaining[Math.max(0, index - 1)] || remaining[0];
-    for (const pane of allPanes(closing.root)) {
-      if (remaining.some((t) => findPaneNode(t.root, pane.panel))) continue;
-      appendPaneToRoot(hostTab.root, pane);
-    }
-    doc.tabs.splice(index, 1);
-    if (doc.activeId === id) { doc.activeId = hostTab.id; protectedPanel = null; }
-    ensureOneExpanded(hostTab.root);
-    refreshLastActive(hostTab.root);
-    save();
-    renderAll();
-    return true;
+    return withUndo('关闭标签页', () => {
+      if (doc.tabs.length <= 1) { notify('至少保留一个标签页'); return false; }
+      const index = doc.tabs.findIndex((t) => t.id === id);
+      if (index === -1) return false;
+      const closing = doc.tabs[index];
+      const remaining = doc.tabs.filter((_, i) => i !== index);
+      const hostTab = remaining[Math.max(0, index - 1)] || remaining[0];
+      for (const pane of allPanes(closing.root)) {
+        if (remaining.some((t) => findPaneNode(t.root, pane.panel))) continue;
+        appendPaneToRoot(hostTab.root, pane);
+      }
+      doc.tabs.splice(index, 1);
+      if (doc.activeId === id) { doc.activeId = hostTab.id; protectedPanel = null; }
+      ensureOneExpanded(hostTab.root);
+      refreshLastActive(hostTab.root);
+      save();
+      renderAll();
+      return true;
+    });
   }
 
   function ensureSourceExpandedAfterRemoval(tab) {
@@ -1953,57 +2075,61 @@ export function createLayout({
 
   function movePanel(panelId, targetTabId, { toEnd = false } = {}) {
     if (theaterLocked()) return false;
-    protectedPanel = null;
-    const sourceTab = activeTab();
-    const source = findPaneInfo(panelId, sourceTab);
-    if (!source) return false;
-    const target = doc.tabs.find((t) => t.id === targetTabId);
-    if (!target) return false;
-    if (target.id !== sourceTab.id && findPaneNode(target.root, panelId)) {
+    return withUndo('移动分栏', () => {
+      protectedPanel = null;
+      const sourceTab = activeTab();
+      const source = findPaneInfo(panelId, sourceTab);
+      if (!source) return false;
+      const target = doc.tabs.find((t) => t.id === targetTabId);
+      if (!target) return false;
+      if (target.id !== sourceTab.id && findPaneNode(target.root, panelId)) {
+        doc.activeId = target.id;
+        save();
+        renderAll();
+        return true;
+      }
+      if (target.id === sourceTab.id && !toEnd) return false;
+      const pane = source.pane;
+      if (sourceTab.maximized === panelId) sourceTab.maximized = null;
+      removePaneFromTree(sourceTab.root, panelId);
+      normalizeTree(sourceTab.root);
+      ensureSourceExpandedAfterRemoval(sourceTab);
+      appendPaneToRoot(target.root, pane);
+      normalizeTree(target.root);
+      ensureOneExpanded(target.root);
+      refreshLastActive(sourceTab.root);
+      refreshLastActive(target.root);
       doc.activeId = target.id;
       save();
       renderAll();
       return true;
-    }
-    if (target.id === sourceTab.id && !toEnd) return false;
-    const pane = source.pane;
-    if (sourceTab.maximized === panelId) sourceTab.maximized = null;
-    removePaneFromTree(sourceTab.root, panelId);
-    normalizeTree(sourceTab.root);
-    ensureSourceExpandedAfterRemoval(sourceTab);
-    appendPaneToRoot(target.root, pane);
-    normalizeTree(target.root);
-    ensureOneExpanded(target.root);
-    refreshLastActive(sourceTab.root);
-    refreshLastActive(target.root);
-    doc.activeId = target.id;
-    save();
-    renderAll();
-    return true;
+    });
   }
 
   function movePanelFromTab(panelId, sourceTabId, targetTabId) {
     if (theaterLocked()) return false;
-    const sourceTab = doc.tabs.find((t) => t.id === sourceTabId);
-    const target = doc.tabs.find((t) => t.id === targetTabId);
-    if (!sourceTab || !target || sourceTab.id === target.id) return false;
-    const source = findPaneInfo(panelId, sourceTab);
-    if (!source) return false;
-    if (findPaneNode(target.root, panelId)) return false;
-    protectedPanel = null;
-    const pane = source.pane;
-    if (sourceTab.maximized === panelId) sourceTab.maximized = null;
-    removePaneFromTree(sourceTab.root, panelId);
-    normalizeTree(sourceTab.root);
-    ensureSourceExpandedAfterRemoval(sourceTab);
-    appendPaneToRoot(target.root, pane);
-    normalizeTree(target.root);
-    ensureOneExpanded(target.root);
-    refreshLastActive(sourceTab.root);
-    refreshLastActive(target.root);
-    save();
-    renderAll();
-    return true;
+    return withUndo('移动分栏', () => {
+      const sourceTab = doc.tabs.find((t) => t.id === sourceTabId);
+      const target = doc.tabs.find((t) => t.id === targetTabId);
+      if (!sourceTab || !target || sourceTab.id === target.id) return false;
+      const source = findPaneInfo(panelId, sourceTab);
+      if (!source) return false;
+      if (findPaneNode(target.root, panelId)) return false;
+      protectedPanel = null;
+      const pane = source.pane;
+      if (sourceTab.maximized === panelId) sourceTab.maximized = null;
+      removePaneFromTree(sourceTab.root, panelId);
+      normalizeTree(sourceTab.root);
+      ensureSourceExpandedAfterRemoval(sourceTab);
+      appendPaneToRoot(target.root, pane);
+      normalizeTree(target.root);
+      ensureOneExpanded(target.root);
+      refreshLastActive(sourceTab.root);
+      refreshLastActive(target.root);
+      save();
+      renderAll();
+      return true;
+    });
   }
 
   function expandWithWeight(pane, info) {
@@ -2018,49 +2144,53 @@ export function createLayout({
 
   function toggleCollapse(panelId) {
     if (theaterLocked()) return;
-    const tab = activeTab();
-    const info = findPaneInfo(panelId, tab);
-    if (!info) return;
-    const pane = info.pane;
-    if (tab.maximized === panelId) tab.maximized = null;
-    markPaneActive(tab.root, panelId);
-    if (pane.collapsed) {
-      expandWithWeight(pane, info);
-      protectedPanel = panelId;
-    } else {
-      if (protectedPanel === panelId) protectedPanel = null;
-      const expanded = expandedPanes(tab.root);
-      if (expanded.length === 1) {
-        const other = allPanes(tab.root).find((p) => p !== pane);
-        if (other) {
-          const otherInfo = findPaneInfo(other.panel, tab);
-          expandWithWeight(other, otherInfo);
-        } else {
-          notify('标签页至少保留一个展开分栏');
-          return;
+    withUndo('折叠/展开分栏', () => {
+      const tab = activeTab();
+      const info = findPaneInfo(panelId, tab);
+      if (!info) return;
+      const pane = info.pane;
+      if (tab.maximized === panelId) tab.maximized = null;
+      markPaneActive(tab.root, panelId);
+      if (pane.collapsed) {
+        expandWithWeight(pane, info);
+        protectedPanel = panelId;
+      } else {
+        if (protectedPanel === panelId) protectedPanel = null;
+        const expanded = expandedPanes(tab.root);
+        if (expanded.length === 1) {
+          const other = allPanes(tab.root).find((p) => p !== pane);
+          if (other) {
+            const otherInfo = findPaneInfo(other.panel, tab);
+            expandWithWeight(other, otherInfo);
+          } else {
+            notify('标签页至少保留一个展开分栏');
+            return;
+          }
         }
+        collapsePane(pane);
       }
-      collapsePane(pane);
-    }
-    save();
-    renderAll();
+      save();
+      renderAll();
+    });
   }
 
   function toggleMaximize(panelId) {
     if (theaterLocked()) return;
-    const tab = activeTab();
-    const info = findPaneInfo(panelId, tab);
-    if (!info) return;
-    if (info.pane.collapsed) {
-      expandWithWeight(info.pane, info);
-      protectedPanel = panelId;
-      ensureOneExpanded(tab.root, panelId);
-      markPaneActive(tab.root, panelId);
-      refreshLastActive(tab.root);
-    }
-    tab.maximized = tab.maximized === panelId ? null : panelId;
-    save();
-    renderAll();
+    withUndo('最大化/还原分栏', () => {
+      const tab = activeTab();
+      const info = findPaneInfo(panelId, tab);
+      if (!info) return;
+      if (info.pane.collapsed) {
+        expandWithWeight(info.pane, info);
+        protectedPanel = panelId;
+        ensureOneExpanded(tab.root, panelId);
+        markPaneActive(tab.root, panelId);
+        refreshLastActive(tab.root);
+      }
+      tab.maximized = tab.maximized === panelId ? null : panelId;
+      save();
+      renderAll();
+    });
   }
 
   function menuItems(menu) {
@@ -2248,6 +2378,7 @@ export function createLayout({
     const right = group.children[index];
     if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return;
     const splitter = ev.currentTarget;
+    const undoStarted = beginUndo('调整分栏比例');
     splitter.classList.add('active');
     document.body.classList.add('dragging-split');
     const badge = el('span', 'split-ratio');
@@ -2318,10 +2449,12 @@ export function createLayout({
       } else if (splitter._lastTap && now - splitter._lastTap < 350) {
         splitter._lastTap = 0;
         splitter._lastReset = now;
+        setUndoLabel('恢复 1:1');
         resetSplitterPair(group, index, dir, tab);
       } else {
         splitter._lastTap = now;
       }
+      if (undoStarted) endUndo();
     };
     dragCleanup = onUp;
     window.addEventListener('pointermove', onMove);
@@ -2330,16 +2463,19 @@ export function createLayout({
 
   function resetToDefaults() {
     if (theaterLocked()) return false;
-    const previous = cloneTree(doc);
-    protectedPanel = null;
-    doc = defaultLayout();
-    if (typeof host.storageRemove === 'function') {
-      try { host.storageRemove(LAYOUT_KEY); } catch { /* ignore */ }
-    }
-    save();
-    renderAll();
-    if (typeof onReset === 'function') onReset(previous);
-    else notify('已重置为默认布局');
+    return withUndo('重置布局', () => {
+      const previous = cloneTree(doc);
+      protectedPanel = null;
+      doc = defaultLayout();
+      if (typeof host.storageRemove === 'function') {
+        try { host.storageRemove(LAYOUT_KEY); } catch { /* ignore */ }
+      }
+      save();
+      renderAll();
+      if (typeof onReset === 'function') onReset(previous);
+      else notify('已重置为默认布局');
+      return true;
+    });
   }
 
   function renderAll() {
@@ -2486,9 +2622,11 @@ export function createLayout({
     resetTab: resetTabById,
     moveTab(draggedId, targetId, after = false) {
       if (theaterLocked()) return false;
-      const moved = reorderTabs(doc.tabs, draggedId, targetId, after);
-      if (moved) { save(); renderTabs(); }
-      return moved;
+      return withUndo('调整标签页顺序', () => {
+        const moved = reorderTabs(doc.tabs, draggedId, targetId, after);
+        if (moved) { save(); renderTabs(); }
+        return moved;
+      });
     },
     toggleCollapse,
     toggleMaximize,
@@ -2496,6 +2634,9 @@ export function createLayout({
       if (theaterLocked()) return false;
       const next = sanitizeLayout(raw);
       if (!next) return false;
+      undoStack.clear();
+      undoDepth = 0;
+      undoEntry = null;
       doc = next;
       protectedPanel = null;
       save();
@@ -2505,6 +2646,8 @@ export function createLayout({
     resetLayout() { resetToDefaults(); return doc; },
     visiblePanels() { return visiblePanels(activeTab()); },
     panelsOfTab,
+    undo: undoLayout,
+    get undoCount() { return undoStack.size; },
     serialize: () => cloneTree(doc),
     save,
     cancelDrag() {
