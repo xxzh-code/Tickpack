@@ -1401,8 +1401,16 @@ export function createLayout({
       const r = bridgeRect(bridge.pair);
       if (!r) { bridge.el.hidden = true; continue; }
       bridge.el.hidden = false;
-      bridge.el.style.left = `${Math.round(r.left + r.width / 2)}px`;
-      bridge.el.style.top = `${Math.round(r.top + r.height / 2)}px`;
+      const half = 6;
+      if (bridge.pair.dir === 'H') {
+        // Sit just outside the collapsed run on its right edge so the capsule
+        // label/icon remain fully readable; half the 12px grip is the anchor.
+        bridge.el.style.left = `${Math.round(r.left + r.width + half)}px`;
+        bridge.el.style.top = `${Math.round(r.top + r.height / 2)}px`;
+      } else {
+        bridge.el.style.left = `${Math.round(r.left + r.width / 2)}px`;
+        bridge.el.style.top = `${Math.round(r.top + r.height + half)}px`;
+      }
     }
   }
 
@@ -1544,7 +1552,7 @@ export function createLayout({
       el.tabIndex = 0;
       el.setAttribute('role', 'separator');
       el.setAttribute('aria-orientation', pair.dir === 'H' ? 'vertical' : 'horizontal');
-      el.setAttribute('aria-label', '调整相邻分栏（中间折叠组固定）');
+      el.setAttribute('aria-label', '调整折叠段两侧比例（折叠条固定）');
       el.title = '调整折叠段两侧比例';
       updateBridgeAria(el, pair);
       el.addEventListener('pointerdown', (ev) => startCollapsedBridgeDrag(ev, pair, el));
