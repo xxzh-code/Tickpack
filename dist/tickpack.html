@@ -404,6 +404,8 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 }
 .tab.tab-drop-before::before { left: -2px; }
 .tab.tab-drop-after::after { right: -2px; }
+.tab.tab-drop-target { background: var(--accent-weak); outline: 2px solid var(--accent); outline-offset: -2px; }
+.tabs.tab-drop-new { background: var(--accent-weak); outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: var(--radius-sm); }
 .tab-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .tab-close {
   width: 20px; height: 20px;
@@ -10638,6 +10640,33 @@ function detachPaneLoose(root, panel) {
   return { ok: true, group };
 }
 
+ function transferGroupBetweenRoots(sourceRoot, targetRoot, group, { copy = false } = {}) {
+  if (!isGroup(sourceRoot) || !isGroup(targetRoot) || sourceRoot === targetRoot) return { ok: false };
+  if (!isGroup(group) || group === sourceRoot || !nodeInTree(sourceRoot, group)) return { ok: false };
+  const parent = parentGroupOf(sourceRoot, group);
+  if (!parent) return { ok: false };
+  
+  
+  if (allPanes(group).some((p) => findPaneNode(targetRoot, p.panel))) return { ok: false };
+  let nextGroup = group;
+  if (copy) {
+    nextGroup = cloneTree(group);
+  } else {
+    const index = parent.children.indexOf(group);
+    if (index < 0) return { ok: false };
+    parent.children.splice(index, 1);
+    normalizeTree(sourceRoot);
+    ensureOneExpanded(sourceRoot);
+    refreshLastActive(sourceRoot);
+  }
+  nextGroup.keep = true;
+  targetRoot.children.push(nextGroup);
+  normalizeTree(targetRoot);
+  ensureOneExpanded(targetRoot);
+  refreshLastActive(targetRoot);
+  return { ok: true, group: nextGroup };
+}
+
  function rotateGroup(group) {
   if (!isGroup(group)) return false;
   group.dir = oppositeDir(group.dir);
@@ -11087,6 +11116,7 @@ exports.movePaneForDrop = movePaneForDrop;
 exports.swapPaneForDrop = swapPaneForDrop;
 exports.halfRect = halfRect;
 exports.moveGroupForDrop = moveGroupForDrop;
+exports.transferGroupBetweenRoots = transferGroupBetweenRoots;
 exports.rotateGroup = rotateGroup;
 exports.reorderTabs = reorderTabs;
 exports.clampMenuPosition = clampMenuPosition;
@@ -11109,7 +11139,7 @@ exports.defaultLayout = defaultLayout;
 
 const { icon, applyTruncationTitles } = __tpb_require("web/util.js");
 const { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } = __tpb_require("web/a11y.js");
-const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, swapPaneForDrop, halfRect, moveGroupForDrop, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clearTabTree, resetTabVariant, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
+const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, swapPaneForDrop, halfRect, moveGroupForDrop, transferGroupBetweenRoots, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clearTabTree, resetTabVariant, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
 
  const LAYOUT_KEY = 'tickpack.layout.v2';
 
@@ -11530,6 +11560,8 @@ function collapseIcon(dir, index, count, collapsed) {
       dragLabel.textContent = '';
       dragLabel.hidden = true;
     }
+    for (const tabEl of tabsEl.querySelectorAll('.tab')) tabEl.classList.remove('tab-drop-target');
+    tabsEl.classList.remove('tab-drop-new');
     document.body.classList.remove('drag-valid', 'drag-invalid');
   }
 
@@ -11623,10 +11655,34 @@ function collapseIcon(dir, index, count, collapsed) {
     };
   }
 
-  function detectDropTarget(tab, x, y, sourcePanelId, state) {
-    if (tabsEl && rectHas(tabsEl.getBoundingClientRect(), x, y)) {
-      return { kind: 'gap', group: tab.root, index: tab.root.children.length, label: '追加到标签页末尾' };
+  function tabDropTargetAt(x, y, sourceTab, copy) {
+    if (!tabsEl || !rectHas(tabsEl.getBoundingClientRect(), x, y)) return null;
+    let tabNode = null;
+    for (const node of tabsEl.querySelectorAll('.tab')) {
+      if (rectHas(node.getBoundingClientRect(), x, y)) { tabNode = node; break; }
     }
+    if (!tabNode) {
+      return { kind: 'tab-new', copy: !!copy, label: copy ? '复制到新标签页' : '移动到新标签页' };
+    }
+    const targetTab = doc.tabs.find((t) => t.id === tabNode.dataset.tabId);
+    if (!targetTab) return null;
+    const current = targetTab.id === sourceTab.id;
+    const doCopy = !current && !!copy;
+    return {
+      kind: 'tab-end',
+      tab: targetTab,
+      tabNode,
+      copy: doCopy,
+      current,
+      label: current
+        ? '移到当前页末尾'
+        : (doCopy ? `复制到「${targetTab.name}」末尾` : `移到「${targetTab.name}」末尾`),
+    };
+  }
+
+  function detectDropTarget(tab, x, y, sourcePanelId, state) {
+    const tabTarget = tabDropTargetAt(x, y, tab, state.copy);
+    if (tabTarget) return tabTarget;
     const wr = workspaceEl.getBoundingClientRect();
     if (rectHas(wr, x, y)) {
       const edges = [
@@ -11697,10 +11753,18 @@ function collapseIcon(dir, index, count, collapsed) {
       dragLabel.textContent = target.label || '';
     }
     if (target.gap) target.gap.el.classList.add('active');
+    if (target.kind === 'tab-end' && target.tabNode) target.tabNode.classList.add('tab-drop-target');
+    if (target.kind === 'tab-new') tabsEl.classList.add('tab-drop-new');
     let box = null;
     if (target.gap) {
       const hit = target.gap.hit;
       box = { left: hit.left, top: hit.top, width: hit.width, height: hit.height };
+    } else if (target.kind === 'tab-end') {
+      const r = target.tabNode.getBoundingClientRect();
+      box = { left: r.left, top: r.top, width: r.width, height: r.height };
+    } else if (target.kind === 'tab-new') {
+      const r = tabsEl.getBoundingClientRect();
+      box = { left: r.left, top: r.top, width: r.width, height: r.height };
     } else if (target.kind === 'root-edge') {
       const wr = workspaceEl.getBoundingClientRect();
       const band = 24;
@@ -11754,10 +11818,12 @@ function collapseIcon(dir, index, count, collapsed) {
     headerDrag = null;
   }
 
-  function detectGroupDropTarget(tab, x, y, group) {
-    if (tabsEl && rectHas(tabsEl.getBoundingClientRect(), x, y)) {
-      if (tab.root.children[tab.root.children.length - 1] === group) return null;
-      return { kind: 'tab-end', label: '整组：追加到标签页末尾' };
+  function detectGroupDropTarget(tab, x, y, group, state) {
+    const tabTarget = tabDropTargetAt(x, y, tab, state && state.copy);
+    if (tabTarget) {
+      if (tabTarget.kind === 'tab-end' && tabTarget.current
+        && tab.root.children[tab.root.children.length - 1] === group) return null;
+      return { ...tabTarget, label: `整组：${tabTarget.label}` };
     }
     const wr = workspaceEl.getBoundingClientRect();
     if (rectHas(wr, x, y)) {
@@ -11782,7 +11848,7 @@ function collapseIcon(dir, index, count, collapsed) {
 
   function updateGroupDragTarget(x, y) {
     if (!groupDrag || !groupDrag.dragging) return;
-    const target = detectGroupDropTarget(groupDrag.tab, x, y, groupDrag.group);
+    const target = detectGroupDropTarget(groupDrag.tab, x, y, groupDrag.group, groupDrag);
     groupDrag.target = target;
     clearDragPreview();
     if (dragGhost) {
@@ -11801,11 +11867,16 @@ function collapseIcon(dir, index, count, collapsed) {
     document.body.classList.add('drag-valid');
     if (dragLabel) { dragLabel.hidden = false; dragLabel.textContent = target.label; }
     if (target.gap) target.gap.el.classList.add('active');
+    if (target.kind === 'tab-end' && target.tabNode) target.tabNode.classList.add('tab-drop-target');
+    if (target.kind === 'tab-new') tabsEl.classList.add('tab-drop-new');
     let box = null;
     if (target.gap) {
       const hit = target.gap.hit;
       box = { left: hit.left, top: hit.top, width: hit.width, height: hit.height };
     } else if (target.kind === 'tab-end') {
+      const r = target.tabNode.getBoundingClientRect();
+      box = { left: r.left, top: r.top, width: r.width, height: r.height };
+    } else if (target.kind === 'tab-new') {
       const r = tabsEl.getBoundingClientRect();
       box = { left: r.left, top: r.top, width: r.width, height: r.height };
     } else if (target.kind === 'root-edge') {
@@ -11837,6 +11908,51 @@ function collapseIcon(dir, index, count, collapsed) {
     groupDrag = null;
   }
 
+  function commitPaneTabDrop(panelId, sourceTab, target) {
+    let targetTab = target.tab;
+    if (target.kind === 'tab-new') targetTab = createTab({ activate: false });
+    if (!targetTab) return false;
+    let ok = false;
+    if (targetTab.id === sourceTab.id) {
+      ok = movePanel(panelId, targetTab.id, { toEnd: true });
+    } else if (target.copy) {
+      ok = copyPanel(panelId, targetTab.id);
+    } else {
+      ok = movePanel(panelId, targetTab.id);
+    }
+    if (!ok) return false;
+    doc.activeId = targetTab.id;
+    save();
+    renderAll();
+    requestAnimationFrame(() => {
+      if (!focusPanelAfterDrop(panelId)) focusTab(doc.activeId);
+    });
+    return true;
+  }
+
+  function commitGroupTabDrop(group, sourceTab, target) {
+    let targetTab = target.tab;
+    if (target.kind === 'tab-new') targetTab = createTab({ activate: false });
+    if (!targetTab) return false;
+    let result;
+    if (targetTab.id === sourceTab.id) {
+      result = moveGroupForDrop(sourceTab.root, group, { kind: 'tab-end' });
+    } else {
+      result = transferGroupBetweenRoots(sourceTab.root, targetTab.root, group, { copy: !!target.copy });
+    }
+    if (!result.ok) return false;
+    doc.activeId = targetTab.id;
+    save();
+    renderAll();
+    requestAnimationFrame(() => {
+      const capsule = nodeEls.get(result.group);
+      const body = capsule && capsule.querySelector('.capsule-body');
+      if (body) body.focus({ preventScroll: true });
+      else focusTab(doc.activeId);
+    });
+    return true;
+  }
+
   function startCapsuleDrag(ev, body, group, tab) {
     if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
@@ -11849,6 +11965,7 @@ function collapseIcon(dir, index, count, collapsed) {
       tab,
       body,
       dragging: false,
+      copy: !!(ev.ctrlKey || ev.metaKey),
       target: null,
       removers: [],
     };
@@ -11856,6 +11973,7 @@ function collapseIcon(dir, index, count, collapsed) {
     const onMove = (mv) => {
       state.lastX = mv.clientX;
       state.lastY = mv.clientY;
+      state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) {
         if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
         state.dragging = true;
@@ -11877,11 +11995,16 @@ function collapseIcon(dir, index, count, collapsed) {
     };
     const onUp = (mv) => {
       if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+      if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) { cleanupGroupDrag(); return; }
-      const target = detectGroupDropTarget(tab, state.lastX, state.lastY, group);
+      const target = detectGroupDropTarget(tab, state.lastX, state.lastY, group, state);
       cleanupGroupDrag();
       if (!target) {
         notify('整组只能放到同标签页的间隙、根边缘或标签栏末尾');
+        return;
+      }
+      if (target.kind === 'tab-end' || target.kind === 'tab-new') {
+        if (!commitGroupTabDrop(group, tab, target)) notify('无法完成整组标签页移动');
         return;
       }
       const result = moveGroupForDrop(tab.root, group, target);
@@ -11900,10 +12023,21 @@ function collapseIcon(dir, index, count, collapsed) {
     };
     const onCancel = () => cleanupGroupDrag();
     const onKey = (kev) => {
-      if (kev.key !== 'Escape') return;
+      if (kev.key === 'Escape') {
+        kev.preventDefault();
+        kev.stopPropagation();
+        cleanupGroupDrag();
+      } else if (kev.key === 'Control' || kev.key === 'Meta') {
+        kev.preventDefault();
+        state.copy = true;
+        if (state.dragging) updateGroupDragTarget(state.lastX, state.lastY);
+      }
+    };
+    const onKeyUp = (kev) => {
+      if (kev.key !== 'Control' && kev.key !== 'Meta') return;
       kev.preventDefault();
-      kev.stopPropagation();
-      cleanupGroupDrag();
+      state.copy = false;
+      if (state.dragging) updateGroupDragTarget(state.lastX, state.lastY);
     };
     const add = (target, type, fn, opts) => {
       target.addEventListener(type, fn, opts);
@@ -11913,6 +12047,7 @@ function collapseIcon(dir, index, count, collapsed) {
     add(window, 'pointerup', onUp);
     add(window, 'pointercancel', onCancel);
     add(window, 'keydown', onKey, true);
+    add(window, 'keyup', onKeyUp, true);
   }
 
   function startHeaderDrag(ev, panelId) {
@@ -11933,6 +12068,7 @@ function collapseIcon(dir, index, count, collapsed) {
       ancestorMode: !!ev.altKey,
       altHeld: !!ev.altKey,
       ancestorIndex: 0,
+      copy: !!(ev.ctrlKey || ev.metaKey),
       target: null,
       removers: [],
     };
@@ -11940,6 +12076,7 @@ function collapseIcon(dir, index, count, collapsed) {
     const onMove = (mv) => {
       state.lastX = mv.clientX;
       state.lastY = mv.clientY;
+      state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) {
         if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
         state.dragging = true;
@@ -11959,11 +12096,16 @@ function collapseIcon(dir, index, count, collapsed) {
     };
     const onUp = (mv) => {
       if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+      if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) { cleanupHeaderDrag(); return; }
       const target = detectDropTarget(tab, state.lastX, state.lastY, panelId, state);
       cleanupHeaderDrag();
       if (!target) {
         notify('此处不能放置分栏');
+        return;
+      }
+      if (target.kind === 'tab-end' || target.kind === 'tab-new') {
+        if (!commitPaneTabDrop(panelId, tab, target)) notify('无法完成标签页移动');
         return;
       }
       const result = target.kind === 'swap'
@@ -11987,7 +12129,11 @@ function collapseIcon(dir, index, count, collapsed) {
     const onCancel = () => cleanupHeaderDrag();
     const onKey = (kev) => {
       if (kev.key === 'Escape') { kev.preventDefault(); kev.stopPropagation(); cleanupHeaderDrag(); }
-      else if (kev.key === 'Alt') {
+      else if (kev.key === 'Control' || kev.key === 'Meta') {
+        kev.preventDefault();
+        state.copy = true;
+        if (state.dragging) updateDragTarget(state.lastX, state.lastY);
+      } else if (kev.key === 'Alt') {
         kev.preventDefault();
         if (!state.altHeld) {
           state.altHeld = true;
@@ -11998,7 +12144,11 @@ function collapseIcon(dir, index, count, collapsed) {
       }
     };
     const onKeyUp = (kev) => {
-      if (kev.key === 'Alt') {
+      if (kev.key === 'Control' || kev.key === 'Meta') {
+        kev.preventDefault();
+        state.copy = false;
+        if (state.dragging) updateDragTarget(state.lastX, state.lastY);
+      } else if (kev.key === 'Alt') {
         kev.preventDefault();
         state.altHeld = false;
         state.ancestorMode = false;

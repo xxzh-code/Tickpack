@@ -527,6 +527,33 @@ export function moveGroupForDrop(root, group, target) {
   return { ok: true, group };
 }
 
+export function transferGroupBetweenRoots(sourceRoot, targetRoot, group, { copy = false } = {}) {
+  if (!isGroup(sourceRoot) || !isGroup(targetRoot) || sourceRoot === targetRoot) return { ok: false };
+  if (!isGroup(group) || group === sourceRoot || !nodeInTree(sourceRoot, group)) return { ok: false };
+  const parent = parentGroupOf(sourceRoot, group);
+  if (!parent) return { ok: false };
+  // A tab cannot contain two instances of the same panel. Reject before any
+  // detach/clone so a conflict leaves both source and target untouched.
+  if (allPanes(group).some((p) => findPaneNode(targetRoot, p.panel))) return { ok: false };
+  let nextGroup = group;
+  if (copy) {
+    nextGroup = cloneTree(group);
+  } else {
+    const index = parent.children.indexOf(group);
+    if (index < 0) return { ok: false };
+    parent.children.splice(index, 1);
+    normalizeTree(sourceRoot);
+    ensureOneExpanded(sourceRoot);
+    refreshLastActive(sourceRoot);
+  }
+  nextGroup.keep = true;
+  targetRoot.children.push(nextGroup);
+  normalizeTree(targetRoot);
+  ensureOneExpanded(targetRoot);
+  refreshLastActive(targetRoot);
+  return { ok: true, group: nextGroup };
+}
+
 export function rotateGroup(group) {
   if (!isGroup(group)) return false;
   group.dir = oppositeDir(group.dir);

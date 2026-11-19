@@ -393,6 +393,8 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
 }
 .tab.tab-drop-before::before { left: -2px; }
 .tab.tab-drop-after::after { right: -2px; }
+.tab.tab-drop-target { background: var(--accent-weak); outline: 2px solid var(--accent); outline-offset: -2px; }
+.tabs.tab-drop-new { background: var(--accent-weak); outline: 2px dashed var(--accent); outline-offset: -2px; border-radius: var(--radius-sm); }
 .tab-label { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .tab-close {
   width: 20px; height: 20px;

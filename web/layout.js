@@ -24,6 +24,7 @@ import {
   swapPaneForDrop,
   halfRect,
   moveGroupForDrop,
+  transferGroupBetweenRoots,
   rotateGroup,
   reorderTabs,
   clonePaneForCopy,
@@ -466,6 +467,8 @@ export function createLayout({
       dragLabel.textContent = '';
       dragLabel.hidden = true;
     }
+    for (const tabEl of tabsEl.querySelectorAll('.tab')) tabEl.classList.remove('tab-drop-target');
+    tabsEl.classList.remove('tab-drop-new');
     document.body.classList.remove('drag-valid', 'drag-invalid');
   }
 
@@ -559,10 +562,34 @@ export function createLayout({
     };
   }
 
-  function detectDropTarget(tab, x, y, sourcePanelId, state) {
-    if (tabsEl && rectHas(tabsEl.getBoundingClientRect(), x, y)) {
-      return { kind: 'gap', group: tab.root, index: tab.root.children.length, label: '追加到标签页末尾' };
+  function tabDropTargetAt(x, y, sourceTab, copy) {
+    if (!tabsEl || !rectHas(tabsEl.getBoundingClientRect(), x, y)) return null;
+    let tabNode = null;
+    for (const node of tabsEl.querySelectorAll('.tab')) {
+      if (rectHas(node.getBoundingClientRect(), x, y)) { tabNode = node; break; }
     }
+    if (!tabNode) {
+      return { kind: 'tab-new', copy: !!copy, label: copy ? '复制到新标签页' : '移动到新标签页' };
+    }
+    const targetTab = doc.tabs.find((t) => t.id === tabNode.dataset.tabId);
+    if (!targetTab) return null;
+    const current = targetTab.id === sourceTab.id;
+    const doCopy = !current && !!copy;
+    return {
+      kind: 'tab-end',
+      tab: targetTab,
+      tabNode,
+      copy: doCopy,
+      current,
+      label: current
+        ? '移到当前页末尾'
+        : (doCopy ? `复制到「${targetTab.name}」末尾` : `移到「${targetTab.name}」末尾`),
+    };
+  }
+
+  function detectDropTarget(tab, x, y, sourcePanelId, state) {
+    const tabTarget = tabDropTargetAt(x, y, tab, state.copy);
+    if (tabTarget) return tabTarget;
     const wr = workspaceEl.getBoundingClientRect();
     if (rectHas(wr, x, y)) {
       const edges = [
@@ -633,10 +660,18 @@ export function createLayout({
       dragLabel.textContent = target.label || '';
     }
     if (target.gap) target.gap.el.classList.add('active');
+    if (target.kind === 'tab-end' && target.tabNode) target.tabNode.classList.add('tab-drop-target');
+    if (target.kind === 'tab-new') tabsEl.classList.add('tab-drop-new');
     let box = null;
     if (target.gap) {
       const hit = target.gap.hit;
       box = { left: hit.left, top: hit.top, width: hit.width, height: hit.height };
+    } else if (target.kind === 'tab-end') {
+      const r = target.tabNode.getBoundingClientRect();
+      box = { left: r.left, top: r.top, width: r.width, height: r.height };
+    } else if (target.kind === 'tab-new') {
+      const r = tabsEl.getBoundingClientRect();
+      box = { left: r.left, top: r.top, width: r.width, height: r.height };
     } else if (target.kind === 'root-edge') {
       const wr = workspaceEl.getBoundingClientRect();
       const band = 24;
@@ -690,10 +725,12 @@ export function createLayout({
     headerDrag = null;
   }
 
-  function detectGroupDropTarget(tab, x, y, group) {
-    if (tabsEl && rectHas(tabsEl.getBoundingClientRect(), x, y)) {
-      if (tab.root.children[tab.root.children.length - 1] === group) return null;
-      return { kind: 'tab-end', label: '整组：追加到标签页末尾' };
+  function detectGroupDropTarget(tab, x, y, group, state) {
+    const tabTarget = tabDropTargetAt(x, y, tab, state && state.copy);
+    if (tabTarget) {
+      if (tabTarget.kind === 'tab-end' && tabTarget.current
+        && tab.root.children[tab.root.children.length - 1] === group) return null;
+      return { ...tabTarget, label: `整组：${tabTarget.label}` };
     }
     const wr = workspaceEl.getBoundingClientRect();
     if (rectHas(wr, x, y)) {
@@ -718,7 +755,7 @@ export function createLayout({
 
   function updateGroupDragTarget(x, y) {
     if (!groupDrag || !groupDrag.dragging) return;
-    const target = detectGroupDropTarget(groupDrag.tab, x, y, groupDrag.group);
+    const target = detectGroupDropTarget(groupDrag.tab, x, y, groupDrag.group, groupDrag);
     groupDrag.target = target;
     clearDragPreview();
     if (dragGhost) {
@@ -737,11 +774,16 @@ export function createLayout({
     document.body.classList.add('drag-valid');
     if (dragLabel) { dragLabel.hidden = false; dragLabel.textContent = target.label; }
     if (target.gap) target.gap.el.classList.add('active');
+    if (target.kind === 'tab-end' && target.tabNode) target.tabNode.classList.add('tab-drop-target');
+    if (target.kind === 'tab-new') tabsEl.classList.add('tab-drop-new');
     let box = null;
     if (target.gap) {
       const hit = target.gap.hit;
       box = { left: hit.left, top: hit.top, width: hit.width, height: hit.height };
     } else if (target.kind === 'tab-end') {
+      const r = target.tabNode.getBoundingClientRect();
+      box = { left: r.left, top: r.top, width: r.width, height: r.height };
+    } else if (target.kind === 'tab-new') {
       const r = tabsEl.getBoundingClientRect();
       box = { left: r.left, top: r.top, width: r.width, height: r.height };
     } else if (target.kind === 'root-edge') {
@@ -773,6 +815,51 @@ export function createLayout({
     groupDrag = null;
   }
 
+  function commitPaneTabDrop(panelId, sourceTab, target) {
+    let targetTab = target.tab;
+    if (target.kind === 'tab-new') targetTab = createTab({ activate: false });
+    if (!targetTab) return false;
+    let ok = false;
+    if (targetTab.id === sourceTab.id) {
+      ok = movePanel(panelId, targetTab.id, { toEnd: true });
+    } else if (target.copy) {
+      ok = copyPanel(panelId, targetTab.id);
+    } else {
+      ok = movePanel(panelId, targetTab.id);
+    }
+    if (!ok) return false;
+    doc.activeId = targetTab.id;
+    save();
+    renderAll();
+    requestAnimationFrame(() => {
+      if (!focusPanelAfterDrop(panelId)) focusTab(doc.activeId);
+    });
+    return true;
+  }
+
+  function commitGroupTabDrop(group, sourceTab, target) {
+    let targetTab = target.tab;
+    if (target.kind === 'tab-new') targetTab = createTab({ activate: false });
+    if (!targetTab) return false;
+    let result;
+    if (targetTab.id === sourceTab.id) {
+      result = moveGroupForDrop(sourceTab.root, group, { kind: 'tab-end' });
+    } else {
+      result = transferGroupBetweenRoots(sourceTab.root, targetTab.root, group, { copy: !!target.copy });
+    }
+    if (!result.ok) return false;
+    doc.activeId = targetTab.id;
+    save();
+    renderAll();
+    requestAnimationFrame(() => {
+      const capsule = nodeEls.get(result.group);
+      const body = capsule && capsule.querySelector('.capsule-body');
+      if (body) body.focus({ preventScroll: true });
+      else focusTab(doc.activeId);
+    });
+    return true;
+  }
+
   function startCapsuleDrag(ev, body, group, tab) {
     if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
@@ -785,6 +872,7 @@ export function createLayout({
       tab,
       body,
       dragging: false,
+      copy: !!(ev.ctrlKey || ev.metaKey),
       target: null,
       removers: [],
     };
@@ -792,6 +880,7 @@ export function createLayout({
     const onMove = (mv) => {
       state.lastX = mv.clientX;
       state.lastY = mv.clientY;
+      state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) {
         if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
         state.dragging = true;
@@ -813,11 +902,16 @@ export function createLayout({
     };
     const onUp = (mv) => {
       if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+      if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) { cleanupGroupDrag(); return; }
-      const target = detectGroupDropTarget(tab, state.lastX, state.lastY, group);
+      const target = detectGroupDropTarget(tab, state.lastX, state.lastY, group, state);
       cleanupGroupDrag();
       if (!target) {
         notify('整组只能放到同标签页的间隙、根边缘或标签栏末尾');
+        return;
+      }
+      if (target.kind === 'tab-end' || target.kind === 'tab-new') {
+        if (!commitGroupTabDrop(group, tab, target)) notify('无法完成整组标签页移动');
         return;
       }
       const result = moveGroupForDrop(tab.root, group, target);
@@ -836,10 +930,21 @@ export function createLayout({
     };
     const onCancel = () => cleanupGroupDrag();
     const onKey = (kev) => {
-      if (kev.key !== 'Escape') return;
+      if (kev.key === 'Escape') {
+        kev.preventDefault();
+        kev.stopPropagation();
+        cleanupGroupDrag();
+      } else if (kev.key === 'Control' || kev.key === 'Meta') {
+        kev.preventDefault();
+        state.copy = true;
+        if (state.dragging) updateGroupDragTarget(state.lastX, state.lastY);
+      }
+    };
+    const onKeyUp = (kev) => {
+      if (kev.key !== 'Control' && kev.key !== 'Meta') return;
       kev.preventDefault();
-      kev.stopPropagation();
-      cleanupGroupDrag();
+      state.copy = false;
+      if (state.dragging) updateGroupDragTarget(state.lastX, state.lastY);
     };
     const add = (target, type, fn, opts) => {
       target.addEventListener(type, fn, opts);
@@ -849,6 +954,7 @@ export function createLayout({
     add(window, 'pointerup', onUp);
     add(window, 'pointercancel', onCancel);
     add(window, 'keydown', onKey, true);
+    add(window, 'keyup', onKeyUp, true);
   }
 
   function startHeaderDrag(ev, panelId) {
@@ -869,6 +975,7 @@ export function createLayout({
       ancestorMode: !!ev.altKey,
       altHeld: !!ev.altKey,
       ancestorIndex: 0,
+      copy: !!(ev.ctrlKey || ev.metaKey),
       target: null,
       removers: [],
     };
@@ -876,6 +983,7 @@ export function createLayout({
     const onMove = (mv) => {
       state.lastX = mv.clientX;
       state.lastY = mv.clientY;
+      state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) {
         if (Math.hypot(mv.clientX - state.startX, mv.clientY - state.startY) < 5) return;
         state.dragging = true;
@@ -895,11 +1003,16 @@ export function createLayout({
     };
     const onUp = (mv) => {
       if (mv && Number.isFinite(mv.clientX)) { state.lastX = mv.clientX; state.lastY = mv.clientY; }
+      if (mv) state.copy = !!(mv.ctrlKey || mv.metaKey);
       if (!state.dragging) { cleanupHeaderDrag(); return; }
       const target = detectDropTarget(tab, state.lastX, state.lastY, panelId, state);
       cleanupHeaderDrag();
       if (!target) {
         notify('此处不能放置分栏');
+        return;
+      }
+      if (target.kind === 'tab-end' || target.kind === 'tab-new') {
+        if (!commitPaneTabDrop(panelId, tab, target)) notify('无法完成标签页移动');
         return;
       }
       const result = target.kind === 'swap'
@@ -923,7 +1036,11 @@ export function createLayout({
     const onCancel = () => cleanupHeaderDrag();
     const onKey = (kev) => {
       if (kev.key === 'Escape') { kev.preventDefault(); kev.stopPropagation(); cleanupHeaderDrag(); }
-      else if (kev.key === 'Alt') {
+      else if (kev.key === 'Control' || kev.key === 'Meta') {
+        kev.preventDefault();
+        state.copy = true;
+        if (state.dragging) updateDragTarget(state.lastX, state.lastY);
+      } else if (kev.key === 'Alt') {
         kev.preventDefault();
         if (!state.altHeld) {
           state.altHeld = true;
@@ -934,7 +1051,11 @@ export function createLayout({
       }
     };
     const onKeyUp = (kev) => {
-      if (kev.key === 'Alt') {
+      if (kev.key === 'Control' || kev.key === 'Meta') {
+        kev.preventDefault();
+        state.copy = false;
+        if (state.dragging) updateDragTarget(state.lastX, state.lastY);
+      } else if (kev.key === 'Alt') {
         kev.preventDefault();
         state.altHeld = false;
         state.ancestorMode = false;

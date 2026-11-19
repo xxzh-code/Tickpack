@@ -13,6 +13,7 @@ import {
   swapPaneForDrop,
   halfRect,
   moveGroupForDrop,
+  transferGroupBetweenRoots,
   normalizeTree,
   rotateGroup,
   lastActivePane,
@@ -312,7 +313,7 @@ test('moveGroupForDrop wraps root content for top/bottom edges', () => {
 });
 
 test('moveGroupForDrop preserves group fields and collapse state', () => {
-  const group = createGroup('V', [pane('source', { collapsed: true }), pane('log')], { weight: 9, size: 444 });
+  const group = createGroup('V', [createPane('source', { collapsed: true }), pane('log')], { weight: 9, size: 444 });
   group.lastActive = 'log';
   const host = createGroup('H', [pane('world')]);
   const root = createGroup('H', [group, host]);
@@ -347,4 +348,60 @@ test('moveGroupForDrop rejects no-op targets without changing the tree', () => {
   assert.equal(moveGroupForDrop(root, a, { kind: 'gap', group: root, index: 0 }).ok, false);
   assert.equal(root.children[0], a);
   assert.equal(root.children[1], b);
+});
+
+test('transferGroupBetweenRoots moves the group object and preserves fields', () => {
+  const group = createGroup('V', [createPane('source', { collapsed: true }), createPane('log')], { weight: 8, size: 320 });
+  group.lastActive = 'log';
+  const source = createGroup('H', [group, pane('world')]);
+  const target = createGroup('H', []);
+  const result = transferGroupBetweenRoots(source, target, group);
+  assert.equal(result.ok, true);
+  assert.equal(result.group, group);
+  assert.equal(target.children.includes(group), true);
+  assert.equal(findPaneNode(source, 'source'), null);
+  assert.equal(group.weight, 8);
+  assert.equal(group.size, 320);
+  assert.equal(group.lastActive, 'log');
+  assert.equal(group.children[0].collapsed, true);
+  assert.equal(group.keep, true);
+});
+
+test('transferGroupBetweenRoots Ctrl copy deep-clones and leaves source intact', () => {
+  const group = createGroup('V', [pane('source'), pane('log')], { weight: 6, size: 280 });
+  group.lastActive = 'log';
+  const source = createGroup('H', [group]);
+  const target = createGroup('H', []);
+  const result = transferGroupBetweenRoots(source, target, group, { copy: true });
+  assert.equal(result.ok, true);
+  assert.notEqual(result.group, group);
+  assert.equal(source.children[0], group);
+  assert.equal(target.children[0], result.group);
+  assert.equal(result.group.children[0].panel, 'source');
+  assert.equal(result.group.weight, 6);
+  assert.equal(result.group.size, 280);
+  result.group.children[0].collapsed = true;
+  assert.equal(group.children[0].collapsed, false);
+});
+
+test('transferGroupBetweenRoots rejects root/not-in-tree/same-root', () => {
+  const group = createGroup('V', [pane('source')]);
+  const source = createGroup('H', [group]);
+  const target = createGroup('H', [pane('world')]);
+  assert.equal(transferGroupBetweenRoots(source, target, source).ok, false);
+  assert.equal(transferGroupBetweenRoots(source, target, createGroup('V', [pane('pack')])).ok, false);
+  assert.equal(transferGroupBetweenRoots(source, source, group).ok, false);
+  assert.equal(source.children[0], group);
+});
+
+test('transferGroupBetweenRoots rejects target panel conflicts for move and copy', () => {
+  const group = createGroup('V', [pane('world'), pane('scores')]);
+  const source = createGroup('H', [group, pane('source')]);
+  const target = createGroup('H', [pane('world'), pane('log')]);
+  assert.equal(transferGroupBetweenRoots(source, target, group).ok, false);
+  assert.equal(transferGroupBetweenRoots(source, target, group, { copy: true }).ok, false);
+  assert.equal(source.children[0], group);
+  assert.equal(findPaneNode(source, 'world'), group.children[0]);
+  assert.equal(target.children[0].panel, 'world');
+  assert.equal(allPanes(target).filter((p) => p.panel === 'world').length, 1);
 });
