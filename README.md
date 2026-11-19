@@ -101,6 +101,7 @@ over 4 as side {
 | 魔法螺旋 | 每 tick 留一颗粒子；方形螺旋越走越大，浏览器和 Minecraft 同步冒光 |
 | 3D 螺旋 | `pitch(-35)` 抬头，`walk` 沿视线向上，12 步画出正交 3D 螺旋 |
 | 沿墙 | `ahead(stone)` 看正前方，碰到墙就转，否则前进并画金线 |
+| 挥手 | `animate(@p, "wave", 20 ticks)` 一行意图，展开为粒子波浪 |
 | 节拍器 | `tick {}` + `now % 20` + press；每 20 tick 响一声、闪一次 |
 | 你好 | 最小程序：`say` + `wait 5`，看 run log 里的时间 |
 
@@ -150,6 +151,7 @@ dist/tickpack-circle-datapack.zip    dist/tickpack-rainbow-datapack.zip
 dist/tickpack-metronome-datapack.zip dist/tickpack-hello-datapack.zip
 dist/tickpack-endless-datapack.zip   dist/tickpack-magic-datapack.zip
 dist/tickpack-helix3d-datapack.zip   dist/tickpack-senses-datapack.zip
+dist/tickpack-wave-datapack.zip
 dist/tickpack.html（单文件版）
 ```
 
@@ -225,7 +227,7 @@ node scripts/pack.mjs star        # -> dist/tickpack-star-datapack.zip
 | `docs/NAMING.md` | 命名与标识、`.tpk`、CLI、数据包命名空间规则（设计） |
 | `scripts/build-html.mjs` | 零依赖单文件 HTML 构建 |
 | `dist/` | 预生成的数据包 zip + 单文件 HTML |
-| `test/` | 编译器/模拟器/端到端/会话/zip/分层守卫/构建 + 布局 13 + layout-drag 18 + world3d 9 + UI 10 = **221 个测试**（以 `node test/run-all.mjs` 为准） |
+| `test/` | 编译器/模拟器/端到端/会话/zip/分层守卫/构建 + 布局 13 + layout-drag 18 + world3d 9 + UI 10 = **224 个测试**（以 `node test/run-all.mjs` 为准） |
 | `scripts/pack.mjs` | 生成可安装的数据包 zip（Node 外壳的导出实现） |
 | `scripts/dump.mjs` | 打印某个示例生成的数据包（调试编译器用） |
 | `scripts/shot.ps1` | Edge headless 截图（QA 用） |

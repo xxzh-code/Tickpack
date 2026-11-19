@@ -44,6 +44,7 @@ const RESERVED = new Set([
   'paint',
   'ahead',
   'below',
+  'animate',
 ]);
 
 const EMPTY_PARAMS = new Set();
@@ -275,6 +276,8 @@ class Semantics {
         return;
       }
       case 'paint':
+        return;
+      case 'animate':
         return;
       case 'call':
         this.validateCall(statement, ctx);

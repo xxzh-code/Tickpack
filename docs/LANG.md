@@ -178,6 +178,26 @@ execute at @e[tag=pen] positioned ^ ^ ^1 if block ~ ~ ~ stone run scoreboard pla
 所以程序运行中改画笔会影响之后的 `paint`；程序里的 `brush(...)` 语句会
 覆盖它。`tp:start` / `tp:start_at` 会把 `#__brush` 重置回 0（stone）。
 
+### 1.9 意图探针：animate
+
+P1.5 只做最小探针，不是完整意图层：
+
+```
+animate(@p, "wave", 20 ticks)
+```
+
+- 语句级内置；目标目前只支持 `@p`，动画名只支持 `"wave"`，时长是
+  正整数 + `ticks`；
+- 编译器把它 lower 成 `#__animLeft` / `#__animActive` 两个记分板槽，并
+  生成 `data/tp/function/anim/tick.mcfunction`；`tp:tick/body` 每 tick 在
+  时间线 dispatch 之后调用它；
+- `tp:anim/tick` 发出可读的 `particle` 命令，浏览器模拟器执行同一份
+  mcfunction，因此预览和数据包一致；
+- **覆盖机制**：全局只有一个动画槽；新的 `animate(...)` 会重置剩余
+  ticks/active，旧动画不会继续；
+- `load` 和 `start/rewind` 会把动画槽清空；
+- 示例 `wave` 是“一行意图 + 等待 20 ticks”，用于验证语法、展开和覆盖。
+
 ## 2. 编译模型
 
 ### 2.1 记分板布局
@@ -192,6 +212,7 @@ execute at @e[tag=pen] positioned ^ ^ ^1 if block ~ ~ ~ stone run scoreboard pla
 | `#__started` | 0 = 等待玩家，1 = 运行中（由 `tp:start` 设置） |
 | `#__paused` | 1 = 通过 `tp:stop` 显式暂停（用于压制自动启动门）；由 `tp:start` / `tp:start_at` 清零 |
 | `#__brush` | 运行时画笔的调色板序号（0..11，见 1.7） |
+| `#__animLeft` / `#__animActive` | P1.5 `animate` 单一动画槽的剩余 tick / 是否激活 |
 | `#__press` | 宿主输入：模拟器每次按下时自增 |
 | `#__pressSeen` | 事件处理器已经消费到的 press 计数 |
 | `#__a` | press 差值 / 临时草稿 |
@@ -314,6 +335,7 @@ data/tp/function/start/rewind.mcfunction   唯一共享的重置逻辑 + 一行 
 data/tp/function/stop.mcfunction           tp:stop（原地暂停）
 data/tp/function/status.mcfunction         tp:status（聊天诊断，含当前画笔）
 data/tp/function/fn/paint.mcfunction       `paint` 的调色板 dispatch
+data/tp/function/anim/tick.mcfunction       `animate(@p, "wave", N ticks)` 的每 tick 粒子/计数（仅当使用 animate）
 data/tp/function/brush/<block>.mcfunction  x12，每种调色板方块一个选择器
 data/tp/function/brush/next.mcfunction     循环切换画笔（到 12 后绕回）
 data/tp/function/main/dispatch.mcfunction

@@ -74,6 +74,7 @@ export function createWorld(canvas, options = {}) {
   let blocks = new Map(); // key "x,y,z" -> { x, y, z, block }
   let pen = { x: 0.5, y: 0, z: 0.5, yaw: 0, pitch: 0 };
   let hasPen = false;
+  let hostPlayer = null;
   let tick = 0;
   let blockCount = 0;
 
@@ -805,6 +806,22 @@ export function createWorld(canvas, options = {}) {
       ctx.fillRect(px - size / 2, py - size / 2, size, size);
     }
     ctx.globalAlpha = 1;
+
+    // P1.5 wave intent: when particles are emitted at the host player, draw a
+    // subtle pulse ring so the intent is visible even if the player has no body.
+    if (hostPlayer && particles.some((p) => Math.hypot(p.x - hostPlayer.x, p.z - hostPlayer.z) < 2)) {
+      const px = wx2px(hostPlayer.x);
+      const py = wz2py(hostPlayer.z);
+      const pulse = 0.5 + 0.5 * Math.sin(now / 140);
+      ctx.save();
+      ctx.strokeStyle = palette.particle;
+      ctx.globalAlpha = 0.28 + pulse * 0.28;
+      ctx.lineWidth = Math.max(1, cell * 0.08);
+      ctx.beginPath();
+      ctx.arc(px, py, Math.max(4, cell * (1.1 + pulse * 0.16)), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   function drawPen() {
@@ -875,6 +892,7 @@ export function createWorld(canvas, options = {}) {
       pops.clear();
       particles.length = 0;
       hasPen = false;
+      hostPlayer = null;
       blockCount = 0;
       tick = 0;
       lastFitDim = 0;
@@ -917,8 +935,12 @@ export function createWorld(canvas, options = {}) {
       blocks = next;
       blockCount = next.size;
 
-      // the pen (turtle); a host player entity is deliberately ignored here
+      // the pen (turtle); a host player entity is deliberately ignored for layout
       const penEntity = entities.find((e) => Array.isArray(e.tags) && e.tags.includes('pen'));
+      const playerEntity = entities.find((e) => e && e.type === 'player');
+      hostPlayer = playerEntity
+        ? { x: Number(playerEntity.x) || 0, z: Number(playerEntity.z) || 0 }
+        : null;
       if (penEntity) {
         hasPen = true;
         pen = {

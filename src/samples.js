@@ -187,6 +187,23 @@ stamp
 `,
   },
   {
+    id: 'wave',
+    title: '挥手 · Wave',
+    description: '一行意图：animate(@p, "wave", 20 ticks)。编译成可读的 tp:anim/tick，浏览器与 Minecraft 同时看到玩家周围的波浪粒子。',
+    source: `# 先画一小段，给画面一个参照
+brush(gold_block)
+over 4 as i {
+  walk
+  paint
+}
+
+# 一行意图：在玩家周围做 20 tick 的 wave
+animate(@p, "wave", 20 ticks)
+wait 20
+say "wave done"
+`,
+  },
+  {
     id: 'helix3d',
     title: '3D 螺旋 · Helix 3D',
     description: 'pitch(-35) 让笔抬头（Minecraft 里负 pitch 向上），walk 沿视线方向前进：12 步边走边转，画出向上螺旋的三维螺旋。浏览器与 Minecraft 里形状一致。',

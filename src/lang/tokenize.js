@@ -17,6 +17,7 @@
 //   op       = == != <= >= < > + - * / %
 //   punct    { } ( ) ,
 //   raw      rest of a `run` line     value = command text
+//   animate  rest of an `animate` line value = pending animate(...) arguments
 //   newline  end of a physical line
 //   eof
 import { TpError } from './errors.js';
@@ -137,15 +138,15 @@ export function tokenize(source) {
       }
       const value = text.slice(start, i);
       push('ident', value);
-      if (value === 'run') {
-        // Raw command: everything up to the end of the physical line, with a
-        // trailing `# comment` removed (LANG.md §1.5).
+      if (value === 'run' || value === 'animate') {
+        // Raw command / animate arguments: everything up to the end of the
+        // physical line, with a trailing `# comment` removed.
         const restStart = i;
         while (i < n && text[i] !== '\n') i += 1;
         let rest = text.slice(restStart, i);
         const hash = rest.indexOf('#');
         if (hash >= 0) rest = rest.slice(0, hash);
-        push('raw', rest.trim());
+        push(value === 'run' ? 'raw' : 'animate', rest.trim());
       }
       continue;
     }

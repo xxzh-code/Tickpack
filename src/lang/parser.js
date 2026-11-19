@@ -182,6 +182,18 @@ class Parser {
           if (raw.value === '') this.fail("'run' needs a vanilla command after it", token);
           return { kind: 'run', text: raw.value, line: token.line };
         }
+        case 'animate': {
+          this.next();
+          const raw = this.expect('animate', undefined, "expected arguments after 'animate'");
+          const match = /^\s*\(\s*@p\s*,\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*([1-9][0-9]*)\s+ticks\s*\)\s*$/.exec(raw.value);
+          if (!match) {
+            this.fail('animate syntax is animate(@p, "wave", N ticks)', token);
+          }
+          if (match[1] !== 'wave') {
+            this.fail(`unknown animation '${match[1]}'; this probe only supports "wave"`, token);
+          }
+          return { kind: 'animate', selector: '@p', animation: match[1], ticks: Number(match[2]), line: token.line };
+        }
         case 'brush': {
           // brush(<bare block id>) — the compiler validates it against the palette.
           this.next();

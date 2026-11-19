@@ -334,3 +334,46 @@ test('ahead/below reject blocks outside the sensor palette at their source line'
   assert.match(out.diagnostics[0].message, /unknown sensed block 'grass_block'/);
   assert.match(out.diagnostics[0].message, /stone, gold_block/);
 });
+
+test('animate(@p, "wave", N ticks) lowers to one readable animation slot', () => {
+  const source = `animate(@p, "wave", 3 ticks)
+wait 3
+say "done"
+`;
+  const out = compile(source);
+  assert.equal(out.ok, true, JSON.stringify(out.diagnostics));
+  assert.ok(out.files['data/tp/function/anim/tick.mcfunction']);
+  assert.match(out.files['data/tp/function/anim/tick.mcfunction'], /particle happy_villager/);
+  assert.match(out.files['data/tp/function/tick/body.mcfunction'], /function tp:anim\/tick/);
+  const { sim, events } = run(source, 4);
+  const particles = events.filter((e) => e.type === 'particle');
+  assert.ok(particles.length >= 3, 'animation emits particles while active');
+  assert.equal(sim.getScores().tp['#__animActive'], 0);
+  assert.equal(sim.getScores().tp['#__animLeft'], 0);
+});
+
+test('a later animate overrides the remaining ticks of the active one', () => {
+  const source = `animate(@p, "wave", 4 ticks)
+wait 2
+animate(@p, "wave", 6 ticks)
+wait 2
+`;
+  const out = compile(source);
+  assert.equal(out.ok, true, JSON.stringify(out.diagnostics));
+  const sim = new Simulator(out.files);
+  sim.reset();
+  sim.step(); // tick 0 starts 4 ticks, animation decrements to 3
+  assert.equal(sim.getScores().tp['#__animLeft'], 3);
+  sim.step(); // tick 1 decrements to 2
+  assert.equal(sim.getScores().tp['#__animLeft'], 2);
+  sim.step(); // tick 2 re-arms 6, then decrements to 5
+  assert.equal(sim.getScores().tp['#__animLeft'], 5);
+  assert.equal(sim.getScores().tp['#__animActive'], 1);
+});
+
+test('animate syntax only accepts the @p / wave probe form', () => {
+  const out = compile('animate(@a, "wave", 4 ticks)\n');
+  assert.equal(out.ok, false);
+  assert.equal(out.diagnostics[0].line, 1);
+  assert.match(out.diagnostics[0].message, /animate syntax/);
+});

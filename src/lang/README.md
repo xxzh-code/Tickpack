@@ -98,6 +98,20 @@ execute at @e[tag=pen] if block ~ ~-1 ~ stone run scoreboard players set #__t0 t
 `air` 或调色板方块。结果写入 `#__t0` 之类的临时记分板，可直接用于 `if`。
 示例 `senses` 先画墙，再用 `ahead(stone)` 转向。
 
+## 意图探针 `animate`
+
+P1.5 的最小 intent 语句：
+
+```tp
+animate(@p, "wave", 20 ticks)
+```
+
+解析器只接受 `@p` + `"wave"` + 正整数 ticks；codegen 写
+`#__animLeft/#__animActive` 并生成 `tp:anim/tick`，由 `tp:tick/body`
+每 tick 调用。`tp:anim/tick` 是普通粒子 mcfunction；浏览器模拟器执行同一份
+命令，因此数据包和预览一致。新 `animate` 重置同一槽即覆盖旧动画；
+`load`/`rewind` 清空槽。示例 `wave` 用来验收一行语法、可读展开和覆盖。
+
 ## 真实世界里的启动（把笔锚定在玩家身上）
 
 `load.mcfunction` 在世界加载时运行，那时还没有玩家——而且在普通世界里
