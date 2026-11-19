@@ -1401,16 +1401,8 @@ export function createLayout({
       const r = bridgeRect(bridge.pair);
       if (!r) { bridge.el.hidden = true; continue; }
       bridge.el.hidden = false;
-      const half = 6;
-      if (bridge.pair.dir === 'H') {
-        // Sit just outside the collapsed run on its right edge so the capsule
-        // label/icon remain fully readable; half the 12px grip is the anchor.
-        bridge.el.style.left = `${Math.round(r.left + r.width + half)}px`;
-        bridge.el.style.top = `${Math.round(r.top + r.height / 2)}px`;
-      } else {
-        bridge.el.style.left = `${Math.round(r.left + r.width / 2)}px`;
-        bridge.el.style.top = `${Math.round(r.top + r.height + half)}px`;
-      }
+      bridge.el.style.left = `${Math.round(r.left + r.width / 2)}px`;
+      bridge.el.style.top = `${Math.round(r.top + r.height / 2)}px`;
     }
   }
 

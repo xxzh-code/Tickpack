@@ -597,12 +597,14 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 }
 .group-capsule[data-dir="H"] .capsule-body {
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  align-items: center;
   width: 100%;
   height: 100%;
   padding: 6px 0;
 }
-.group-capsule[data-dir="V"] .capsule-body { height: 100%; }
+.group-capsule[data-dir="V"] .capsule-body { height: 100%; justify-content: flex-start; align-items: center; }
+.group-capsule[data-dir="V"] .capsule-summary { max-width: 40%; }
 .capsule-icon { display: inline-flex; color: var(--dim); flex: 0 0 auto; }
 .capsule-icon .icon { width: 14px; height: 14px; }
 .capsule-count {
@@ -12600,16 +12602,8 @@ function collapseIcon(dir, index, count, collapsed) {
       const r = bridgeRect(bridge.pair);
       if (!r) { bridge.el.hidden = true; continue; }
       bridge.el.hidden = false;
-      const half = 6;
-      if (bridge.pair.dir === 'H') {
-        
-        
-        bridge.el.style.left = `${Math.round(r.left + r.width + half)}px`;
-        bridge.el.style.top = `${Math.round(r.top + r.height / 2)}px`;
-      } else {
-        bridge.el.style.left = `${Math.round(r.left + r.width / 2)}px`;
-        bridge.el.style.top = `${Math.round(r.top + r.height + half)}px`;
-      }
+      bridge.el.style.left = `${Math.round(r.left + r.width / 2)}px`;
+      bridge.el.style.top = `${Math.round(r.top + r.height / 2)}px`;
     }
   }
 

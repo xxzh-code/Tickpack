@@ -586,12 +586,14 @@ body.dragging-split { cursor: col-resize; user-select: none; }
 }
 .group-capsule[data-dir="H"] .capsule-body {
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  align-items: center;
   width: 100%;
   height: 100%;
   padding: 6px 0;
 }
-.group-capsule[data-dir="V"] .capsule-body { height: 100%; }
+.group-capsule[data-dir="V"] .capsule-body { height: 100%; justify-content: flex-start; align-items: center; }
+.group-capsule[data-dir="V"] .capsule-summary { max-width: 40%; }
 .capsule-icon { display: inline-flex; color: var(--dim); flex: 0 0 auto; }
 .capsule-icon .icon { width: 14px; height: 14px; }
 .capsule-count {
