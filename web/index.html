@@ -276,19 +276,19 @@
         </label>
 
         <div class="btn-group">
-          <button id="btn-run" class="btn btn-run" title="编译并运行（Ctrl+Enter）" aria-label="运行">
+          <button id="btn-run" class="btn btn-run" title="编译并运行（Ctrl+Enter）" aria-label="运行" aria-keyshortcuts="Control+Enter">
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-play"></use></svg>
             <span class="btn-label">运行</span>
           </button>
-          <button id="btn-pause" class="btn" title="暂停 / 继续（空格）" aria-label="暂停" disabled>
+          <button id="btn-pause" class="btn" title="暂停 / 继续（空格）" aria-label="暂停" aria-keyshortcuts="Space" disabled>
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-pause"></use></svg>
             <span class="btn-label">暂停</span>
           </button>
-          <button id="btn-step" class="btn" title="前进一 tick（→）" aria-label="单步" disabled>
+          <button id="btn-step" class="btn" title="前进一 tick（→）" aria-label="单步" aria-keyshortcuts="ArrowRight" disabled>
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-step-forward"></use></svg>
             <span class="btn-label">单步</span>
           </button>
-          <button id="btn-reset" class="btn" title="重置到第 0 tick（R）" aria-label="重置" disabled>
+          <button id="btn-reset" class="btn" title="重置到第 0 tick（R）" aria-label="重置" aria-keyshortcuts="R" disabled>
             <svg class="icon" aria-hidden="true" focusable="false"><use href="#i-rotate-ccw"></use></svg>
             <span class="btn-label">重置</span>
           </button>
@@ -409,7 +409,7 @@
         <div class="head-right">
           <span class="view-ctrls">
             <button id="btn-zoom-out" class="btn btn-soft btn-sq" title="缩小" aria-label="缩小"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-zoom-out"></use></svg></button>
-            <button id="btn-fit" class="btn btn-soft btn-fit is-auto" title="适配内容（F / 双击画布）"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-fit"></use></svg><span class="btn-label">适配</span></button>
+            <button id="btn-fit" class="btn btn-soft btn-fit is-auto" title="适配内容（F / 双击画布）" aria-keyshortcuts="F"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-fit"></use></svg><span class="btn-label">适配</span></button>
             <button id="btn-zoom-in" class="btn btn-soft btn-sq" title="放大" aria-label="放大"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-zoom-in"></use></svg></button>
           </span>
           <span class="panel-actions">
@@ -512,7 +512,7 @@
         </div>
         <div class="head-right">
           <span class="tl-nav">
-            <button id="btn-back" class="btn btn-soft btn-sm" title="后退一 tick" aria-label="后退一 tick"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-step-back"></use></svg></button>
+            <button id="btn-back" class="btn btn-soft btn-sm" title="后退一 tick" aria-label="后退一 tick" aria-keyshortcuts="ArrowLeft"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-step-back"></use></svg></button>
             <button id="btn-fwd" class="btn btn-soft btn-sm" title="前进一 tick" aria-label="前进一 tick"><svg class="icon" aria-hidden="true" focusable="false"><use href="#i-step-forward"></use></svg></button>
           </span>
           <span class="panel-actions">

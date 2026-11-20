@@ -1062,7 +1062,7 @@ export function defaultLayout() {
   const workbench = {
     id: 'workbench',
     name: '工作台',
-    root: createGroup('H', [createGroup('V', [workMain, w('timeline', 18)], { weight: 1 })]),
+    root: createGroup('H', [createGroup('V', [workMain, w('timeline', 10)], { weight: 1 })]),
     maximized: null,
   };
   const observeMain = createGroup('H', [
@@ -1072,7 +1072,7 @@ export function defaultLayout() {
   const observe = {
     id: 'observe',
     name: '观察',
-    root: createGroup('H', [createGroup('V', [observeMain, w('timeline', 18)], { weight: 1 })]),
+    root: createGroup('H', [createGroup('V', [observeMain, w('timeline', 10)], { weight: 1 })]),
     maximized: null,
   };
   return { version: LAYOUT_VERSION, activeId: 'workbench', nextId: 3, tabs: [workbench, observe] };

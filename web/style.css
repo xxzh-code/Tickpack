@@ -1023,7 +1023,7 @@ body.drag-valid .pane-drag-ghost { border-color: var(--accent); }
   font-variant-numeric: tabular-nums;
 }
 .view-readout[data-auto="1"] { color: var(--accent); }
-.view-readout[data-auto="0"] { color: var(--warn); }
+.view-readout[data-auto="0"] { color: var(--muted); }
 .view-ctrls { display: flex; align-items: center; gap: 4px; }
 
 .view-hint {
