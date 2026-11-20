@@ -911,6 +911,10 @@ body.drag-valid .pane-drag-ghost { border-color: var(--accent); }
 .panel-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .panel-menu-item:disabled { color: var(--dimmer); cursor: default; }
 .panel-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+.panel-menu-item.has-submenu { color: var(--muted); }
+.panel-menu-item.has-submenu:hover:not(:disabled),
+.panel-menu-item.has-submenu[aria-expanded="true"] { color: var(--text); }
+.panel-submenu { min-width: 168px; }
 
 /* -------------------------------------------------------------- editor --- */
 .sample-desc {
@@ -10722,6 +10726,24 @@ function detachPaneLoose(root, panel) {
 }
 
  
+ 
+ function clampSubmenuPosition(parentRect, width, height, { vw = 1200, vh = 800, margin = 8 } = {}) {
+  const r = parentRect || { left: margin, right: margin, top: margin, bottom: margin };
+  const w = Math.max(0, Number(width) || 0);
+  const h = Math.max(0, Number(height) || 0);
+  let left = r.right + 2;
+  let flipped = false;
+  if (left + w > vw - margin) {
+    left = r.left - w - 2;
+    flipped = true;
+  }
+  left = Math.max(margin, Math.min(Math.max(margin, vw - margin - w), left));
+  let top = r.top;
+  if (top + h > vh - margin) top = vh - margin - h;
+  top = Math.max(margin, Math.min(Math.max(margin, vh - margin - h), top));
+  return { left, top, flipped };
+}
+
  function resizeCollapsedBridge(pair, leftSize) {
   if (!pair || !pair.left || !pair.right || !pair.parent) return { ok: false };
   if (pair.parent.manualLocked) return { ok: false };
@@ -11266,6 +11288,7 @@ exports.movePaneForDrop = movePaneForDrop;
 exports.swapPaneForDrop = swapPaneForDrop;
 exports.halfRect = halfRect;
 exports.collapsedBridgePairs = collapsedBridgePairs;
+exports.clampSubmenuPosition = clampSubmenuPosition;
 exports.resizeCollapsedBridge = resizeCollapsedBridge;
 exports.moveGroupForDrop = moveGroupForDrop;
 exports.transferGroupBetweenRoots = transferGroupBetweenRoots;
@@ -11292,7 +11315,7 @@ exports.defaultLayout = defaultLayout;
 const { icon, applyTruncationTitles } = __tpb_require("web/util.js");
 const { rovingIndex, menuIndex, focusSelector, splitterPercent, resetPairSizes } = __tpb_require("web/a11y.js");
 const { createUndoStack } = __tpb_require("web/layout-history.js");
-const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, swapPaneForDrop, halfRect, moveGroupForDrop, transferGroupBetweenRoots, collapsedBridgePairs, resizeCollapsedBridge, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clearTabTree, resetTabVariant, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
+const { LAYOUT_VERSION, SPLITTER, panelTitle, isPane, isGroup, allPanes, walkNodes, findPaneNode, layoutDir, nodeMin, barThickness, fullyCollapsed, lastActivePane, markPaneActive, refreshLastActive, movePaneForDrop, swapPaneForDrop, halfRect, moveGroupForDrop, transferGroupBetweenRoots, collapsedBridgePairs, resizeCollapsedBridge, clampSubmenuPosition, rotateGroup, reorderTabs, clonePaneForCopy, addPaneToTab, addMissingPaneToTab, resetTabTree, clearTabTree, resetTabVariant, clampMenuPosition, isExpandedNode, expandedPanes, solveTab, normalizeTree, removePaneFromTree, appendPaneToRoot, ensureOneExpanded, collapsePane, expandPane, sanitizeLayout, defaultLayout, cloneTree } = __tpb_require("web/layout-tree.js");
 
  const LAYOUT_KEY = 'tickpack.layout.v2';
 
@@ -11347,6 +11370,7 @@ function collapseIcon(dir, index, count, collapsed) {
 }) {
   let doc = null;
   let menus = [];
+  let tabSubmenu = null;
   let dragCleanup = null;
   let pendingFrame = 0;
   let pendingEmit = 0;
@@ -13222,12 +13246,17 @@ function collapseIcon(dir, index, count, collapsed) {
     const menu = el('div', 'panel-menu');
     menu.setAttribute('role', 'menu');
     addMenuItem(menu, '重命名', () => renameTabById(tab.id));
-    addMenuItem(menu, '添加分栏', () => {}, { heading: true });
     const missing = PANEL_DEFS.filter((p) => !findPaneNode(tab.root, p.id));
-    if (!missing.length) addMenuItem(menu, '全部分栏已存在', () => {}, { disabled: true });
-    for (const paneDef of missing) {
-      addMenuItem(menu, paneDef.title, () => addPanelToTab(tab.id, paneDef.id));
-    }
+    let addParent = null;
+    addParent = addMenuItem(menu, '添加分栏 →', () => {}, {
+      disabled: !missing.length,
+      onActivate: () => openTabSubmenu(addParent, tab, missing),
+    });
+    addParent.classList.add('has-submenu');
+    addParent.setAttribute('aria-haspopup', 'menu');
+    addParent.setAttribute('aria-expanded', 'false');
+    addParent._openSubmenu = () => openTabSubmenu(addParent, tab, missing);
+    if (missing.length) addParent.addEventListener('mouseenter', () => openTabSubmenu(addParent, tab, missing));
     addMenuSeparator(menu);
     addMenuItem(menu, '仅重置当前标签页', () => resetTabById(tab.id));
     addMenuItem(menu, '关闭标签页', () => closeTab(tab.id), { disabled: doc.tabs.length <= 1 });
@@ -13448,7 +13477,92 @@ function collapseIcon(dir, index, count, collapsed) {
     return true;
   }
 
+  function positionTabSubmenu(menu, parentItem) {
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const margin = 8;
+    const r = parentItem.getBoundingClientRect();
+    const mw = menu.offsetWidth || menu.getBoundingClientRect().width || 180;
+    const mh = menu.offsetHeight || menu.getBoundingClientRect().height || 120;
+    const pos = clampSubmenuPosition(r, mw, mh, { vw: winW, vh: winH, margin });
+    menu.style.left = `${Math.round(pos.left)}px`;
+    menu.style.top = `${Math.round(pos.top)}px`;
+  }
+
+  function closeTabSubmenu({ returnFocus = false } = {}) {
+    if (!tabSubmenu) return false;
+    const submenu = tabSubmenu;
+    const parentItem = submenu._submenuParent;
+    tabSubmenu = null;
+    if (submenu.parentNode) submenu.parentNode.removeChild(submenu);
+    menus = menus.filter((menu) => menu !== submenu);
+    if (parentItem) parentItem.setAttribute('aria-expanded', 'false');
+    if (returnFocus && parentItem) {
+      try { parentItem.focus({ preventScroll: true }); } catch { try { parentItem.focus(); } catch {   } }
+    }
+    return true;
+  }
+
+  function submenuKeydown(ev) {
+    const menu = ev.currentTarget;
+    const items = menuItems(menu);
+    if (ev.key === 'Escape' || ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeTabSubmenu({ returnFocus: true });
+      return;
+    }
+    if (ev.key === 'Tab') {
+      closeMenus({ restoreFocus: true });
+      return;
+    }
+    const current = items.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      focusMenuItem(menu, menuIndex(current, items.length, ev.key));
+      return;
+    }
+    if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+      ev.stopPropagation();
+    }
+  }
+
+  function openTabSubmenu(parentItem, tab, missing) {
+    if (tabSubmenu && tabSubmenu._submenuParent === parentItem) return true;
+    closeTabSubmenu();
+    if (!missing.length) return false;
+    const submenu = el('div', 'panel-menu panel-submenu');
+    submenu.setAttribute('role', 'menu');
+    submenu.setAttribute('aria-label', '添加分栏');
+    submenu._submenuParent = parentItem;
+    submenu._trigger = parentItem;
+    for (const paneDef of missing) {
+      addMenuItem(submenu, paneDef.title, () => addPanelToTab(tab.id, paneDef.id));
+    }
+    submenu.style.position = 'fixed';
+    submenu.style.left = '0px';
+    submenu.style.top = '0px';
+    submenu.style.visibility = 'hidden';
+    submenu.style.maxHeight = `${Math.max(120, window.innerHeight - 16)}px`;
+    submenu.style.overflowY = 'auto';
+    submenu.addEventListener('keydown', submenuKeydown);
+    document.body.append(submenu);
+    menus.push(submenu);
+    tabSubmenu = submenu;
+    parentItem.setAttribute('aria-expanded', 'true');
+    positionTabSubmenu(submenu, parentItem);
+    submenu.style.visibility = 'visible';
+    focusMenuItem(submenu, 0);
+    return true;
+  }
+
   function closeMenus({ restoreFocus = false } = {}) {
+    if (tabSubmenu) {
+      const parentItem = tabSubmenu._submenuParent;
+      if (parentItem) parentItem.setAttribute('aria-expanded', 'false');
+      tabSubmenu = null;
+    }
     const triggers = [];
     for (const menu of menus) {
       if (menu._trigger) triggers.push(menu._trigger);
@@ -13471,12 +13585,12 @@ function collapseIcon(dir, index, count, collapsed) {
     menu.append(separator);
   }
 
-  function addMenuItem(menu, label, handler, { disabled = false, heading = false } = {}) {
+  function addMenuItem(menu, label, handler, { disabled = false, heading = false, onActivate = null } = {}) {
     if (heading) {
       const head = el('div', 'panel-menu-heading', label);
       head.setAttribute('role', 'presentation');
       menu.append(head);
-      return;
+      return head;
     }
     const item = el('button', 'panel-menu-item', label);
     item.type = 'button';
@@ -13486,10 +13600,12 @@ function collapseIcon(dir, index, count, collapsed) {
     item.setAttribute('aria-disabled', disabled ? 'true' : 'false');
     item.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      if (onActivate) { onActivate(ev); return; }
       closeMenus({ restoreFocus: true });
       handler();
     });
     menu.append(item);
+    return item;
   }
 
   function menuKeydown(ev) {
@@ -13506,6 +13622,19 @@ function collapseIcon(dir, index, count, collapsed) {
       return;
     }
     const focused = document.activeElement;
+    if (focused && focused._openSubmenu
+      && ['Enter', ' ', 'Spacebar', 'ArrowRight'].includes(ev.key)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      focused._openSubmenu();
+      return;
+    }
+    if (focused && focused._openSubmenu && ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeTabSubmenu({ returnFocus: true });
+      return;
+    }
     const current = items.indexOf(focused);
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key)) {
       ev.preventDefault();
@@ -13552,6 +13681,10 @@ function collapseIcon(dir, index, count, collapsed) {
 
   function repositionMenus() {
     for (const menu of menus) {
+      if (menu === tabSubmenu && menu._submenuParent) {
+        positionTabSubmenu(menu, menu._submenuParent);
+        continue;
+      }
       const anchor = menu._anchor;
       if (!anchor) continue;
       if (!anchor.point && (!anchor.button || !anchor.button.isConnected)) {

@@ -900,6 +900,10 @@ body.drag-valid .pane-drag-ghost { border-color: var(--accent); }
 .panel-menu-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .panel-menu-item:disabled { color: var(--dimmer); cursor: default; }
 .panel-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+.panel-menu-item.has-submenu { color: var(--muted); }
+.panel-menu-item.has-submenu:hover:not(:disabled),
+.panel-menu-item.has-submenu[aria-expanded="true"] { color: var(--text); }
+.panel-submenu { min-width: 168px; }
 
 /* -------------------------------------------------------------- editor --- */
 .sample-desc {

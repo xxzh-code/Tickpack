@@ -16,6 +16,7 @@ import {
   transferGroupBetweenRoots,
   collapsedBridgePairs,
   resizeCollapsedBridge,
+  clampSubmenuPosition,
   normalizeTree,
   rotateGroup,
   lastActivePane,
@@ -482,4 +483,21 @@ test('layout undo stack is bounded and preserves labels', () => {
   stack.clear();
   assert.equal(stack.canUndo, false);
   assert.equal(stack.pop(), null);
+});
+
+test('submenu placement prefers the right and flips near the viewport edge', () => {
+  const right = clampSubmenuPosition({ left: 100, right: 180, top: 100, bottom: 130 }, 200, 120, { vw: 1024, vh: 768 });
+  assert.equal(right.left, 182);
+  assert.equal(right.top, 100);
+  assert.equal(right.flipped, false);
+  const left = clampSubmenuPosition({ left: 900, right: 980, top: 100, bottom: 130 }, 200, 120, { vw: 1024, vh: 768 });
+  assert.equal(left.left, 698);
+  assert.equal(left.flipped, true);
+});
+
+test('submenu placement clamps above and inside the bottom edge', () => {
+  const pos = clampSubmenuPosition({ left: 100, right: 180, top: 730, bottom: 760 }, 200, 120, { vw: 1024, vh: 768 });
+  assert.equal(pos.top, 640);
+  assert.ok(pos.left >= 8);
+  assert.ok(pos.left + 200 <= 1024 - 8);
 });

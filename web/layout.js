@@ -28,6 +28,7 @@ import {
   transferGroupBetweenRoots,
   collapsedBridgePairs,
   resizeCollapsedBridge,
+  clampSubmenuPosition,
   rotateGroup,
   reorderTabs,
   clonePaneForCopy,
@@ -104,6 +105,7 @@ export function createLayout({
 }) {
   let doc = null;
   let menus = [];
+  let tabSubmenu = null;
   let dragCleanup = null;
   let pendingFrame = 0;
   let pendingEmit = 0;
@@ -1979,12 +1981,17 @@ export function createLayout({
     const menu = el('div', 'panel-menu');
     menu.setAttribute('role', 'menu');
     addMenuItem(menu, '重命名', () => renameTabById(tab.id));
-    addMenuItem(menu, '添加分栏', () => {}, { heading: true });
     const missing = PANEL_DEFS.filter((p) => !findPaneNode(tab.root, p.id));
-    if (!missing.length) addMenuItem(menu, '全部分栏已存在', () => {}, { disabled: true });
-    for (const paneDef of missing) {
-      addMenuItem(menu, paneDef.title, () => addPanelToTab(tab.id, paneDef.id));
-    }
+    let addParent = null;
+    addParent = addMenuItem(menu, '添加分栏 →', () => {}, {
+      disabled: !missing.length,
+      onActivate: () => openTabSubmenu(addParent, tab, missing),
+    });
+    addParent.classList.add('has-submenu');
+    addParent.setAttribute('aria-haspopup', 'menu');
+    addParent.setAttribute('aria-expanded', 'false');
+    addParent._openSubmenu = () => openTabSubmenu(addParent, tab, missing);
+    if (missing.length) addParent.addEventListener('mouseenter', () => openTabSubmenu(addParent, tab, missing));
     addMenuSeparator(menu);
     addMenuItem(menu, '仅重置当前标签页', () => resetTabById(tab.id));
     addMenuItem(menu, '关闭标签页', () => closeTab(tab.id), { disabled: doc.tabs.length <= 1 });
@@ -2205,7 +2212,92 @@ export function createLayout({
     return true;
   }
 
+  function positionTabSubmenu(menu, parentItem) {
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const margin = 8;
+    const r = parentItem.getBoundingClientRect();
+    const mw = menu.offsetWidth || menu.getBoundingClientRect().width || 180;
+    const mh = menu.offsetHeight || menu.getBoundingClientRect().height || 120;
+    const pos = clampSubmenuPosition(r, mw, mh, { vw: winW, vh: winH, margin });
+    menu.style.left = `${Math.round(pos.left)}px`;
+    menu.style.top = `${Math.round(pos.top)}px`;
+  }
+
+  function closeTabSubmenu({ returnFocus = false } = {}) {
+    if (!tabSubmenu) return false;
+    const submenu = tabSubmenu;
+    const parentItem = submenu._submenuParent;
+    tabSubmenu = null;
+    if (submenu.parentNode) submenu.parentNode.removeChild(submenu);
+    menus = menus.filter((menu) => menu !== submenu);
+    if (parentItem) parentItem.setAttribute('aria-expanded', 'false');
+    if (returnFocus && parentItem) {
+      try { parentItem.focus({ preventScroll: true }); } catch { try { parentItem.focus(); } catch { /* ignore */ } }
+    }
+    return true;
+  }
+
+  function submenuKeydown(ev) {
+    const menu = ev.currentTarget;
+    const items = menuItems(menu);
+    if (ev.key === 'Escape' || ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeTabSubmenu({ returnFocus: true });
+      return;
+    }
+    if (ev.key === 'Tab') {
+      closeMenus({ restoreFocus: true });
+      return;
+    }
+    const current = items.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      focusMenuItem(menu, menuIndex(current, items.length, ev.key));
+      return;
+    }
+    if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+      ev.stopPropagation();
+    }
+  }
+
+  function openTabSubmenu(parentItem, tab, missing) {
+    if (tabSubmenu && tabSubmenu._submenuParent === parentItem) return true;
+    closeTabSubmenu();
+    if (!missing.length) return false;
+    const submenu = el('div', 'panel-menu panel-submenu');
+    submenu.setAttribute('role', 'menu');
+    submenu.setAttribute('aria-label', '添加分栏');
+    submenu._submenuParent = parentItem;
+    submenu._trigger = parentItem;
+    for (const paneDef of missing) {
+      addMenuItem(submenu, paneDef.title, () => addPanelToTab(tab.id, paneDef.id));
+    }
+    submenu.style.position = 'fixed';
+    submenu.style.left = '0px';
+    submenu.style.top = '0px';
+    submenu.style.visibility = 'hidden';
+    submenu.style.maxHeight = `${Math.max(120, window.innerHeight - 16)}px`;
+    submenu.style.overflowY = 'auto';
+    submenu.addEventListener('keydown', submenuKeydown);
+    document.body.append(submenu);
+    menus.push(submenu);
+    tabSubmenu = submenu;
+    parentItem.setAttribute('aria-expanded', 'true');
+    positionTabSubmenu(submenu, parentItem);
+    submenu.style.visibility = 'visible';
+    focusMenuItem(submenu, 0);
+    return true;
+  }
+
   function closeMenus({ restoreFocus = false } = {}) {
+    if (tabSubmenu) {
+      const parentItem = tabSubmenu._submenuParent;
+      if (parentItem) parentItem.setAttribute('aria-expanded', 'false');
+      tabSubmenu = null;
+    }
     const triggers = [];
     for (const menu of menus) {
       if (menu._trigger) triggers.push(menu._trigger);
@@ -2228,12 +2320,12 @@ export function createLayout({
     menu.append(separator);
   }
 
-  function addMenuItem(menu, label, handler, { disabled = false, heading = false } = {}) {
+  function addMenuItem(menu, label, handler, { disabled = false, heading = false, onActivate = null } = {}) {
     if (heading) {
       const head = el('div', 'panel-menu-heading', label);
       head.setAttribute('role', 'presentation');
       menu.append(head);
-      return;
+      return head;
     }
     const item = el('button', 'panel-menu-item', label);
     item.type = 'button';
@@ -2243,10 +2335,12 @@ export function createLayout({
     item.setAttribute('aria-disabled', disabled ? 'true' : 'false');
     item.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      if (onActivate) { onActivate(ev); return; }
       closeMenus({ restoreFocus: true });
       handler();
     });
     menu.append(item);
+    return item;
   }
 
   function menuKeydown(ev) {
@@ -2263,6 +2357,19 @@ export function createLayout({
       return;
     }
     const focused = document.activeElement;
+    if (focused && focused._openSubmenu
+      && ['Enter', ' ', 'Spacebar', 'ArrowRight'].includes(ev.key)) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      focused._openSubmenu();
+      return;
+    }
+    if (focused && focused._openSubmenu && ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeTabSubmenu({ returnFocus: true });
+      return;
+    }
     const current = items.indexOf(focused);
     if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(ev.key)) {
       ev.preventDefault();
@@ -2309,6 +2416,10 @@ export function createLayout({
 
   function repositionMenus() {
     for (const menu of menus) {
+      if (menu === tabSubmenu && menu._submenuParent) {
+        positionTabSubmenu(menu, menu._submenuParent);
+        continue;
+      }
       const anchor = menu._anchor;
       if (!anchor) continue;
       if (!anchor.point && (!anchor.button || !anchor.button.isConnected)) {

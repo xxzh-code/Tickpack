@@ -538,6 +538,24 @@ export function collapsedBridgePairs(root) {
 }
 
 /** Resize the nearest expanded siblings; the collapsed capsule keeps its size. */
+/** Place a menu to the side of an item, flipping left/up and clamping to the viewport. */
+export function clampSubmenuPosition(parentRect, width, height, { vw = 1200, vh = 800, margin = 8 } = {}) {
+  const r = parentRect || { left: margin, right: margin, top: margin, bottom: margin };
+  const w = Math.max(0, Number(width) || 0);
+  const h = Math.max(0, Number(height) || 0);
+  let left = r.right + 2;
+  let flipped = false;
+  if (left + w > vw - margin) {
+    left = r.left - w - 2;
+    flipped = true;
+  }
+  left = Math.max(margin, Math.min(Math.max(margin, vw - margin - w), left));
+  let top = r.top;
+  if (top + h > vh - margin) top = vh - margin - h;
+  top = Math.max(margin, Math.min(Math.max(margin, vh - margin - h), top));
+  return { left, top, flipped };
+}
+
 export function resizeCollapsedBridge(pair, leftSize) {
   if (!pair || !pair.left || !pair.right || !pair.parent) return { ok: false };
   if (pair.parent.manualLocked) return { ok: false };
