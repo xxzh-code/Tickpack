@@ -182,6 +182,11 @@ function parseQueryInt(q, key) {
   
   const world = createWorld(dom.canvas, { onCamera: updateViewReadout });
   world.setTheme(state.theme);
+  if (dom.canvas) {
+    const markWorldUsed = () => document.body.classList.add('view-used');
+    dom.canvas.addEventListener('pointerdown', markWorldUsed, { once: true });
+    dom.canvas.addEventListener('wheel', markWorldUsed, { once: true, passive: true });
+  }
   const editor = createEditor({
     textarea: dom.source,
     highlight: dom.highlight,

@@ -15,6 +15,10 @@
   --tree-row-h: 22px;
   --topbar-h: 56px;
   --tabbar-h: 34px;
+  --motion-fast: 90ms;
+  --motion-base: 140ms;
+  --motion-slow: 200ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 :root[data-theme="dark"] {
@@ -1545,6 +1549,63 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source .panel-bod
   .file-tree { flex-basis: 30%; min-height: 70px; }
   .tree-row { height: 20px; }
   .panel-menu { max-height: 320px; overflow: auto; }
+}
+
+/* --------------------------------------------------------------- motion --- */
+/* Only state changes move; no decorative loops. Reduced-motion disables this
+   whole block through the global baseline below. */
+body,
+.topbar,
+.tabs,
+.workspace,
+.panel,
+.panel-head,
+.pane-group {
+  transition: background-color var(--motion-base) var(--ease-out),
+    border-color var(--motion-base) var(--ease-out),
+    color var(--motion-base) var(--ease-out);
+}
+.btn,
+.icon-btn,
+.tab,
+.panel-menu-item,
+.tree-row,
+.seg,
+.theme-btn {
+  transition: background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+}
+.panel-menu {
+  animation: menu-in var(--motion-fast) var(--ease-out) both;
+  transform-origin: top left;
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-2px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+.action-toast:not([hidden]),
+.share-notice:not([hidden]) {
+  animation: toast-in var(--motion-base) var(--ease-out) both;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.pane-slot,
+.group-capsule {
+  animation: pane-settle var(--motion-base) var(--ease-out);
+}
+@keyframes pane-settle {
+  from { opacity: 0.86; }
+  to { opacity: 1; }
+}
+.view-hint {
+  transition: opacity var(--motion-slow) var(--ease-out);
+}
+body.view-used .view-hint {
+  opacity: 0;
 }
 
 /* Global reduced-motion baseline: no decorative motion anywhere. */
