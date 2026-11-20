@@ -183,6 +183,31 @@ test('normalizeTree merges same-direction groups and prunes empty/single-child g
   assert.deepEqual(allPanes(root2).map((p) => p.panel), ['source', 'world']);
 });
 
+test('normalizeTree preserves a flattened group weight across its children', () => {
+  const a = pane('source', 1);
+  const b = pane('world', 1);
+  const c = pane('pack', 2);
+  const inner = createGroup('H', [b, c], { weight: 6 });
+  const d = pane('scores', 1);
+  const root = createGroup('H', [a, inner, d]);
+  normalizeTree(root);
+  assert.deepEqual(root.children.map((n) => n.panel), ['source', 'world', 'pack', 'scores']);
+  // inner had weight 6, split 1:2 -> 2:4; total share is still 6.
+  assert.equal(root.children[1].weight, 2);
+  assert.equal(root.children[2].weight, 4);
+});
+
+test('normalizeTree preserves weight/size on a single-child group replacement', () => {
+  const only = pane('source', 2);
+  const group = createGroup('V', [only], { weight: 9, size: 444 });
+  const root = createGroup('H', [group, pane('world')]);
+  normalizeTree(root);
+  const source = root.children.find((n) => n.panel === 'source');
+  assert.ok(source);
+  assert.equal(source.weight, 9);
+  assert.equal(source.size, 444);
+});
+
 test('v3 migration keeps every panel and puts timeline inside the tree', () => {
   const v3 = {
     version: 3,

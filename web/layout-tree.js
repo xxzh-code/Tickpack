@@ -177,6 +177,21 @@ export function expandPane(pane) {
 }
 
 /** Flatten empty groups and same-direction ancestors; root stays a group. */
+function positiveWeight(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/** Preserve a flattened child group's own weight share on its children. */
+function mergeSameDirChildren(parent, child) {
+  const groupWeight = positiveWeight(child.weight);
+  const total = child.children.reduce((sum, item) => sum + positiveWeight(item.weight), 0);
+  for (const item of child.children) {
+    item.weight = (groupWeight * positiveWeight(item.weight)) / total;
+  }
+  return child.children;
+}
+
 function normalizeNode(node) {
   if (isPane(node)) return node;
   const children = [];
@@ -192,7 +207,7 @@ function normalizeNode(node) {
     const next = [];
     for (const child of node.children) {
       if (isGroup(child) && child.dir === node.dir && child.children.length && !child.keep) {
-        next.push(...child.children);
+        next.push(...mergeSameDirChildren(node, child));
         changed = true;
       } else {
         next.push(child);
@@ -201,7 +216,12 @@ function normalizeNode(node) {
     node.children = next;
   }
   if (!node.children.length) return null;
-  if (node.children.length === 1) return node.children[0];
+  if (node.children.length === 1) {
+    const only = node.children[0];
+    only.weight = positiveWeight(node.weight);
+    if (Number.isFinite(node.size)) only.size = node.size;
+    return only;
+  }
   return node;
 }
 
@@ -220,7 +240,7 @@ export function normalizeTree(root) {
     const next = [];
     for (const child of root.children) {
       if (isGroup(child) && child.dir === root.dir && child.children.length && !child.keep) {
-        next.push(...child.children);
+        next.push(...mergeSameDirChildren(root, child));
         changed = true;
       } else {
         next.push(child);
