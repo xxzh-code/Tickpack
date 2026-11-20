@@ -167,6 +167,18 @@ test('a single expanded pane is never squeezed below min (restricted group)', ()
   assert.equal(only.size, 232);
 });
 
+test('manualResize keeps all panes expanded instead of auto-collapsing', () => {
+  const source = pane('source');
+  const world = pane('world');
+  const root = createGroup('H', [source, world]);
+  root.manualLocked = true;
+  solveTab({ root }, 400, 400, { manualResize: true });
+  assert.equal(source.collapsed, false);
+  assert.equal(world.collapsed, false);
+  assert.equal(root.restricted, true);
+  assert.equal(root.manualLocked, false);
+});
+
 test('normalizeTree merges same-direction groups and prunes empty/single-child groups', () => {
   const a = pane('source');
   const b = pane('world');

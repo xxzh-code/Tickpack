@@ -466,8 +466,10 @@ test('resizeCollapsedBridge keeps the pair total and leaves the capsule fixed', 
   assert.equal(collapsed.children[0].size, 36);
   assert.equal(collapsed.children[1].size, 36);
   root.manualLocked = true;
-  assert.equal(resizeCollapsedBridge(pair, 450).ok, false);
-  assert.equal(left.size, 400);
+  const manual = resizeCollapsedBridge(pair, 450);
+  assert.equal(manual.ok, true);
+  assert.equal(left.size, 450);
+  assert.equal(right.size, 350);
 });
 
 test('layout undo stack is bounded and preserves labels', () => {

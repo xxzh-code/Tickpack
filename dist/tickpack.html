@@ -10746,7 +10746,6 @@ function detachPaneLoose(root, panel) {
 
  function resizeCollapsedBridge(pair, leftSize) {
   if (!pair || !pair.left || !pair.right || !pair.parent) return { ok: false };
-  if (pair.parent.manualLocked) return { ok: false };
   const left = pair.left;
   const right = pair.right;
   const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, pair.dir))
@@ -10964,6 +10963,19 @@ function layoutChildren(group, main, cross, ctx) {
     }
     const minSum = expanded.reduce((n, child) => n + nodeMin(child, dir), 0);
     const free = main - splitPx - fixedSum - minSum;
+    if (free < 0 && ctx.manualResize) {
+      
+      
+      group.restricted = true;
+      for (const child of group.children) {
+        const size = isExpandedNode(child)
+          ? Math.max(nodeMin(child, dir), Number(child.size) || nodeMin(child, dir))
+          : nodeMin(child, dir);
+        child.size = size;
+        solveNode(child, dir, size, cross, dir, ctx);
+      }
+      return;
+    }
     if (free >= 0 || expanded.length === 0) {
       
       
@@ -10972,6 +10984,7 @@ function layoutChildren(group, main, cross, ctx) {
       let preferredExtra = 0;
       for (const child of expanded) {
         if (!Number.isFinite(child.preferredSize)) continue;
+        if (ctx.manualResize) continue;
         const othersMin = expanded.reduce((n, other) => n + (other === child ? 0 : nodeMin(other, dir)), 0);
         const room = Math.max(nodeMin(child, dir), main - splitPx - fixedSum - othersMin);
         const target = Math.max(nodeMin(child, dir), Math.min(room, child.preferredSize));
@@ -11051,7 +11064,7 @@ function solveNode(node, parentAxis, extent, cross, parentDir, ctx) {
   layoutChildren(node, main, crossInternal, ctx);
 }
 
- function solveTab(tab, width, height, { mutate = true, keepExpanded = null } = {}) {
+ function solveTab(tab, width, height, { mutate = true, keepExpanded = null, manualResize = false } = {}) {
   if (!tab || !isGroup(tab.root)) return tab;
   const working = mutate ? tab : cloneTree(tab);
   resetRestricted(working.root);
@@ -11063,7 +11076,7 @@ function solveNode(node, parentAxis, extent, cross, parentDir, ctx) {
   }
   const expanded = panes.filter((p) => !p.collapsed);
   const keep = protectedPane || (expanded.length > 0 ? expanded[expanded.length - 1] : null);
-  const ctx = { keepExpanded: keep, autoCollapsed: [] };
+  const ctx = { keepExpanded: keep, autoCollapsed: [], manualResize };
   const w = Math.max(1, Number(width) || 1);
   const h = Math.max(1, Number(height) || 1);
   const axis = working.root.dir;
@@ -12484,7 +12497,6 @@ function collapseIcon(dir, index, count, collapsed) {
 
   function resetSplitterPair(group, index, dir, tab) {
     if (theaterLocked()) return false;
-    if (!group || group.manualLocked) return false;
     return withUndo('恢复 1:1', () => {
       const left = group.children[index - 1];
       const right = group.children[index];
@@ -12501,7 +12513,7 @@ function collapseIcon(dir, index, count, collapsed) {
       left.weight = Math.max(MIN_GROW, l - minL);
       right.weight = Math.max(MIN_GROW, r - minR);
       const { w, h } = workspaceBox();
-      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
       applyFrame();
       const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
       if (splitter) updateSplitterAria(splitter, left, right);
@@ -12513,7 +12525,6 @@ function collapseIcon(dir, index, count, collapsed) {
 
   function nudgeSplitter(group, index, dir, delta, tab) {
     if (theaterLocked()) return false;
-    if (!group || group.manualLocked) return false;
     return withUndo('调整分栏比例', () => {
       const left = group.children[index - 1];
       const right = group.children[index];
@@ -12530,7 +12541,7 @@ function collapseIcon(dir, index, count, collapsed) {
       left.weight = Math.max(MIN_GROW, l - minL);
       right.weight = Math.max(MIN_GROW, r - minR);
       const { w, h } = workspaceBox();
-      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
       applyFrame();
       const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
       if (splitter) updateSplitterAria(splitter, left, right);
@@ -12788,12 +12799,12 @@ function collapseIcon(dir, index, count, collapsed) {
 
   function adjustCollapsedBridge(pair, leftSize, { saveNow = false } = {}) {
     if (!pair || theaterLocked()) return false;
-    const result = resizeCollapsedBridge(pair, leftSize);
-    if (!result.ok) return false;
-    const tab = activeTab();
-    if (!tab) return false;
-    const { w, h } = workspaceBox();
-    solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      const result = resizeCollapsedBridge(pair, leftSize);
+      if (!result.ok) return false;
+      const tab = activeTab();
+      if (!tab) return false;
+      const { w, h } = workspaceBox();
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
     applyFrame();
     const bridge = collapsedBridges.find((item) => item.pair === pair);
     if (bridge) updateBridgeAria(bridge.el, pair);
@@ -12815,7 +12826,7 @@ function collapseIcon(dir, index, count, collapsed) {
   }
 
   function startCollapsedBridgeDrag(ev, pair, el) {
-    if (theaterLocked() || (pair.parent && pair.parent.manualLocked)) return;
+    if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
     ev.stopPropagation();
@@ -12903,7 +12914,6 @@ function collapseIcon(dir, index, count, collapsed) {
     clearCollapsedBridges();
     if (theaterLocked() || !tab) return;
     for (const pair of collapsedBridgePairs(tab.root)) {
-      if (pair.parent && pair.parent.manualLocked) continue;
       if (!bridgeRect(pair)) continue;
       const el = document.createElement('div');
       el.className = 'collapsed-bridge';
@@ -13749,7 +13759,6 @@ function collapseIcon(dir, index, count, collapsed) {
     if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
-    if (!group || group.manualLocked) return;
     const left = group.children[index - 1];
     const right = group.children[index];
     if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return;
@@ -13800,7 +13809,7 @@ function collapseIcon(dir, index, count, collapsed) {
       left.weight = Math.max(MIN_GROW, nextLeft - minLeft);
       right.weight = Math.max(MIN_GROW, nextRight - minRight);
       const { w, h } = workspaceBox();
-      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
       announceRestricted(tab);
       applyFrame();
       setBadge();

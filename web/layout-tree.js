@@ -558,7 +558,6 @@ export function clampSubmenuPosition(parentRect, width, height, { vw = 1200, vh 
 
 export function resizeCollapsedBridge(pair, leftSize) {
   if (!pair || !pair.left || !pair.right || !pair.parent) return { ok: false };
-  if (pair.parent.manualLocked) return { ok: false };
   const left = pair.left;
   const right = pair.right;
   const total = (Number.isFinite(left.size) ? left.size : nodeMin(left, pair.dir))
@@ -779,6 +778,19 @@ function layoutChildren(group, main, cross, ctx) {
     }
     const minSum = expanded.reduce((n, child) => n + nodeMin(child, dir), 0);
     const free = main - splitPx - fixedSum - minSum;
+    if (free < 0 && ctx.manualResize) {
+      // Explicit resize must never trigger auto-collapse; keep the user's
+      // sizes (clamped to each pane's minimum) and expose the restriction.
+      group.restricted = true;
+      for (const child of group.children) {
+        const size = isExpandedNode(child)
+          ? Math.max(nodeMin(child, dir), Number(child.size) || nodeMin(child, dir))
+          : nodeMin(child, dir);
+        child.size = size;
+        solveNode(child, dir, size, cross, dir, ctx);
+      }
+      return;
+    }
     if (free >= 0 || expanded.length === 0) {
       // A pane explicitly expanded from a collapsed state asks for its recorded
       // size. Honour it (clamped by the other panes' minima), then distribute
@@ -787,6 +799,7 @@ function layoutChildren(group, main, cross, ctx) {
       let preferredExtra = 0;
       for (const child of expanded) {
         if (!Number.isFinite(child.preferredSize)) continue;
+        if (ctx.manualResize) continue;
         const othersMin = expanded.reduce((n, other) => n + (other === child ? 0 : nodeMin(other, dir)), 0);
         const room = Math.max(nodeMin(child, dir), main - splitPx - fixedSum - othersMin);
         const target = Math.max(nodeMin(child, dir), Math.min(room, child.preferredSize));
@@ -866,7 +879,7 @@ function solveNode(node, parentAxis, extent, cross, parentDir, ctx) {
   layoutChildren(node, main, crossInternal, ctx);
 }
 
-export function solveTab(tab, width, height, { mutate = true, keepExpanded = null } = {}) {
+export function solveTab(tab, width, height, { mutate = true, keepExpanded = null, manualResize = false } = {}) {
   if (!tab || !isGroup(tab.root)) return tab;
   const working = mutate ? tab : cloneTree(tab);
   resetRestricted(working.root);
@@ -878,7 +891,7 @@ export function solveTab(tab, width, height, { mutate = true, keepExpanded = nul
   }
   const expanded = panes.filter((p) => !p.collapsed);
   const keep = protectedPane || (expanded.length > 0 ? expanded[expanded.length - 1] : null);
-  const ctx = { keepExpanded: keep, autoCollapsed: [] };
+  const ctx = { keepExpanded: keep, autoCollapsed: [], manualResize };
   const w = Math.max(1, Number(width) || 1);
   const h = Math.max(1, Number(height) || 1);
   const axis = working.root.dir;

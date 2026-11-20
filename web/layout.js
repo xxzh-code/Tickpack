@@ -1219,7 +1219,6 @@ export function createLayout({
 
   function resetSplitterPair(group, index, dir, tab) {
     if (theaterLocked()) return false;
-    if (!group || group.manualLocked) return false;
     return withUndo('恢复 1:1', () => {
       const left = group.children[index - 1];
       const right = group.children[index];
@@ -1236,7 +1235,7 @@ export function createLayout({
       left.weight = Math.max(MIN_GROW, l - minL);
       right.weight = Math.max(MIN_GROW, r - minR);
       const { w, h } = workspaceBox();
-      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
       applyFrame();
       const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
       if (splitter) updateSplitterAria(splitter, left, right);
@@ -1248,7 +1247,6 @@ export function createLayout({
 
   function nudgeSplitter(group, index, dir, delta, tab) {
     if (theaterLocked()) return false;
-    if (!group || group.manualLocked) return false;
     return withUndo('调整分栏比例', () => {
       const left = group.children[index - 1];
       const right = group.children[index];
@@ -1265,7 +1263,7 @@ export function createLayout({
       left.weight = Math.max(MIN_GROW, l - minL);
       right.weight = Math.max(MIN_GROW, r - minR);
       const { w, h } = workspaceBox();
-      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
       applyFrame();
       const splitter = [...document.querySelectorAll('.split')].find((el) => el._splitGroup === group && el._splitIndex === index);
       if (splitter) updateSplitterAria(splitter, left, right);
@@ -1523,12 +1521,12 @@ export function createLayout({
 
   function adjustCollapsedBridge(pair, leftSize, { saveNow = false } = {}) {
     if (!pair || theaterLocked()) return false;
-    const result = resizeCollapsedBridge(pair, leftSize);
-    if (!result.ok) return false;
-    const tab = activeTab();
-    if (!tab) return false;
-    const { w, h } = workspaceBox();
-    solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      const result = resizeCollapsedBridge(pair, leftSize);
+      if (!result.ok) return false;
+      const tab = activeTab();
+      if (!tab) return false;
+      const { w, h } = workspaceBox();
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
     applyFrame();
     const bridge = collapsedBridges.find((item) => item.pair === pair);
     if (bridge) updateBridgeAria(bridge.el, pair);
@@ -1550,7 +1548,7 @@ export function createLayout({
   }
 
   function startCollapsedBridgeDrag(ev, pair, el) {
-    if (theaterLocked() || (pair.parent && pair.parent.manualLocked)) return;
+    if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
     ev.stopPropagation();
@@ -1638,7 +1636,6 @@ export function createLayout({
     clearCollapsedBridges();
     if (theaterLocked() || !tab) return;
     for (const pair of collapsedBridgePairs(tab.root)) {
-      if (pair.parent && pair.parent.manualLocked) continue;
       if (!bridgeRect(pair)) continue;
       const el = document.createElement('div');
       el.className = 'collapsed-bridge';
@@ -2484,7 +2481,6 @@ export function createLayout({
     if (theaterLocked()) return;
     if (ev.button != null && ev.button !== 0) return;
     ev.preventDefault();
-    if (!group || group.manualLocked) return;
     const left = group.children[index - 1];
     const right = group.children[index];
     if (!left || !right || !isExpandedNode(left) || !isExpandedNode(right)) return;
@@ -2535,7 +2531,7 @@ export function createLayout({
       left.weight = Math.max(MIN_GROW, nextLeft - minLeft);
       right.weight = Math.max(MIN_GROW, nextRight - minRight);
       const { w, h } = workspaceBox();
-      solveTab(tab, w, h, { keepExpanded: protectedPanel });
+      solveTab(tab, w, h, { keepExpanded: protectedPanel, manualResize: true });
       announceRestricted(tab);
       applyFrame();
       setBadge();

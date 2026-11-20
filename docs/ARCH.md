@@ -95,7 +95,7 @@ export function createWebHost() {
   `test/session.test.js`（核心会话：tick/快照/seek/完成规则/导出包）、
   `test/zip.test.js`、`test/purity.test.js`。
 - 外壳（网页）用截图 + 手工玩验证；不把 DOM 细节写进核心测试。
-- 当前：**243 个测试全绿**（`npm test`）。
+- 当前：**244 个测试全绿**（`npm test`）。
 
 ## 现在需要重写吗？
 
