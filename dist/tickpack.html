@@ -1338,18 +1338,7 @@ html[data-view="theater"] .panel-world {
 html[data-view="theater"] .panel-world .panel-head { display: none; }
 html[data-view="theater"] .panel-world.collapsed { height: 100% !important; }
 html[data-view="theater"] .panel-world.collapsed .panel-body { display: flex; }
-html[data-view="theater"] .panel-source { display: none; }
-html[data-view="theater"] .panel-source .panel-actions [data-action] { display: none !important; }
-html[data-view="theater"].theater-no-world .pane-col { flex: 1 1 auto !important; }
-/* a maximized panel saved in the layout must not steal the theater view */
-html[data-view="theater"] .pane-root[data-maximized] .pane-main { display: flex !important; }
-html[data-view="theater"] .pane-root[data-maximized] .pane-main > .pane-col { display: flex !important; }
-html[data-view="theater"] .pane-root[data-maximized] .pane-slot[data-panel-id="world"],
-html[data-view="theater"] .pane-root[data-maximized] .pane-slot[data-panel-id="source"] { display: flex !important; }
-
-/* bottom source drawer (same panel node, fixed over the theater world) */
-html[data-view="theater"] body[data-source-open="true"] .panel-source,
-html[data-view="theater"] body[data-source-open="true"] .panel-source.collapsed {
+html[data-view="theater"] .panel-source {
   display: flex;
   position: fixed;
   left: 0;
@@ -1362,6 +1351,31 @@ html[data-view="theater"] body[data-source-open="true"] .panel-source.collapsed 
   border-bottom: 0;
   border-radius: 12px 12px 0 0;
   box-shadow: var(--shadow);
+  transform: translateY(calc(100% + 24px));
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform var(--motion-slow) var(--ease-out),
+    opacity var(--motion-slow) var(--ease-out),
+    visibility 0s linear var(--motion-slow);
+}
+html[data-view="theater"] .panel-source .panel-actions [data-action] { display: none !important; }
+html[data-view="theater"].theater-no-world .pane-col { flex: 1 1 auto !important; }
+/* a maximized panel saved in the layout must not steal the theater view */
+html[data-view="theater"] .pane-root[data-maximized] .pane-main { display: flex !important; }
+html[data-view="theater"] .pane-root[data-maximized] .pane-main > .pane-col { display: flex !important; }
+html[data-view="theater"] .pane-root[data-maximized] .pane-slot[data-panel-id="world"],
+html[data-view="theater"] .pane-root[data-maximized] .pane-slot[data-panel-id="source"] { display: flex !important; }
+
+/* bottom source drawer (same panel node, fixed over the theater world) */
+html[data-view="theater"] body[data-source-open="true"] .panel-source {
+  transform: none;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: transform var(--motion-slow) var(--ease-out),
+    opacity var(--motion-slow) var(--ease-out),
+    visibility 0s;
 }
 html[data-view="theater"] body[data-source-open="true"] .panel-source.collapsed .panel-body { display: flex; }
 
@@ -1625,6 +1639,7 @@ body.view-used .view-hint {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }
