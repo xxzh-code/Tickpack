@@ -497,6 +497,13 @@
         </div>
       </header>
       <div class="panel-body log-body">
+        <div class="log-filters" id="log-filters" role="group" aria-label="日志过滤">
+          <button type="button" class="log-filter" data-log-filter="all" aria-pressed="true">全部</button>
+          <button type="button" class="log-filter" data-log-filter="error" aria-pressed="false">错误</button>
+          <button type="button" class="log-filter" data-log-filter="blocks" aria-pressed="false">方块</button>
+          <button type="button" class="log-filter" data-log-filter="function" aria-pressed="false">函数</button>
+          <button type="button" class="log-filter" data-log-filter="input" aria-pressed="false">输入</button>
+        </div>
         <div class="console-lines" id="console-lines">
           <div class="log-empty">按「运行」开始 —— 每个 tick 输出一行</div>
         </div>

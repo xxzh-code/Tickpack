@@ -1189,6 +1189,32 @@ body.drag-valid .pane-drag-ghost { border-color: var(--accent); }
 
 /* ------------------------------------------------------------ run log --- */
 .log-body { padding: 0; }
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 5px 8px 4px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.log-filter {
+  height: 20px;
+  padding: 0 7px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  font-size: 10px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.log-filter:hover { color: var(--text); background: var(--hover); }
+.log-filter[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.log-filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .console-lines {
   flex: 1 1 auto; min-height: 0; overflow: auto;
   padding: 4px 0 8px;
@@ -1197,6 +1223,7 @@ body.drag-valid .pane-drag-ghost { border-color: var(--accent); }
   background: var(--code-bg);
 }
 .log-line { display: flex; align-items: baseline; gap: 6px; padding: 0 10px; overflow: hidden; white-space: nowrap; }
+.log-line[hidden] { display: none; }
 .log-line:hover { background: var(--hover); }
 .log-line[data-tick] { cursor: pointer; }
 .log-line[data-tick]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--hover); }

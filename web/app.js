@@ -87,6 +87,7 @@ function parseQueryInt(q, key) {
     copy: byId('btn-copy'),
     zip: byId('btn-zip'),
     consoleLines: byId('console-lines'),
+  logFilters: byId('log-filters'),
     consoleMeta: byId('console-meta'),
     logFollow: byId('btn-log-follow'),
     sampleDesc: byId('sample-desc'),
@@ -143,6 +144,7 @@ function parseQueryInt(q, key) {
     titleSampleId: null,
     logCount: 0,
     logFollow: true,
+  logFilter: 'all',
     themeAuto: false,
     theme: 'dark',
     sound: true,
@@ -419,6 +421,7 @@ function parseQueryInt(q, key) {
     state.source = source;
     state.compiledSource = '';
     state.playing = false;
+    setLogFilter('all');
     state.lastSay = '';
     state.scoreRows = [];
     state.dirty = true;
@@ -898,11 +901,60 @@ function parseQueryInt(q, key) {
     setLogFollow(true, { scroll: true });
   }
 
-  function consoleLine(html, cls = '', tick = null) {
+  function logRowMatches(row, filter) {
+    if (filter === 'all') return true;
+    return (row.dataset.kinds || '').split(/\s+/).includes(filter);
+  }
+
+  function applyLogFilter() {
+    if (!dom.consoleLines) return;
+    const rows = [...dom.consoleLines.querySelectorAll('.log-line')];
+    let visible = 0;
+    for (const row of rows) {
+      const match = logRowMatches(row, state.logFilter);
+      row.hidden = !match;
+      if (match) visible += 1;
+    }
+    let empty = dom.consoleLines.querySelector('.log-filter-empty');
+    if (state.logFilter !== 'all' && rows.length && !visible) {
+      if (!empty) {
+        empty = document.createElement('div');
+        empty.className = 'log-empty log-filter-empty';
+        empty.textContent = '没有匹配的日志';
+        dom.consoleLines.append(empty);
+      }
+    } else if (empty) {
+      empty.remove();
+    }
+  }
+
+  function setLogFilter(filter) {
+    state.logFilter = ['all', 'error', 'blocks', 'function', 'input'].includes(filter) ? filter : 'all';
+    if (dom.logFilters) {
+      for (const button of dom.logFilters.querySelectorAll('[data-log-filter]')) {
+        button.setAttribute('aria-pressed', button.dataset.logFilter === state.logFilter ? 'true' : 'false');
+      }
+    }
+    applyLogFilter();
+  }
+
+  if (dom.logFilters) {
+    dom.logFilters.addEventListener('click', (ev) => {
+      const button = ev.target.closest && ev.target.closest('[data-log-filter]');
+      if (!button) return;
+      setLogFilter(button.dataset.logFilter);
+    });
+  }
+
+  function consoleLine(html, cls = '', tick = null, kinds = '') {
     if (!dom.consoleLines) return;
     if (state.logCount === 0) dom.consoleLines.innerHTML = '';
     const row = document.createElement('div');
     row.className = 'log-line' + (cls ? ` ${cls}` : '');
+    const kindList = kinds ? kinds.split(/\s+/).filter(Boolean) : [];
+    if (cls.includes('log-error') && !kindList.includes('error')) kindList.push('error');
+    row.dataset.kinds = kindList.join(' ');
+    row.hidden = !logRowMatches(row, state.logFilter);
     row.innerHTML = html;
     if (Number.isInteger(tick) && tick >= 0) {
       row.dataset.tick = String(tick);
@@ -916,6 +968,7 @@ function parseQueryInt(q, key) {
       dom.consoleLines.removeChild(dom.consoleLines.firstChild);
       state.logCount -= 1;
     }
+    applyLogFilter();
     if (state.logFollow) dom.consoleLines.scrollTop = dom.consoleLines.scrollHeight;
   }
 
@@ -989,6 +1042,10 @@ function parseQueryInt(q, key) {
     const particles = events.filter((e) => e && e.type === 'particle').length;
     const sounds = events.filter((e) => e && e.type === 'sound').length;
     const adds = changes ? changes.length : 0;
+    const summaryKinds = [];
+    if (adds) summaryKinds.push('blocks');
+    if (tags.includes('函数')) summaryKinds.push('function');
+    if (tags.includes('输入')) summaryKinds.push('input');
     const bits = [
       `<span class="log-t">t${tNo}</span>`,
       `<span class="log-cmd">${cmds.length} 条指令</span>`,
@@ -997,7 +1054,7 @@ function parseQueryInt(q, key) {
     if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
     if (particles) bits.push(`<span class="log-fx">${icon('sparkle', 'log-fx-icon')}${particles}</span>`);
     if (sounds) bits.push(`<span class="log-fx" title="声音 ${sounds}">${icon('volume-2', 'log-fx-icon')}${sounds}</span>`);
-    consoleLine(bits.join(' '), 'log-summary', tNo);
+    consoleLine(bits.join(' '), 'log-summary', tNo, summaryKinds.join(' '));
 
     for (const ev of events) {
       if (!ev) continue;
@@ -1006,7 +1063,7 @@ function parseQueryInt(q, key) {
         if (isOnboardingSay(ev.file)) continue;
         consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-say">say “${esc(ev.text)}”</span>`, 'log-say-line', tNo);
       } else if (ev.type === 'error') {
-        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">错误 · ${esc(ev.message)}</span>`, 'log-error', tNo);
+        consoleLine(`<span class="log-t">t${tNo}</span> <span class="log-err">错误 · ${esc(ev.message)}</span>`, 'log-error', tNo, 'error');
       }
     }
     if (dom.consoleMeta) dom.consoleMeta.textContent = `t ${tNo}`;
