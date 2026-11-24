@@ -417,6 +417,7 @@ function parseQueryInt(q, key) {
    
   function clearRunForCompileError(source, errorHtml) {
     state.source = source;
+    state.compiledSource = '';
     state.playing = false;
     state.lastSay = '';
     state.scoreRows = [];
@@ -1329,14 +1330,12 @@ function parseQueryInt(q, key) {
       
       if (isTheater && q.has('src')) {
         const msg = '这是旧版本分享链接（没有版本号），行为可能不同';
-        showToast(msg, 'error');
         showShareNotice(msg);
       }
       return;
     }
     if (SHARE_V !== SHARE_VERSION) {
       const msg = `此链接来自旧版本，行为可能不同（v${SHARE_V}）`;
-      showToast(msg, 'error');
       showShareNotice(msg);
     }
   }
