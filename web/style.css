@@ -1227,7 +1227,7 @@ body.drag-valid .pane-drag-ghost { border-color: var(--accent); }
 .log-line:hover { background: var(--hover); }
 .log-line[data-tick] { cursor: pointer; }
 .log-line[data-tick]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--hover); }
-.log-t { flex: 0 0 40px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.log-t { flex: 0 0 48px; color: var(--accent); font-variant-numeric: tabular-nums; }
 .log-cmd { flex: 0 0 52px; color: var(--muted); }
 .log-tags { color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
 .log-add { color: var(--ok); }

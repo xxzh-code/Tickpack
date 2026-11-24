@@ -135,12 +135,19 @@ export function createTimeline({ canvas, labelEl, onSeek }) {
     // ---- activity band: one column per tick, height = blocks placed that tick
     const markW = clamp(pxPerTick * 0.55, 2.2, 7);
     const maxBar = Math.max(8, baseY - topY - 6);
+    let maxCount = 1;
+    for (const [t, mark] of marks) {
+      if (t > total) continue;
+      const count = mark.count || (mark.colors ? mark.colors.length : 0);
+      if (count > maxCount) maxCount = count;
+    }
     for (const [t, mark] of marks) {
       if (t > total) continue;
       const x = xOf(t);
       const colors = mark.colors;
       const count = mark.count || colors.length;
-      const barH = clamp(4 + count * 2.3, 5, maxBar);
+      // Normalize to the busiest visible column so sparse logs still use the band.
+      const barH = clamp(4 + (count / maxCount) * (maxBar - 4), 5, maxBar);
       const c0 = colors[0] || palette.playhead;
       const markBase = themeName === 'light' ? shade(c0, -0.18) : c0;
       ctx.fillStyle = withAlpha(markBase, 0.92);

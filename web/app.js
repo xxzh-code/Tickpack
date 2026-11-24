@@ -145,6 +145,7 @@ function parseQueryInt(q, key) {
     logCount: 0,
     logFollow: true,
   logFilter: 'all',
+  lastSummary: null,
     themeAuto: false,
     theme: 'dark',
     sound: true,
@@ -898,6 +899,7 @@ function parseQueryInt(q, key) {
     dom.consoleLines.innerHTML = `<div class="log-empty">${esc(hint)}</div>`;
     if (dom.consoleMeta) dom.consoleMeta.textContent = '空闲';
     state.logCount = 0;
+    state.lastSummary = null;
     setLogFollow(true, { scroll: true });
   }
 
@@ -956,6 +958,7 @@ function parseQueryInt(q, key) {
     row.dataset.kinds = kindList.join(' ');
     row.hidden = !logRowMatches(row, state.logFilter);
     row.innerHTML = html;
+    if (cls !== 'log-summary') state.lastSummary = null;
     if (Number.isInteger(tick) && tick >= 0) {
       row.dataset.tick = String(tick);
       row.tabIndex = 0;
@@ -970,6 +973,42 @@ function parseQueryInt(q, key) {
     }
     applyLogFilter();
     if (state.logFollow) dom.consoleLines.scrollTop = dom.consoleLines.scrollHeight;
+  }
+
+  function summaryHtml(start, end, cmds, tags, adds, particles, sounds) {
+    const label = start === end ? `t${start}` : `t${start}–${end}`;
+    const bits = [
+      `<span class="log-t">${label}</span>`,
+      `<span class="log-cmd">${cmds} 条指令</span>`,
+      `<span class="log-tags">${tags.join(' + ') || '空闲'}</span>`,
+    ];
+    if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
+    if (particles) bits.push(`<span class="log-fx">${icon('sparkle', 'log-fx-icon')}${particles}</span>`);
+    if (sounds) bits.push(`<span class="log-fx" title="声音 ${sounds}">${icon('volume-2', 'log-fx-icon')}${sounds}</span>`);
+    return bits.join(' ');
+  }
+
+  function appendLogSummary({ start, end, key, cmds, tags, adds, particles, sounds, kinds }) {
+    if (!dom.consoleLines) return;
+    const last = state.lastSummary;
+    const canMerge = last && last.key === key && last.end + 1 === start
+      && last.row && last.row === dom.consoleLines.lastElementChild;
+    if (canMerge) {
+      last.end = end;
+      last.row.innerHTML = summaryHtml(last.start, end, cmds, tags, adds, particles, sounds);
+      last.row.dataset.tick = String(end);
+      last.row.setAttribute('aria-label', `跳到 tick ${end}`);
+      last.row.title = `连续 ${end - last.start + 1} 个 tick 的相同摘要`;
+      applyLogFilter();
+      if (state.logFollow) dom.consoleLines.scrollTop = dom.consoleLines.scrollHeight;
+      return;
+    }
+    consoleLine(summaryHtml(start, end, cmds, tags, adds, particles, sounds), 'log-summary', end, kinds);
+    const row = dom.consoleLines.lastElementChild;
+    if (row && row.classList.contains('log-summary')) {
+      row.title = end === start ? `跳到 tick ${end}` : `连续 ${end - start + 1} 个 tick 的相同摘要`;
+      state.lastSummary = { start, end, key, row };
+    }
   }
 
   function setLogFollow(on, { scroll = false } = {}) {
@@ -1046,15 +1085,18 @@ function parseQueryInt(q, key) {
     if (adds) summaryKinds.push('blocks');
     if (tags.includes('函数')) summaryKinds.push('function');
     if (tags.includes('输入')) summaryKinds.push('input');
-    const bits = [
-      `<span class="log-t">t${tNo}</span>`,
-      `<span class="log-cmd">${cmds.length} 条指令</span>`,
-      `<span class="log-tags">${tags.join(' + ') || '空闲'}</span>`,
-    ];
-    if (adds) bits.push(`<span class="log-add">+${adds} 方块</span>`);
-    if (particles) bits.push(`<span class="log-fx">${icon('sparkle', 'log-fx-icon')}${particles}</span>`);
-    if (sounds) bits.push(`<span class="log-fx" title="声音 ${sounds}">${icon('volume-2', 'log-fx-icon')}${sounds}</span>`);
-    consoleLine(bits.join(' '), 'log-summary', tNo, summaryKinds.join(' '));
+    const summaryKey = [cmds.length, tags.join('+'), adds, particles, sounds].join('|');
+    appendLogSummary({
+      start: tNo,
+      end: tNo,
+      key: summaryKey,
+      cmds: cmds.length,
+      tags,
+      adds,
+      particles,
+      sounds,
+      kinds: summaryKinds.join(' '),
+    });
 
     for (const ev of events) {
       if (!ev) continue;
