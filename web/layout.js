@@ -1894,6 +1894,18 @@ export function createLayout({
       });
       tabsEl.append(node);
     }
+    const addTab = el('button', 'tab-add');
+    addTab.type = 'button';
+    addTab.dataset.focusKey = 'tab-add';
+    addTab.title = '新建标签页';
+    addTab.setAttribute('aria-label', '新建标签页');
+    addTab.innerHTML = icon('plus');
+    addTab.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (theaterLocked()) return;
+      createTab({ activate: true });
+    });
+    tabsEl.append(addTab);
     scheduleTabTruncationTitles();
   }
 

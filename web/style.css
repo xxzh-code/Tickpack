@@ -381,6 +381,25 @@ select#sample-select:focus-visible { border-color: var(--accent); outline: 2px s
   border-color: var(--line);
   font-weight: 600;
 }
+.tab-add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 28px;
+  margin-left: 2px;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  cursor: pointer;
+}
+.tab-add:hover { color: var(--text); background: var(--hover); }
+.tab-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tab-add .icon { width: 14px; height: 14px; }
 .tab.tab-dragging { opacity: 0.4; }
 .tab { position: relative; }
 .tab.tab-drop-before::before,
